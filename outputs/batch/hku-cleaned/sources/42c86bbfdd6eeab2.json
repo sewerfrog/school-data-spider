@@ -1,0 +1,11 @@
+{
+  "source_url": "https://admissions.hku.hk/zh-hans/apply/mainland",
+  "source_type": "html",
+  "title": "内地高考 | Admissions Office, the Registry",
+  "retrieved_at": "2026-06-08T07:50:41.276502+00:00",
+  "academic_year": null,
+  "page_number": null,
+  "content_hash": "42c86bbfdd6eeab20361b5ab322f60e78450eac78e78c6ec14693ed29df7f0b3",
+  "engine": "playwright-browser",
+  "is_official": true
+}

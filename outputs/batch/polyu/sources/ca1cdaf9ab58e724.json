@@ -1,0 +1,11 @@
+{
+  "source_url": "https://www.polyu.edu.hk/search-results/?q=Scholarships",
+  "source_type": "html",
+  "title": "Search Results | The Hong Kong Polytechnic University",
+  "retrieved_at": "2026-06-04T08:49:22.424865+00:00",
+  "academic_year": null,
+  "page_number": null,
+  "content_hash": "ca1cdaf9ab58e724a8e179308b4d85982e82b63f19ece11c65df677329ac6d7a",
+  "engine": "playwright-browser",
+  "is_official": true
+}

@@ -1,0 +1,11 @@
+{
+  "source_url": "https://admissions.hku.hk/programmes/undergraduate-programmes",
+  "source_type": "html",
+  "title": "Undergraduate Courses | Admissions Office, the Registry",
+  "retrieved_at": "2026-06-08T02:53:13.926341+00:00",
+  "academic_year": null,
+  "page_number": null,
+  "content_hash": "16bd97acdde6cd7daaa867eab511ba0269ab403eae34c6cf2b8e2d557ed35655",
+  "engine": "playwright-browser",
+  "is_official": true
+}

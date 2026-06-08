@@ -1,0 +1,11 @@
+{
+  "source_url": "https://www.ntu.edu.sg/hass/admissions/programmes",
+  "source_type": "html",
+  "title": "Undergraduate Programmes | College of Humanities, Arts and Social Sciences | NTU Singapore",
+  "retrieved_at": "2026-06-04T08:45:57.620507+00:00",
+  "academic_year": null,
+  "page_number": null,
+  "content_hash": "13c558b3473942a2bbfa452da901e839d34c726428d275efef8e2d8cf30a5b89",
+  "engine": "playwright-browser",
+  "is_official": true
+}

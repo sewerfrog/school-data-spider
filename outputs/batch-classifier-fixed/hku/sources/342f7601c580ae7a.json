@@ -1,0 +1,11 @@
+{
+  "source_url": "https://admissions.hku.hk/apply/hong-kong-sub-degrees",
+  "source_type": "html",
+  "title": "HONG KONG SUB-DEGREES | Admissions Office, the Registry",
+  "retrieved_at": "2026-06-08T02:53:12.091434+00:00",
+  "academic_year": "2026/2027",
+  "page_number": null,
+  "content_hash": "342f7601c580ae7a88232560c90c7a4fa39769019dd2ce996ec25d87faa538ec",
+  "engine": "playwright-browser",
+  "is_official": true
+}

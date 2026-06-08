@@ -1,0 +1,11 @@
+{
+  "source_url": "https://admissions.hku.hk/",
+  "source_type": "html",
+  "title": "Home | Admissions Office, the Registry",
+  "retrieved_at": "2026-06-08T02:52:47.437278+00:00",
+  "academic_year": null,
+  "page_number": null,
+  "content_hash": "44803939a14bcbec35c7f77245caa2fe70806b88106e48427476889029884dbb",
+  "engine": "playwright-browser",
+  "is_official": true
+}

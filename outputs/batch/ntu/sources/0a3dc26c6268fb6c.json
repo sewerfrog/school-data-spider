@@ -1,0 +1,11 @@
+{
+  "source_url": "https://www.ntu.edu.sg/education/degree-programmes",
+  "source_type": "html",
+  "title": "Degree Programmes | NTU Singapore | NTU Singapore",
+  "retrieved_at": "2026-06-04T03:25:24.040947+00:00",
+  "academic_year": null,
+  "page_number": null,
+  "content_hash": "0a3dc26c6268fb6c97ce4299ba44e0d5a4085c100be77d80ad288f91fe234951",
+  "engine": "playwright-browser",
+  "is_official": true
+}

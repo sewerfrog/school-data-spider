@@ -1,0 +1,11 @@
+{
+  "source_url": "https://admissions.hku.hk/zh-hant",
+  "source_type": "html",
+  "title": "Home | Admissions Office, the Registry",
+  "retrieved_at": "2026-06-08T02:54:13.941992+00:00",
+  "academic_year": null,
+  "page_number": null,
+  "content_hash": "680eb5334f1b241e9f1653ea72ac020a6cf279578c01c2c9b28015afd6e21036",
+  "engine": "playwright-browser",
+  "is_official": true
+}

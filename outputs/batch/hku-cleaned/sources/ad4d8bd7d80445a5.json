@@ -1,0 +1,11 @@
+{
+  "source_url": "https://admissions.hku.hk/faqs",
+  "source_type": "html",
+  "title": "Frequently Asked Questions | Admissions Office, the Registry",
+  "retrieved_at": "2026-06-08T07:50:59.778967+00:00",
+  "academic_year": null,
+  "page_number": null,
+  "content_hash": "ad4d8bd7d80445a572faf34e63626a79369edafbc4017fcc0129b78c9a2925b9",
+  "engine": "playwright-browser",
+  "is_official": true
+}

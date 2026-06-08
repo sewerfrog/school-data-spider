@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "university-admissions-crawler"
+version = "0.1.0"
+description = "Evidence-first MVP crawler/extractor for university undergraduate admissions information."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "school-data-spider maintainers" }]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+browser = ["playwright>=1.45"]
+pdf = ["pypdf>=5"]
+llm = []
+scrapegraph = []
+
+[project.scripts]
+university-admissions-crawler = "university_admissions_crawler.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

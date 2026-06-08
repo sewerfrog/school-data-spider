@@ -1,0 +1,148 @@
+{
+  "institution": {
+    "name": {
+      "value": "Hong Kong University",
+      "evidence": [],
+      "confidence": "low",
+      "status": "unknown",
+      "warnings": []
+    },
+    "homepage_url": "https://admissions.hku.hk/",
+    "country_or_region": {
+      "value": "unknown",
+      "evidence": [],
+      "confidence": "low",
+      "status": "unknown",
+      "warnings": []
+    }
+  },
+  "run": {
+    "input_url": "https://admissions.hku.hk/",
+    "retrieved_at": "2026-06-08T02:25:52.630698+00:00",
+    "crawler_version": null,
+    "config": {
+      "max_pages": 40,
+      "max_depth": 5,
+      "allowed_hosts": [],
+      "allowed_domains": [
+        "hku.hk"
+      ],
+      "diff": {
+        "baseline": "none",
+        "changed_sources": [],
+        "changed_fields": []
+      },
+      "coverage": {
+        "core_fields_total": 9,
+        "found_count": 0,
+        "missing_count": 9,
+        "found": [],
+        "missing": [
+          "undergraduate_application_entry",
+          "application_periods",
+          "english_requirements",
+          "accepted_qualifications",
+          "required_documents",
+          "programmes",
+          "fees",
+          "scholarships",
+          "contacts"
+        ],
+        "coverage_ratio": 0.0,
+        "note": "Coverage reports whether core fields were found; overall confidence reports evidence/conflict quality for extracted claims."
+      },
+      "source_strategy_summary": {},
+      "university_id": "hku",
+      "seed_urls": [
+        "https://admissions.hku.hk/"
+      ]
+    }
+  },
+  "sources": [],
+  "admissions": {
+    "undergraduate_application_entry": {
+      "value": "unknown",
+      "evidence": [],
+      "confidence": "low",
+      "status": "unknown",
+      "warnings": []
+    },
+    "international_requirements": [],
+    "accepted_qualifications": [],
+    "application_periods": [],
+    "required_documents": [
+      {
+        "label": "required documents",
+        "value": {
+          "value": "needs_manual_check",
+          "evidence": [],
+          "confidence": "low",
+          "status": "needs_manual_check",
+          "warnings": [
+            {
+              "code": "needs_manual_check",
+              "message": "Required documents were not found in the offline fixture.",
+              "field": "/admissions/required_documents/0/value",
+              "source_urls": []
+            }
+          ]
+        },
+        "applicant_group": {
+          "value": "unknown",
+          "evidence": [],
+          "confidence": "low",
+          "status": "unknown",
+          "warnings": []
+        },
+        "qualification": {
+          "value": "unknown",
+          "evidence": [],
+          "confidence": "low",
+          "status": "unknown",
+          "warnings": []
+        },
+        "requires_applicant_group": false
+      }
+    ],
+    "english_requirements": [],
+    "standardized_tests": [],
+    "selection_tests_or_interviews": []
+  },
+  "programmes": [],
+  "fees": [],
+  "scholarships": [],
+  "visa": [],
+  "housing": [],
+  "contacts": [],
+  "discovered_categories": [],
+  "evidence": [],
+  "confidence": "low",
+  "warnings": [
+    {
+      "code": "optional_dependency_missing",
+      "message": "Playwright browser support is optional and not available: ModuleNotFoundError: No module named 'playwright'",
+      "field": "https://admissions.hku.hk/",
+      "source_urls": [
+        "https://admissions.hku.hk/"
+      ]
+    },
+    {
+      "code": "needs_manual_check",
+      "message": "No prior result supplied; incremental diff baseline is unavailable.",
+      "field": "/run/diff",
+      "source_urls": []
+    },
+    {
+      "code": "needs_manual_check",
+      "message": "Some core undergraduate admissions fields were not found; review coverage.missing.",
+      "field": "/run/config/coverage",
+      "source_urls": []
+    },
+    {
+      "code": "needs_manual_check",
+      "message": "Required documents were not found in the offline fixture.",
+      "field": "/admissions/required_documents/0/value",
+      "source_urls": []
+    }
+  ]
+}

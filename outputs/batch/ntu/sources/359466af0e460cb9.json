@@ -1,0 +1,11 @@
+{
+  "source_url": "https://www.ntu.edu.sg/admissions/graduate/financialmatters/pgtuitionfees",
+  "source_type": "html",
+  "title": "Postgraduate Tuition Fees | NTU Singapore",
+  "retrieved_at": "2026-06-04T08:45:48.451639+00:00",
+  "academic_year": null,
+  "page_number": null,
+  "content_hash": "359466af0e460cb97949381b5525da84d6237c1d7bd8aad15452b914df9a8585",
+  "engine": "playwright-browser",
+  "is_official": true
+}

@@ -1,0 +1,11 @@
+{
+  "source_url": "https://admissions.hku.hk/apply/jupas/eligibility",
+  "source_type": "html",
+  "title": "Eligibility to apply via JUPAS | Admissions Office, the Registry",
+  "retrieved_at": "2026-06-04T09:48:08.290372+00:00",
+  "academic_year": null,
+  "page_number": null,
+  "content_hash": "a23062d96ba67c1c13fd761658cfd65633e15d804f22ce1ca83b5ab8228cc076",
+  "engine": "playwright-browser",
+  "is_official": true
+}

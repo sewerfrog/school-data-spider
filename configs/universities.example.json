@@ -1,0 +1,17 @@
+{
+    "universities": [
+      {
+        "id": "hku",
+        "name": "Hong Kong University",
+        "seed_urls": [
+          "https://admissions.hku.hk/"
+        ],
+        "allowed_domains": [
+          "hku.hk"
+        ],
+        "mode": "browser",
+        "max_pages": 40,
+        "max_depth": 5
+      }
+    ]
+  }

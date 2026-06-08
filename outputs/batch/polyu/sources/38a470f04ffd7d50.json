@@ -1,0 +1,11 @@
+{
+  "source_url": "https://www38.polyu.edu.hk/eAdmission/index.do",
+  "source_type": "html",
+  "title": "PolyU eAdmission",
+  "retrieved_at": "2026-06-04T08:49:30.688298+00:00",
+  "academic_year": null,
+  "page_number": null,
+  "content_hash": "38a470f04ffd7d500572ef5668f38dd863e2cbce535f147ee6b0a666dc1bedb5",
+  "engine": "playwright-browser",
+  "is_official": true
+}

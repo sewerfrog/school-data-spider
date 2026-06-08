@@ -1,0 +1,11 @@
+{
+  "source_url": "https://www.polyu.edu.hk/admissions/university-ranking/",
+  "source_type": "html",
+  "title": "PolyU Asia University Ranking - Among the best university in Asia",
+  "retrieved_at": "2026-06-04T08:48:38.120398+00:00",
+  "academic_year": null,
+  "page_number": null,
+  "content_hash": "f7054ae7e87693794b4e28e029321f58884370aa8c6c20714f8b8f71820f005b",
+  "engine": "playwright-browser",
+  "is_official": true
+}

@@ -1,0 +1,11 @@
+{
+  "source_url": "https://admissions.hku.hk/our-faculties",
+  "source_type": "html",
+  "title": "Our Faculties | Admissions Office, the Registry",
+  "retrieved_at": "2026-06-08T02:54:24.112991+00:00",
+  "academic_year": null,
+  "page_number": null,
+  "content_hash": "46aa1c56bd3f7640f7faa405e819f08344802ee5dc3e67bf950d0f6423f70dd6",
+  "engine": "playwright-browser",
+  "is_official": true
+}

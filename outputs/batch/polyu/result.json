@@ -1,0 +1,1435 @@
+{
+  "institution": {
+    "name": {
+      "value": "The Hong Kong Polytechnic University",
+      "evidence": [],
+      "confidence": "low",
+      "status": "unknown",
+      "warnings": []
+    },
+    "homepage_url": "https://www.polyu.edu.hk/admissions/",
+    "country_or_region": {
+      "value": "unknown",
+      "evidence": [],
+      "confidence": "low",
+      "status": "unknown",
+      "warnings": []
+    }
+  },
+  "run": {
+    "input_url": "https://www.polyu.edu.hk/admissions/",
+    "retrieved_at": "2026-06-04T08:50:30.146936+00:00",
+    "crawler_version": null,
+    "config": {
+      "max_pages": 30,
+      "max_depth": 2,
+      "allowed_hosts": [],
+      "allowed_domains": [
+        "polyu.edu.hk"
+      ],
+      "source_strategy": [
+        {
+          "url": "https://www.polyu.edu.hk/admissions/",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.polyu.edu.hk/admissions/tuition-fees-and-scholarships/",
+          "source_type": "html",
+          "category": "programme_list",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.polyu.edu.hk/study/ug/fees-and-scholarships/scholarships",
+          "source_type": "html",
+          "category": "scholarships",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.polyu.edu.hk/study/ug/fees-and-scholarships",
+          "source_type": "html",
+          "category": "fees",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.polyu.edu.hk/tc/admissions/",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.polyu.edu.hk/sc/admissions/",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.polyu.edu.hk/admissions/university-ranking/",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.polyu.edu.hk/admissions/postgraduate/",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.polyu.edu.hk/study/ug/admissions/jupas",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.polyu.edu.hk/study/ug/admissions/non-jupas-senior-year",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.polyu.edu.hk/admissions/polyu-student-stories/",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.polyu.edu.hk/contact-us/form.php",
+          "source_type": "html",
+          "category": "contact",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.polyu.edu.hk/global/",
+          "source_type": "html",
+          "category": "international_requirements",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.polyu.edu.hk/sao/student-resources-and-support-section/residential-life/hall-admission/hall-fees/",
+          "source_type": "html",
+          "category": "fees",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.polyu.edu.hk/search-results/?q=Undergraduate+Admission",
+          "source_type": "html",
+          "category": "irrelevant",
+          "strategy": "irrelevant"
+        },
+        {
+          "url": "https://www.polyu.edu.hk/search-results/?q=Scholarships",
+          "source_type": "html",
+          "category": "scholarships",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.polyu.edu.hk/gs/prospective-students/fellowship-scholarship-schemes/",
+          "source_type": "html",
+          "category": "fees",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www38.polyu.edu.hk/eAdmission/index.do",
+          "source_type": "html",
+          "category": "application_deadlines",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.polyu.edu.hk/search-results/?q=Postgraduate+Admission",
+          "source_type": "html",
+          "category": "programme_list",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.polyu.edu.hk/search-results/?q=Financial+Assistance",
+          "source_type": "html",
+          "category": "irrelevant",
+          "strategy": "irrelevant"
+        },
+        {
+          "url": "https://www.polyu.edu.hk/search-results/?q=Finance+Office",
+          "source_type": "html",
+          "category": "irrelevant",
+          "strategy": "irrelevant"
+        },
+        {
+          "url": "https://www.polyu.edu.hk/search-results/?q=Human+Resources+Office",
+          "source_type": "html",
+          "category": "irrelevant",
+          "strategy": "irrelevant"
+        },
+        {
+          "url": "https://www.polyu.edu.hk/",
+          "source_type": "html",
+          "category": "irrelevant",
+          "strategy": "irrelevant"
+        },
+        {
+          "url": "https://www.polyu.edu.hk/current-students/",
+          "source_type": "html",
+          "category": "international_requirements",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.polyu.edu.hk/education/",
+          "source_type": "html",
+          "category": "international_requirements",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.polyu.edu.hk/gs/",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.polyu.edu.hk/cus/",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.polyu.edu.hk/prospective-students/",
+          "source_type": "html",
+          "category": "programme_list",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.polyu.edu.hk/study/ug",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.polyu.edu.hk/research/",
+          "source_type": "html",
+          "category": "programme_list",
+          "strategy": "html_page"
+        }
+      ],
+      "diff": {
+        "baseline": "none",
+        "changed_sources": [],
+        "changed_fields": []
+      },
+      "coverage": {
+        "core_fields_total": 9,
+        "found_count": 6,
+        "missing_count": 3,
+        "found": [
+          "undergraduate_application_entry",
+          "application_periods",
+          "english_requirements",
+          "fees",
+          "scholarships",
+          "contacts"
+        ],
+        "missing": [
+          "accepted_qualifications",
+          "required_documents",
+          "programmes"
+        ],
+        "coverage_ratio": 0.667,
+        "note": "Coverage reports whether core fields were found; overall confidence reports evidence/conflict quality for extracted claims."
+      },
+      "source_strategy_summary": {
+        "html_page": 25,
+        "irrelevant": 5
+      },
+      "university_id": "polyu",
+      "seed_urls": [
+        "https://www.polyu.edu.hk/admissions/"
+      ]
+    }
+  },
+  "sources": [
+    {
+      "source_url": "https://www.polyu.edu.hk/admissions/",
+      "source_type": "html",
+      "title": "Study in Hong Kong: University Admissions & Top Rankings | PolyU",
+      "retrieved_at": "2026-06-04T08:47:47.227377+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "23bde7934ccc321da3c0a3e922b4481addf529b30b0e0b0489ff4c92a23a1bdd",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/admissions/tuition-fees-and-scholarships/",
+      "source_type": "html",
+      "title": "University Scholarships for Bachelor's & Master's Degrees ｜PolyU",
+      "retrieved_at": "2026-06-04T08:47:51.436443+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "0cef98ad526fc0beb322f61075015a2ff7edf1d0e3977702bfc6d1068ce5ee52",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/study/ug/fees-and-scholarships/scholarships",
+      "source_type": "html",
+      "title": "Undergraduate University Scholarships | The Hong Kong Polytechnic University (PolyU)",
+      "retrieved_at": "2026-06-04T08:47:55.789472+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "0e8045185cadc8561c268d75818a3d995c9b1371346bb8ab1fac7e158d9b4f7c",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/study/ug/fees-and-scholarships",
+      "source_type": "html",
+      "title": "Fees and Scholarships | The Hong Kong Polytechnic University (PolyU)",
+      "retrieved_at": "2026-06-04T08:48:02.664158+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "76cc022d36639a78946f91afd7fb6936c00cbd38e185dc8f80b01b168bcac26e",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/tc/admissions/",
+      "source_type": "html",
+      "title": "大學學位入學申請與多元升學資訊 | 香港理工大學",
+      "retrieved_at": "2026-06-04T08:48:26.806983+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "24d35530013221b535e222b2a8a770ef6805aa5e1b638c1b6a80c2312dfa3922",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/sc/admissions/",
+      "source_type": "html",
+      "title": "香港理工大学 -大学学位课程入读资讯 : 深造及学士学位课程",
+      "retrieved_at": "2026-06-04T08:48:32.633500+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "4c27249dc2633d1646cc9f6a085adebac54e22bc3940e3e9338dd45153be18ac",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/admissions/university-ranking/",
+      "source_type": "html",
+      "title": "PolyU Asia University Ranking - Among the best university in Asia",
+      "retrieved_at": "2026-06-04T08:48:38.120398+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "f7054ae7e87693794b4e28e029321f58884370aa8c6c20714f8b8f71820f005b",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/admissions/postgraduate/",
+      "source_type": "html",
+      "title": "Postgraduate Studies in Hong Kong- PolyU Admissions",
+      "retrieved_at": "2026-06-04T08:48:41.212695+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "c366222836e4eaacf6a753bb6e3bef19ebf98e37deffd2fcb73dd39aa3c51783",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/study/ug/admissions/jupas",
+      "source_type": "html",
+      "title": "JUPAS Admissions | The Hong Kong Polytechnic University (PolyU)",
+      "retrieved_at": "2026-06-04T08:48:44.364398+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "578cd1cf75f475de5a7a83e6c0524ff9e6ea21b1f45a05d7ffe4c0a31a1ccf82",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/study/ug/admissions/non-jupas-senior-year",
+      "source_type": "html",
+      "title": "Non-JUPAS Admissions (Senior Year Entry) | The Hong Kong Polytechnic University (PolyU)",
+      "retrieved_at": "2026-06-04T08:48:52.744959+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "5daf612703204ac21227671cca3606574efd8c7a3f260b151cb83c61b427af81",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/admissions/polyu-student-stories/",
+      "source_type": "html",
+      "title": "Student Stories | The Hong Kong Polytechnic University",
+      "retrieved_at": "2026-06-04T08:49:00.782618+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "a6ec7c323e724dec8941080eff52b0fdec112f7b412cef8d8fc05e74ad5f7f09",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/contact-us/form.php",
+      "source_type": "html",
+      "title": "Contact Us",
+      "retrieved_at": "2026-06-04T08:49:04.873206+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "06ee85c60541773c3ce4715768b5ffd65787eccdc85366074b2d4ec54fbd4dbf",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/global/",
+      "source_type": "html",
+      "title": "Embracing Greater Bay Area Opportunities | PolyU",
+      "retrieved_at": "2026-06-04T08:49:11.503120+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "52dea5c8d3c11e27fa65d7b327cea610a109f4a92979d0e1b67d218e4109530a",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/sao/student-resources-and-support-section/residential-life/hall-admission/hall-fees/",
+      "source_type": "html",
+      "title": "Hall Fees | Student Affairs Office",
+      "retrieved_at": "2026-06-04T08:49:15.169275+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "d780f9f68077c714bd462b27d503f47742afc35692303c7c438ef2a633622d53",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/search-results/?q=Undergraduate+Admission",
+      "source_type": "html",
+      "title": "Search Results | The Hong Kong Polytechnic University",
+      "retrieved_at": "2026-06-04T08:49:18.623526+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "adc402550015a2e43811fb7b25193b488bcad1bbcfb34969e62dbe5aeb503698",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/search-results/?q=Scholarships",
+      "source_type": "html",
+      "title": "Search Results | The Hong Kong Polytechnic University",
+      "retrieved_at": "2026-06-04T08:49:22.424865+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "ca1cdaf9ab58e724a8e179308b4d85982e82b63f19ece11c65df677329ac6d7a",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/gs/prospective-students/fellowship-scholarship-schemes/",
+      "source_type": "html",
+      "title": "Hong Kong PhD Fellowship Scheme Applications | PolyU",
+      "retrieved_at": "2026-06-04T08:49:26.570412+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "e5811e8bced1de9c44ff22ff24641ebc4d4f5c28209877b8f5a88ad085bcb67f",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www38.polyu.edu.hk/eAdmission/index.do",
+      "source_type": "html",
+      "title": "PolyU eAdmission",
+      "retrieved_at": "2026-06-04T08:49:30.688298+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "38a470f04ffd7d500572ef5668f38dd863e2cbce535f147ee6b0a666dc1bedb5",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/search-results/?q=Postgraduate+Admission",
+      "source_type": "html",
+      "title": "Search Results | The Hong Kong Polytechnic University",
+      "retrieved_at": "2026-06-04T08:49:35.366118+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "5f4624344b0d943f1a2ecd72bb068947b2717985eb84c2cd58d6d7b01eb65e6f",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/search-results/?q=Financial+Assistance",
+      "source_type": "html",
+      "title": "Search Results | The Hong Kong Polytechnic University",
+      "retrieved_at": "2026-06-04T08:49:39.165483+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "88b40c4ee2c57124e7d087c1f07b041185ed9b5c352ed37e0cb7c63d08a17a29",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/search-results/?q=Finance+Office",
+      "source_type": "html",
+      "title": "Search Results | The Hong Kong Polytechnic University",
+      "retrieved_at": "2026-06-04T08:49:42.805594+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "a3c07a6fbd3c43a16952458cc3a9baf594617497575ecb760ef5421fc5b5e5d0",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/search-results/?q=Human+Resources+Office",
+      "source_type": "html",
+      "title": "Search Results | The Hong Kong Polytechnic University",
+      "retrieved_at": "2026-06-04T08:49:46.806502+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "fdcef05da5b902e3f28c83090803f3ee489600f0e866ef5b39174ae1f09a7f5c",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/",
+      "source_type": "html",
+      "title": "Top Innovative World-Class University in Hong Kong | PolyU",
+      "retrieved_at": "2026-06-04T08:49:57.548911+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "609dd2c17eea1eead379c2eea31171ae0355d0c33122a07418b9fb39633bdbc3",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/current-students/",
+      "source_type": "html",
+      "title": "Current Students | The Hong Kong Polytechnic University",
+      "retrieved_at": "2026-06-04T08:50:02.022154+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "c3d27ec79b841155629721d295b1fa6290e81be4d8de9f00a175e809da291afa",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/education/",
+      "source_type": "html",
+      "title": "PolyU - Exchange Programmes and Overseas Internship Opportunities",
+      "retrieved_at": "2026-06-04T08:50:06.026617+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "4778fd1e6378a9a19601267a3ddc913211fe442212d373e8d1702ee0ea79b5e6",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/gs/",
+      "source_type": "html",
+      "title": "Graduate School: Top Postgraduate Opportunities | PolyU | Graduate School",
+      "retrieved_at": "2026-06-04T08:50:09.368758+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "f633bc5c9bdc909a338adb6e6ab8732e6e5733f23ead9543ba4a5796773d3fd4",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/cus/",
+      "source_type": "html",
+      "title": "Home | College of Undergraduate Studies",
+      "retrieved_at": "2026-06-04T08:50:12.639024+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "889e39d6a6c65245b1130bcb0951c8d451e5aef0e243ee95370682a57fa8834a",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/prospective-students/",
+      "source_type": "html",
+      "title": "Master's Degree Programme - PolyU Programme List",
+      "retrieved_at": "2026-06-04T08:50:15.475263+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "bcbe03be453a88c529f6bf39f47eb82200a465d02dfe3ee268ebad5030c82cfd",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/study/ug",
+      "source_type": "html",
+      "title": "Undergraduate Admissions | The Hong Kong Polytechnic University (PolyU)",
+      "retrieved_at": "2026-06-04T08:50:19.310586+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "3e379eefd4025f6f19cf2dc66e44427acf3de619697f5f511753a3df4d8a2bb7",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/research/",
+      "source_type": "html",
+      "title": "Best Research Universities in Asia | PolyU",
+      "retrieved_at": "2026-06-04T08:50:26.587685+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "10c7c9d10faa8c4ae7d12504aa76e5bf26e86299dfbc81cf055a9f6d7e5e8022",
+      "engine": "playwright-browser",
+      "is_official": true
+    }
+  ],
+  "admissions": {
+    "undergraduate_application_entry": {
+      "value": "https://www.polyu.edu.hk/study/ug/admissions/non-jupas-senior-year",
+      "evidence": [
+        "/admissions/undergraduate_application_entry"
+      ],
+      "confidence": "high",
+      "status": "known",
+      "warnings": []
+    },
+    "international_requirements": [],
+    "accepted_qualifications": [],
+    "application_periods": [
+      {
+        "label": "application deadline",
+        "value": {
+          "value": "05 Feb 2026",
+          "evidence": [
+            "/admissions/application_periods/0/value"
+          ],
+          "confidence": "high",
+          "status": "known",
+          "warnings": []
+        },
+        "applicant_group": {
+          "value": "unknown",
+          "evidence": [],
+          "confidence": "low",
+          "status": "unknown",
+          "warnings": []
+        },
+        "qualification": {
+          "value": "unknown",
+          "evidence": [],
+          "confidence": "low",
+          "status": "unknown",
+          "warnings": []
+        },
+        "requires_applicant_group": false
+      },
+      {
+        "label": "application deadline",
+        "value": {
+          "value": "19 Nov 2025",
+          "evidence": [
+            "/admissions/application_periods/1/value"
+          ],
+          "confidence": "high",
+          "status": "known",
+          "warnings": []
+        },
+        "applicant_group": {
+          "value": "unknown",
+          "evidence": [],
+          "confidence": "low",
+          "status": "unknown",
+          "warnings": []
+        },
+        "qualification": {
+          "value": "unknown",
+          "evidence": [],
+          "confidence": "low",
+          "status": "unknown",
+          "warnings": []
+        },
+        "requires_applicant_group": false
+      }
+    ],
+    "required_documents": [
+      {
+        "label": "required documents",
+        "value": {
+          "value": "needs_manual_check",
+          "evidence": [],
+          "confidence": "low",
+          "status": "needs_manual_check",
+          "warnings": [
+            {
+              "code": "needs_manual_check",
+              "message": "Required documents were not found in the offline fixture.",
+              "field": "/admissions/required_documents/0/value",
+              "source_urls": []
+            }
+          ]
+        },
+        "applicant_group": {
+          "value": "unknown",
+          "evidence": [],
+          "confidence": "low",
+          "status": "unknown",
+          "warnings": []
+        },
+        "qualification": {
+          "value": "unknown",
+          "evidence": [],
+          "confidence": "low",
+          "status": "unknown",
+          "warnings": []
+        },
+        "requires_applicant_group": false
+      }
+    ],
+    "english_requirements": [
+      {
+        "label": "english language requirement",
+        "value": {
+          "value": "Programme Entrance Requirements and Subject Weightings JUPAS Score Calculator Flexible Admission Arrangements More FAQs Undergraduate JUPAS Score Calculator for 2026/27 is now available Undergraduate Plan Ahead with PolyU: Join our JUPAS Admissions Q&A, 9 May on campus and 11 – 13 May online Undergraduate JUPAS Score Calculator for 2026/27 is now available Undergraduate Plan Ahead with PolyU: Join our JUPAS Admissions Q&A, 9 May on campus and 11 – 13 May online Don’t Miss the Key Dates 09 Oct 2025 Application Starts 03 Dec 2025 Deadline for submission of JUPAS applications 27 May 2026 Deadline for updating of programme choices via JUPAS 15 Jul 2026 Release of 2025 HKDSE results 05 Aug 2026 Announcement of Main Round offer results Show More 7 Kinds of Basic Info You Should Know 1 Requirements General Entrance Requirements Scheme / Programme Requirements Flexible Admission Arrangements Admission Scores JUPAS Score Calculator 2 Procedures Application Procedures Interview Arrangement Student Under 18 3 Special Admission Scheme School Nominations Direct Admission Scheme (SNDAS) Special Talents Admission and Recognition Scheme (STARS) 4 Admission Policies Non-local Applicants Distinctive Features of UG Programmes Curriculum Framework Admission Selection Credit Transfer and Exemption Concurrent Enrolment Inter-institutional Transfer Re-admission Applicants with Disabilities / Special Educational Needs 5 Fees / Financial Assistance Tuition Fees Other Fees and Expenses Financial Assistance 6 Frequently Asked Questions Entrance Requirements Admission Score Calculation Admission Selection Non-Academic Achievements 7 Admission Leaflet JUPAS Admission Leaflet All Colleges, Faculties and Schools College of Undergraduate Studies Faculty of Business Faculty of Computer and Mathematical Sciences Faculty of Construction and Environment Faculty of Engineering Faculty of Health and Social Sciences Faculty of Humanities Faculty of Science School of Design School of Fashion and Textiles School of Hotel and Tourism Management All Colleges, Faculties and Schools JS3060 | Sept 2026 Entry Full-time Accounting and Finance (Accountancy / Accounting and Finance / Digital Finance and Investment) - BBA (Hons) Scheme - Bachelor of Business Administration (Honours) Scheme 會計及金融(榮譽)工商管理學士組合課程 (會計學 / 會計及金融 / 數碼金融及投資學) JS3220 | Sept 2026 Entry Full-time Applied Mathematics and Finance Analytics (Applied Mathematics / Investment Science and Finance Analytics / Quantitative Finance and FinTech) - BSc (Hons) Scheme - Bachelor of Science (Honours) Scheme 應用數學及金融分析(榮譽)理學士組合課程 (應用數學 / 投資科學及金融分析 / 量化金融及金融科技) JS3250 | Sept 2026 Entry Full-time Applied Social Sciences (Social Work / Social Policy and Social Entrepreneurship) - BA (Hons) Scheme - Bachelor of Arts (Honours) Scheme 應用社會科學(榮譽)文學士組合課程 (社會工作 / 社會政策及社會創業) JS3214 | Sept 2026 Entry Full-time Architectural Studies - BSc (Hons) - Bachelor of Science (Honours) 建築學(榮譽)理學士 JS3140 | Sept 2026 Entry Full-time Aviation Engineering (Aeronautical Engineering / Air Transport Engineering) - BEng (Hons) Scheme - Bachelor of Engineering (Honours) Scheme 航空工程學(榮譽)工學士組合課程 (航空工程學 / 民航工程學) JS3150 | Sept 2026 Entry Full-time Biomedical Engineering - BSc (Hons) - Bachelor of Science (Honours) 生物醫學工程(榮譽)理學士 JS3011 | Sept 2026 Entry Full-time Biotechnology and Chemical Technology - BSc (Hons) Scheme - Bachelor of Science (Honours) Scheme 生物科技及化學科技(榮譽)理學士組合課程 JS3791 | Sept 2026 Entry Full-time Building Engineering and Management - BSc (Hons) - Bachelor of Science (Honours) 建築工程及管理學(榮譽)理學士 JS3211 | Sept 2026 Entry Full-time Building Sciences and Engineering - BEng (Hons) - Bachelor of Engineering (Honours) 建築科學及工程學(榮譽)工學士 JS3003 | Sept 2026 Entry Full-time Business Administration - Bachelor’s Degree Scheme 工商管理組合學士課程 JS3320 | Sept 2026 Entry Full-time Chinese History and Culture - BA (Hons) - Bachelor of Arts (Honours) 中國歷史及文化(榮譽)文學士 JS3739 | Sept 2026 Entry Full-time Civil Engineering - BEng (Hons) - Bachelor of Engineering (Honours) 土木工程學(榮譽)工學士 JS3006 | Sept 2026 Entry Full-time Computer and Mathematical Sciences - Bachelor’s Degree Scheme 計算機及數學科學組合學士課程 JS3868 | Sept 2026 Entry Full-time Computing and AI (Computer Science / Enterprise Information Systems) - BSc (Hons) Scheme - Bachelor of Science (Honours) Scheme 電子計算及人工智能(榮譽)理學士組合課程 (計算機科學 / 企業信息管理) JS3004 | Sept 2026 Entry Full-time Construction and Environment - Bachelor’s Degree Scheme 建設及環境組合學士課程 Show More JUPAS Score Calculator JUPAS Select a Discipline Business Computer and Mathematical Sciences Construction and Environment Design Engineering Fashion and Textiles Health and Social Sciences Hotel and Tourism Management Humanities Interdiscipline Science Select a Programme Accounting and Finance - BBA (Hons) Scheme Applied Mathematics and Finance Analytics - BSc (Hons) Scheme Applied Social Sciences - BA (Hons) Scheme Architectural Studies - BSc (Hons) Aviation Engineering - BEng (Hons) Scheme Biomedical Engineering - BSc (Hons) Biotechnology and Chemical Technology - BSc (Hons) Scheme Building Engineering and Management - BSc (Hons) Building Sciences and Engineering - BEng (Hons) Business Administration - Bachelor’s Degree Scheme Chinese History and Culture - BA (Hons) Civil Engineering - BEng (Hons) Computer and Mathematical Sciences - Bachelor’s Degree Scheme Computing and AI - BSc (Hons) Scheme Construction and Environment - Bachelor’s Degree Scheme Data Science and Artificial Intelligence - BSc (Hons) Scheme Design - BA (Hons) Scheme Electrical Engineering - BEng (Hons) Scheme Engineering - Bachelor’s Degree Scheme English and Applied Linguistics - BA (Hons) Environmental Engineering and Sustainable Development - BEng (Hons) Fashion - BA (Hons) Scheme Food Science and Nutrition - BSc (Hons) Scheme Global Business and Logistics, Aviation, Maritime, and Supply Chain Management - BBA (Hons) Scheme Hotel and Tourism Management - BSc (Hons) Scheme Humanities - Bachelor’s Degree Scheme Information and Artificial Intelligence Engineering - BEng (Hons) / BSc (Hons) Scheme Intelligent Supply Chain and Engineering Management - BSc (Hons) Scheme Interdisciplinary Studies - Bachelor’s Degree Scheme Language Science and Technology - BSc (Hons) Management and Marketing - BBA (Hons) Scheme Mechanical Engineering - BEng (Hons) Scheme Medical Laboratory Science - BSc (Hons) Mental Health Nursing - BSc (Hons) Nursing - BSc (Hons) Occupational Therapy - BSc (Hons) Optometry - BSc (Hons) Physics with a Secondary Major in Artificial Intelligence & Data Analytics (AIDA) / Innovation and Entrepreneurship (IE) - BSc (Hons) Physiotherapy - BSc (Hons) Product Innovation and Smart Manufacturing - BEng (Hons) Scheme Radiography - BSc (Hons) Science - Bachelor’s Degree Scheme Spatial Data Science and Smart Cities - BSc (Hons) Scheme Speech Therapy - BSc (Hons) Sports Science and Technology - BSc (Hons) Surveying - BSc (Hons) Select a Programme Go to Calculate Click Here to Learn More Click Here to Learn More",
+          "evidence": [
+            "/admissions/english_requirements/0/value"
+          ],
+          "confidence": "medium",
+          "status": "known",
+          "warnings": []
+        },
+        "applicant_group": {
+          "value": "unknown",
+          "evidence": [],
+          "confidence": "low",
+          "status": "unknown",
+          "warnings": []
+        },
+        "qualification": {
+          "value": "unknown",
+          "evidence": [],
+          "confidence": "low",
+          "status": "unknown",
+          "warnings": []
+        },
+        "requires_applicant_group": false
+      },
+      {
+        "label": "english language requirement",
+        "value": {
+          "value": "English, students must meet the specific requirements of English proficiency as stated in the summer programme website: https://www.",
+          "evidence": [
+            "/admissions/english_requirements/1/value"
+          ],
+          "confidence": "medium",
+          "status": "known",
+          "warnings": []
+        },
+        "applicant_group": {
+          "value": "unknown",
+          "evidence": [],
+          "confidence": "low",
+          "status": "unknown",
+          "warnings": []
+        },
+        "qualification": {
+          "value": "unknown",
+          "evidence": [],
+          "confidence": "low",
+          "status": "unknown",
+          "warnings": []
+        },
+        "requires_applicant_group": false
+      },
+      {
+        "label": "english language requirement",
+        "value": {
+          "value": "English Language Centre Institute for Higher Education Research and Development Quick Links Quick Links Quality Assurance under the Outcome-Based Framework General University Requirements",
+          "evidence": [
+            "/admissions/english_requirements/2/value"
+          ],
+          "confidence": "medium",
+          "status": "known",
+          "warnings": []
+        },
+        "applicant_group": {
+          "value": "unknown",
+          "evidence": [],
+          "confidence": "low",
+          "status": "unknown",
+          "warnings": []
+        },
+        "qualification": {
+          "value": "unknown",
+          "evidence": [],
+          "confidence": "low",
+          "status": "unknown",
+          "warnings": []
+        },
+        "requires_applicant_group": false
+      }
+    ],
+    "standardized_tests": [],
+    "selection_tests_or_interviews": []
+  },
+  "programmes": [],
+  "fees": [
+    {
+      "label": "tuition/fees",
+      "value": {
+        "value": "tuition fee for Bachelor's Degree programmes is HK$47,000 per academic year for local students.",
+        "evidence": [
+          "/fees/0/value"
+        ],
+        "confidence": "medium",
+        "status": "known",
+        "warnings": []
+      },
+      "applicant_group": {
+        "value": "unknown",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "qualification": {
+        "value": "unknown",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "requires_applicant_group": false
+    },
+    {
+      "label": "tuition/fees",
+      "value": {
+        "value": "$200",
+        "evidence": [
+          "/fees/1/value"
+        ],
+        "confidence": "medium",
+        "status": "known",
+        "warnings": []
+      },
+      "applicant_group": {
+        "value": "unknown",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "qualification": {
+        "value": "unknown",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "requires_applicant_group": false
+    },
+    {
+      "label": "tuition/fees",
+      "value": {
+        "value": "$340,800",
+        "evidence": [
+          "/fees/2/value"
+        ],
+        "confidence": "medium",
+        "status": "known",
+        "warnings": []
+      },
+      "applicant_group": {
+        "value": "unknown",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "qualification": {
+        "value": "unknown",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "requires_applicant_group": false
+    }
+  ],
+  "scholarships": [
+    {
+      "label": "scholarship",
+      "value": {
+        "value": "Scholarships Top 100 Universities In The World Exchange Programmes and Overseas Internship Hong Kong Study Abroad Scholarships in Hong Kong Graduate School Hong Kong PhD Fellowship Scheme Knowledge Transfer and Entrepreneurship Mainland Translational Research Institutes Master's Degree Programme Best Research Universities in Asia Research Postgraduate Postgraduate Programmes Taught Postgraduate Programme Jupas 2025 Non Jupas Top Hong Kong universities in THE University Rankings | PolyU With over 80 years of proud tradition in Hong Kong, PolyU ranks among the world’s top institutions holding the 129th place in the THE University Rankings 2021.",
+        "evidence": [
+          "/scholarships/0/value"
+        ],
+        "confidence": "medium",
+        "status": "known",
+        "warnings": []
+      },
+      "applicant_group": {
+        "value": "unknown",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "qualification": {
+        "value": "unknown",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "requires_applicant_group": false
+    },
+    {
+      "label": "scholarship",
+      "value": {
+        "value": "Scholarships We offer a wide range of scholarships for undergraduate students We offer a variety of scholarships for undergraduate students to recognize academic and non-academic excellence.",
+        "evidence": [
+          "/scholarships/1/value"
+        ],
+        "confidence": "medium",
+        "status": "known",
+        "warnings": []
+      },
+      "applicant_group": {
+        "value": "unknown",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "qualification": {
+        "value": "unknown",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "requires_applicant_group": false
+    }
+  ],
+  "visa": [],
+  "housing": [],
+  "contacts": [
+    {
+      "label": "admissions contact",
+      "value": {
+        "value": "paadmin@polyu.edu.hk",
+        "evidence": [
+          "/contacts/0/value"
+        ],
+        "confidence": "medium",
+        "status": "known",
+        "warnings": []
+      },
+      "applicant_group": {
+        "value": "unknown",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "qualification": {
+        "value": "unknown",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "requires_applicant_group": false
+    }
+  ],
+  "discovered_categories": [
+    {
+      "source_url": "https://www.polyu.edu.hk/admissions/",
+      "category": "undergraduate_admissions",
+      "score": 4,
+      "signals": [
+        "admissions"
+      ],
+      "title": "Study in Hong Kong: University Admissions & Top Rankings | PolyU"
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/admissions/tuition-fees-and-scholarships/",
+      "category": "programme_list",
+      "score": 6,
+      "signals": [
+        "programmes",
+        "degrees",
+        "degree",
+        "undergraduate programmes"
+      ],
+      "title": "University Scholarships for Bachelor's & Master's Degrees ｜PolyU"
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/study/ug/fees-and-scholarships/scholarships",
+      "category": "scholarships",
+      "score": 5,
+      "signals": [
+        "scholarship",
+        "scholarships"
+      ],
+      "title": "Undergraduate University Scholarships | The Hong Kong Polytechnic University (PolyU)"
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/study/ug/fees-and-scholarships",
+      "category": "fees",
+      "score": 5,
+      "signals": [
+        "fees",
+        "fee"
+      ],
+      "title": "Fees and Scholarships | The Hong Kong Polytechnic University (PolyU)"
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/tc/admissions/",
+      "category": "undergraduate_admissions",
+      "score": 2,
+      "signals": [
+        "admissions"
+      ],
+      "title": "大學學位入學申請與多元升學資訊 | 香港理工大學"
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/sc/admissions/",
+      "category": "undergraduate_admissions",
+      "score": 2,
+      "signals": [
+        "admissions"
+      ],
+      "title": "香港理工大学 -大学学位课程入读资讯 : 深造及学士学位课程"
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/admissions/university-ranking/",
+      "category": "undergraduate_admissions",
+      "score": 2,
+      "signals": [
+        "admissions"
+      ],
+      "title": "PolyU Asia University Ranking - Among the best university in Asia"
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/admissions/postgraduate/",
+      "category": "undergraduate_admissions",
+      "score": 4,
+      "signals": [
+        "admissions"
+      ],
+      "title": "Postgraduate Studies in Hong Kong- PolyU Admissions"
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/study/ug/admissions/jupas",
+      "category": "undergraduate_admissions",
+      "score": 5,
+      "signals": [
+        "admissions",
+        "apply"
+      ],
+      "title": "JUPAS Admissions | The Hong Kong Polytechnic University (PolyU)"
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/study/ug/admissions/non-jupas-senior-year",
+      "category": "undergraduate_admissions",
+      "score": 5,
+      "signals": [
+        "admissions",
+        "apply"
+      ],
+      "title": "Non-JUPAS Admissions (Senior Year Entry) | The Hong Kong Polytechnic University (PolyU)"
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/admissions/polyu-student-stories/",
+      "category": "undergraduate_admissions",
+      "score": 2,
+      "signals": [
+        "admissions"
+      ],
+      "title": "Student Stories | The Hong Kong Polytechnic University"
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/contact-us/form.php",
+      "category": "contact",
+      "score": 5,
+      "signals": [
+        "contact",
+        "email"
+      ],
+      "title": "Contact Us"
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/global/",
+      "category": "international_requirements",
+      "score": 1,
+      "signals": [
+        "international"
+      ],
+      "title": "Embracing Greater Bay Area Opportunities | PolyU"
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/sao/student-resources-and-support-section/residential-life/hall-admission/hall-fees/",
+      "category": "fees",
+      "score": 6,
+      "signals": [
+        "tuition",
+        "fees",
+        "fee"
+      ],
+      "title": "Hall Fees | Student Affairs Office"
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/search-results/?q=Undergraduate+Admission",
+      "category": "irrelevant",
+      "score": 0,
+      "signals": [],
+      "title": "Search Results | The Hong Kong Polytechnic University"
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/search-results/?q=Scholarships",
+      "category": "scholarships",
+      "score": 3,
+      "signals": [
+        "scholarship",
+        "scholarships"
+      ],
+      "title": "Search Results | The Hong Kong Polytechnic University"
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/gs/prospective-students/fellowship-scholarship-schemes/",
+      "category": "fees",
+      "score": 3,
+      "signals": [
+        "tuition",
+        "fees",
+        "fee"
+      ],
+      "title": "Hong Kong PhD Fellowship Scheme Applications | PolyU"
+    },
+    {
+      "source_url": "https://www38.polyu.edu.hk/eAdmission/index.do",
+      "category": "application_deadlines",
+      "score": 3,
+      "signals": [
+        "deadline",
+        "application period",
+        "year"
+      ],
+      "title": "PolyU eAdmission"
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/search-results/?q=Postgraduate+Admission",
+      "category": "programme_list",
+      "score": 1,
+      "signals": [
+        "programmes"
+      ],
+      "title": "Search Results | The Hong Kong Polytechnic University"
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/search-results/?q=Financial+Assistance",
+      "category": "irrelevant",
+      "score": 0,
+      "signals": [],
+      "title": "Search Results | The Hong Kong Polytechnic University"
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/search-results/?q=Finance+Office",
+      "category": "irrelevant",
+      "score": 0,
+      "signals": [],
+      "title": "Search Results | The Hong Kong Polytechnic University"
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/search-results/?q=Human+Resources+Office",
+      "category": "irrelevant",
+      "score": 0,
+      "signals": [],
+      "title": "Search Results | The Hong Kong Polytechnic University"
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/",
+      "category": "irrelevant",
+      "score": -4,
+      "signals": [
+        "alumni",
+        "news",
+        "giving",
+        "staff"
+      ],
+      "title": "Top Innovative World-Class University in Hong Kong | PolyU"
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/current-students/",
+      "category": "international_requirements",
+      "score": 3,
+      "signals": [
+        "international",
+        "requirements",
+        "english"
+      ],
+      "title": "Current Students | The Hong Kong Polytechnic University"
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/education/",
+      "category": "international_requirements",
+      "score": 3,
+      "signals": [
+        "international",
+        "requirements",
+        "english"
+      ],
+      "title": "PolyU - Exchange Programmes and Overseas Internship Opportunities"
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/gs/",
+      "category": "undergraduate_admissions",
+      "score": 1,
+      "signals": [
+        "apply"
+      ],
+      "title": "Graduate School: Top Postgraduate Opportunities | PolyU | Graduate School"
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/cus/",
+      "category": "undergraduate_admissions",
+      "score": 1,
+      "signals": [
+        "admissions"
+      ],
+      "title": "Home | College of Undergraduate Studies"
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/prospective-students/",
+      "category": "programme_list",
+      "score": 5,
+      "signals": [
+        "programmes",
+        "degree",
+        "undergraduate programmes"
+      ],
+      "title": "Master's Degree Programme - PolyU Programme List"
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/study/ug",
+      "category": "undergraduate_admissions",
+      "score": 6,
+      "signals": [
+        "undergraduate admissions",
+        "admissions",
+        "apply",
+        "how to apply"
+      ],
+      "title": "Undergraduate Admissions | The Hong Kong Polytechnic University (PolyU)"
+    },
+    {
+      "source_url": "https://www.polyu.edu.hk/research/",
+      "category": "programme_list",
+      "score": 2,
+      "signals": [
+        "programmes",
+        "degree"
+      ],
+      "title": "Best Research Universities in Asia | PolyU"
+    }
+  ],
+  "evidence": [
+    {
+      "claim_path": "/scholarships/0/value",
+      "source_url": "https://www.polyu.edu.hk/admissions/",
+      "snippet": "Scholarships Top 100 Universities In The World Exchange Programmes and Overseas Internship Hong Kong Study Abroad Scholarships in Hong Kong Graduate School Hong Kong PhD Fellowship Scheme Knowledge Transfer and Entrepreneurship Mainland Translational Research Institutes Master's Degree Programme Best Research Universities in Asia Research Postgraduate Postgraduate Programmes Taught Postgraduate Programme Jupas 2025 Non Jupas Top Hong Kong universities in THE University Rankings | PolyU With over 80 years of proud tradition in Hong Kong, PolyU ranks among the world’s top institutions holding the 129th place in the THE University Rankings 2021.",
+      "source_type": "html",
+      "title": "Study in Hong Kong: University Admissions & Top Rankings | PolyU",
+      "retrieved_at": "2026-06-04T08:47:47.227377+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "confidence": "medium",
+      "warnings": []
+    },
+    {
+      "claim_path": "/fees/0/value",
+      "source_url": "https://www.polyu.edu.hk/admissions/tuition-fees-and-scholarships/",
+      "snippet": "tuition fee for Bachelor's Degree programmes is HK$47,000 per academic year for local students.",
+      "source_type": "html",
+      "title": "University Scholarships for Bachelor's & Master's Degrees ｜PolyU",
+      "retrieved_at": "2026-06-04T08:47:51.436443+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "confidence": "medium",
+      "warnings": []
+    },
+    {
+      "claim_path": "/scholarships/1/value",
+      "source_url": "https://www.polyu.edu.hk/study/ug/fees-and-scholarships/scholarships",
+      "snippet": "Scholarships We offer a wide range of scholarships for undergraduate students We offer a variety of scholarships for undergraduate students to recognize academic and non-academic excellence.",
+      "source_type": "html",
+      "title": "Undergraduate University Scholarships | The Hong Kong Polytechnic University (PolyU)",
+      "retrieved_at": "2026-06-04T08:47:55.789472+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "confidence": "medium",
+      "warnings": []
+    },
+    {
+      "claim_path": "/admissions/english_requirements/0/value",
+      "source_url": "https://www.polyu.edu.hk/study/ug/admissions/jupas",
+      "snippet": "Programme Entrance Requirements and Subject Weightings JUPAS Score Calculator Flexible Admission Arrangements More FAQs Undergraduate JUPAS Score Calculator for 2026/27 is now available Undergraduate Plan Ahead with PolyU: Join our JUPAS Admissions Q&A, 9 May on campus and 11 – 13 May online Undergraduate JUPAS Score Calculator for 2026/27 is now available Undergraduate Plan Ahead with PolyU: Join our JUPAS Admissions Q&A, 9 May on campus and 11 – 13 May online Don’t Miss the Key Dates 09 Oct 2025 Application Starts 03 Dec 2025 Deadline for submission of JUPAS applications 27 May 2026 Deadline for updating of programme choices via JUPAS 15 Jul 2026 Release of 2025 HKDSE results 05 Aug 2026 Announcement of Main Round offer results Show More 7 Kinds of Basic Info You Should Know 1 Requirements General Entrance Requirements Scheme / Programme Requirements Flexible Admission Arrangements Admission Scores JUPAS Score Calculator 2 Procedures Application Procedures Interview Arrangement Student Under 18 3 Special Admission Scheme School Nominations Direct Admission Scheme (SNDAS) Special Talents Admission and Recognition Scheme (STARS) 4 Admission Policies Non-local Applicants Distinctive Features of UG Programmes Curriculum Framework Admission Selection Credit Transfer and Exemption Concurrent Enrolment Inter-institutional Transfer Re-admission Applicants with Disabilities / Special Educational Needs 5 Fees / Financial Assistance Tuition Fees Other Fees and Expenses Financial Assistance 6 Frequently Asked Questions Entrance Requirements Admission Score Calculation Admission Selection Non-Academic Achievements 7 Admission Leaflet JUPAS Admission Leaflet All Colleges, Faculties and Schools College of Undergraduate Studies Faculty of Business Faculty of Computer and Mathematical Sciences Faculty of Construction and Environment Faculty of Engineering Faculty of Health and Social Sciences Faculty of Humanities Faculty of Science School of Design School of Fashion and Textiles School of Hotel and Tourism Management All Colleges, Faculties and Schools JS3060 | Sept 2026 Entry Full-time Accounting and Finance (Accountancy / Accounting and Finance / Digital Finance and Investment) - BBA (Hons) Scheme - Bachelor of Business Administration (Honours) Scheme 會計及金融(榮譽)工商管理學士組合課程 (會計學 / 會計及金融 / 數碼金融及投資學) JS3220 | Sept 2026 Entry Full-time Applied Mathematics and Finance Analytics (Applied Mathematics / Investment Science and Finance Analytics / Quantitative Finance and FinTech) - BSc (Hons) Scheme - Bachelor of Science (Honours) Scheme 應用數學及金融分析(榮譽)理學士組合課程 (應用數學 / 投資科學及金融分析 / 量化金融及金融科技) JS3250 | Sept 2026 Entry Full-time Applied Social Sciences (Social Work / Social Policy and Social Entrepreneurship) - BA (Hons) Scheme - Bachelor of Arts (Honours) Scheme 應用社會科學(榮譽)文學士組合課程 (社會工作 / 社會政策及社會創業) JS3214 | Sept 2026 Entry Full-time Architectural Studies - BSc (Hons) - Bachelor of Science (Honours) 建築學(榮譽)理學士 JS3140 | Sept 2026 Entry Full-time Aviation Engineering (Aeronautical Engineering / Air Transport Engineering) - BEng (Hons) Scheme - Bachelor of Engineering (Honours) Scheme 航空工程學(榮譽)工學士組合課程 (航空工程學 / 民航工程學) JS3150 | Sept 2026 Entry Full-time Biomedical Engineering - BSc (Hons) - Bachelor of Science (Honours) 生物醫學工程(榮譽)理學士 JS3011 | Sept 2026 Entry Full-time Biotechnology and Chemical Technology - BSc (Hons) Scheme - Bachelor of Science (Honours) Scheme 生物科技及化學科技(榮譽)理學士組合課程 JS3791 | Sept 2026 Entry Full-time Building Engineering and Management - BSc (Hons) - Bachelor of Science (Honours) 建築工程及管理學(榮譽)理學士 JS3211 | Sept 2026 Entry Full-time Building Sciences and Engineering - BEng (Hons) - Bachelor of Engineering (Honours) 建築科學及工程學(榮譽)工學士 JS3003 | Sept 2026 Entry Full-time Business Administration - Bachelor’s Degree Scheme 工商管理組合學士課程 JS3320 | Sept 2026 Entry Full-time Chinese History and Culture - BA (Hons) - Bachelor of Arts (Honours) 中國歷史及文化(榮譽)文學士 JS3739 | Sept 2026 Entry Full-time Civil Engineering - BEng (Hons) - Bachelor of Engineering (Honours) 土木工程學(榮譽)工學士 JS3006 | Sept 2026 Entry Full-time Computer and Mathematical Sciences - Bachelor’s Degree Scheme 計算機及數學科學組合學士課程 JS3868 | Sept 2026 Entry Full-time Computing and AI (Computer Science / Enterprise Information Systems) - BSc (Hons) Scheme - Bachelor of Science (Honours) Scheme 電子計算及人工智能(榮譽)理學士組合課程 (計算機科學 / 企業信息管理) JS3004 | Sept 2026 Entry Full-time Construction and Environment - Bachelor’s Degree Scheme 建設及環境組合學士課程 Show More JUPAS Score Calculator JUPAS Select a Discipline Business Computer and Mathematical Sciences Construction and Environment Design Engineering Fashion and Textiles Health and Social Sciences Hotel and Tourism Management Humanities Interdiscipline Science Select a Programme Accounting and Finance - BBA (Hons) Scheme Applied Mathematics and Finance Analytics - BSc (Hons) Scheme Applied Social Sciences - BA (Hons) Scheme Architectural Studies - BSc (Hons) Aviation Engineering - BEng (Hons) Scheme Biomedical Engineering - BSc (Hons) Biotechnology and Chemical Technology - BSc (Hons) Scheme Building Engineering and Management - BSc (Hons) Building Sciences and Engineering - BEng (Hons) Business Administration - Bachelor’s Degree Scheme Chinese History and Culture - BA (Hons) Civil Engineering - BEng (Hons) Computer and Mathematical Sciences - Bachelor’s Degree Scheme Computing and AI - BSc (Hons) Scheme Construction and Environment - Bachelor’s Degree Scheme Data Science and Artificial Intelligence - BSc (Hons) Scheme Design - BA (Hons) Scheme Electrical Engineering - BEng (Hons) Scheme Engineering - Bachelor’s Degree Scheme English and Applied Linguistics - BA (Hons) Environmental Engineering and Sustainable Development - BEng (Hons) Fashion - BA (Hons) Scheme Food Science and Nutrition - BSc (Hons) Scheme Global Business and Logistics, Aviation, Maritime, and Supply Chain Management - BBA (Hons) Scheme Hotel and Tourism Management - BSc (Hons) Scheme Humanities - Bachelor’s Degree Scheme Information and Artificial Intelligence Engineering - BEng (Hons) / BSc (Hons) Scheme Intelligent Supply Chain and Engineering Management - BSc (Hons) Scheme Interdisciplinary Studies - Bachelor’s Degree Scheme Language Science and Technology - BSc (Hons) Management and Marketing - BBA (Hons) Scheme Mechanical Engineering - BEng (Hons) Scheme Medical Laboratory Science - BSc (Hons) Mental Health Nursing - BSc (Hons) Nursing - BSc (Hons) Occupational Therapy - BSc (Hons) Optometry - BSc (Hons) Physics with a Secondary Major in Artificial Intelligence & Data Analytics (AIDA) / Innovation and Entrepreneurship (IE) - BSc (Hons) Physiotherapy - BSc (Hons) Product Innovation and Smart Manufacturing - BEng (Hons) Scheme Radiography - BSc (Hons) Science - Bachelor’s Degree Scheme Spatial Data Science and Smart Cities - BSc (Hons) Scheme Speech Therapy - BSc (Hons) Sports Science and Technology - BSc (Hons) Surveying - BSc (Hons) Select a Programme Go to Calculate Click Here to Learn More Click Here to Learn More",
+      "source_type": "html",
+      "title": "JUPAS Admissions | The Hong Kong Polytechnic University (PolyU)",
+      "retrieved_at": "2026-06-04T08:48:44.364398+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "confidence": "medium",
+      "warnings": []
+    },
+    {
+      "claim_path": "/admissions/application_periods/0/value",
+      "source_url": "https://www.polyu.edu.hk/study/ug/admissions/non-jupas-senior-year",
+      "snippet": "Application Deadline: 05 Feb 2026",
+      "source_type": "html",
+      "title": "Non-JUPAS Admissions (Senior Year Entry) | The Hong Kong Polytechnic University (PolyU)",
+      "retrieved_at": "2026-06-04T08:48:52.744959+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "confidence": "high",
+      "warnings": []
+    },
+    {
+      "claim_path": "/admissions/undergraduate_application_entry",
+      "source_url": "https://www.polyu.edu.hk/study/ug/admissions/non-jupas-senior-year",
+      "snippet": "Non-JUPAS Admissions (Senior Year Entry) | The Hong Kong Polytechnic University (PolyU)",
+      "source_type": "html",
+      "title": "Non-JUPAS Admissions (Senior Year Entry) | The Hong Kong Polytechnic University (PolyU)",
+      "retrieved_at": "2026-06-04T08:48:52.744959+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "confidence": "high",
+      "warnings": []
+    },
+    {
+      "claim_path": "/contacts/0/value",
+      "source_url": "https://www.polyu.edu.hk/contact-us/form.php",
+      "snippet": "Any data access and correction request according to the Ordinance should be made in writing to the Departmental Personal Data Officer at M1604, 16/F, Li Ka Shing Tower, The Hong Kong Polytechnic University or by email at paadmin@polyu.edu.hk .",
+      "source_type": "html",
+      "title": "Contact Us",
+      "retrieved_at": "2026-06-04T08:49:04.873206+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "confidence": "medium",
+      "warnings": []
+    },
+    {
+      "claim_path": "/fees/1/value",
+      "source_url": "https://www.polyu.edu.hk/sao/student-resources-and-support-section/residential-life/hall-admission/hall-fees/",
+      "snippet": "$200",
+      "source_type": "html",
+      "title": "Hall Fees | Student Affairs Office",
+      "retrieved_at": "2026-06-04T08:49:15.169275+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "confidence": "medium",
+      "warnings": []
+    },
+    {
+      "claim_path": "/fees/2/value",
+      "source_url": "https://www.polyu.edu.hk/gs/prospective-students/fellowship-scholarship-schemes/",
+      "snippet": "$340,800",
+      "source_type": "html",
+      "title": "Hong Kong PhD Fellowship Scheme Applications | PolyU",
+      "retrieved_at": "2026-06-04T08:49:26.570412+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "confidence": "medium",
+      "warnings": []
+    },
+    {
+      "claim_path": "/admissions/application_periods/1/value",
+      "source_url": "https://www38.polyu.edu.hk/eAdmission/index.do",
+      "snippet": "Application Deadline 19 Nov 2025",
+      "source_type": "html",
+      "title": "PolyU eAdmission",
+      "retrieved_at": "2026-06-04T08:49:30.688298+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "confidence": "high",
+      "warnings": []
+    },
+    {
+      "claim_path": "/admissions/english_requirements/1/value",
+      "source_url": "https://www.polyu.edu.hk/current-students/",
+      "snippet": "English, students must meet the specific requirements of English proficiency as stated in the summer programme website: https://www.",
+      "source_type": "html",
+      "title": "Current Students | The Hong Kong Polytechnic University",
+      "retrieved_at": "2026-06-04T08:50:02.022154+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "confidence": "medium",
+      "warnings": []
+    },
+    {
+      "claim_path": "/admissions/english_requirements/2/value",
+      "source_url": "https://www.polyu.edu.hk/education/",
+      "snippet": "English Language Centre Institute for Higher Education Research and Development Quick Links Quick Links Quality Assurance under the Outcome-Based Framework General University Requirements",
+      "source_type": "html",
+      "title": "PolyU - Exchange Programmes and Overseas Internship Opportunities",
+      "retrieved_at": "2026-06-04T08:50:06.026617+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "confidence": "medium",
+      "warnings": []
+    }
+  ],
+  "confidence": "low",
+  "warnings": [
+    {
+      "code": "needs_manual_check",
+      "message": "No prior result supplied; incremental diff baseline is unavailable.",
+      "field": "/run/diff",
+      "source_urls": []
+    },
+    {
+      "code": "needs_manual_check",
+      "message": "Some core undergraduate admissions fields were not found; review coverage.missing.",
+      "field": "/run/config/coverage",
+      "source_urls": []
+    },
+    {
+      "code": "needs_manual_check",
+      "message": "Required documents were not found in the offline fixture.",
+      "field": "/admissions/required_documents/0/value",
+      "source_urls": []
+    },
+    {
+      "code": "conflict",
+      "message": "Conflicting official values found for application deadline; preserve all sources for manual review.",
+      "field": "/conflicts/application_deadline",
+      "source_urls": [
+        "https://www.polyu.edu.hk/study/ug/admissions/non-jupas-senior-year",
+        "https://www38.polyu.edu.hk/eAdmission/index.do"
+      ]
+    },
+    {
+      "code": "conflict",
+      "message": "Conflicting official values found for english language requirement; preserve all sources for manual review.",
+      "field": "/conflicts/english_language_requirement",
+      "source_urls": [
+        "https://www.polyu.edu.hk/current-students/",
+        "https://www.polyu.edu.hk/education/",
+        "https://www.polyu.edu.hk/study/ug/admissions/jupas"
+      ]
+    },
+    {
+      "code": "conflict",
+      "message": "Conflicting official values found for tuition/fees; preserve all sources for manual review.",
+      "field": "/conflicts/tuition/fees",
+      "source_urls": [
+        "https://www.polyu.edu.hk/admissions/tuition-fees-and-scholarships/",
+        "https://www.polyu.edu.hk/gs/prospective-students/fellowship-scholarship-schemes/",
+        "https://www.polyu.edu.hk/sao/student-resources-and-support-section/residential-life/hall-admission/hall-fees/"
+      ]
+    },
+    {
+      "code": "conflict",
+      "message": "Conflicting official values found for scholarship; preserve all sources for manual review.",
+      "field": "/conflicts/scholarship",
+      "source_urls": [
+        "https://www.polyu.edu.hk/admissions/",
+        "https://www.polyu.edu.hk/study/ug/fees-and-scholarships/scholarships"
+      ]
+    }
+  ]
+}

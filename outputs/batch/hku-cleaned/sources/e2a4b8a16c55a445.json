@@ -1,0 +1,11 @@
+{
+  "source_url": "https://admissions.hku.hk/experience/pre-university-programme",
+  "source_type": "html",
+  "title": "Pre-University Programme | Admissions Office, the Registry",
+  "retrieved_at": "2026-06-08T07:50:45.756630+00:00",
+  "academic_year": null,
+  "page_number": null,
+  "content_hash": "e2a4b8a16c55a445d2bfda0c1e18b860fd1d0a2334a9a9ae2416a4f252b70021",
+  "engine": "playwright-browser",
+  "is_official": true
+}

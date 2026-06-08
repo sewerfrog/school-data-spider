@@ -1,0 +1,11 @@
+{
+  "source_url": "https://admissions.hku.hk/contact-us",
+  "source_type": "html",
+  "title": "Contact Us | Admissions Office, the Registry",
+  "retrieved_at": "2026-06-08T02:53:44.097745+00:00",
+  "academic_year": null,
+  "page_number": null,
+  "content_hash": "f755c53c4e90f6f584cdb4202ba86f134777c56dbc2a2ba108a30c17c68e3070",
+  "engine": "playwright-browser",
+  "is_official": true
+}

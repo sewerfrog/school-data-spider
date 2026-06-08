@@ -1,0 +1,11 @@
+{
+  "source_url": "https://www.ntu.edu.sg/admissions/undergraduate/financial-matters",
+  "source_type": "html",
+  "title": "Financial Matters | NTU Singapore",
+  "retrieved_at": "2026-06-04T08:46:05.198536+00:00",
+  "academic_year": null,
+  "page_number": null,
+  "content_hash": "d7950b50cdd3676759df8574695eb248a17fbf7ab3bfcd4e4fe0bfc7437c210e",
+  "engine": "playwright-browser",
+  "is_official": true
+}

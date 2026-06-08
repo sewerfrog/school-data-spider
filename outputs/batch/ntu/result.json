@@ -1,0 +1,1761 @@
+{
+  "institution": {
+    "name": {
+      "value": "Nanyang Technological University",
+      "evidence": [],
+      "confidence": "low",
+      "status": "unknown",
+      "warnings": []
+    },
+    "homepage_url": "https://www.ntu.edu.sg/admissions/undergraduate",
+    "country_or_region": {
+      "value": "unknown",
+      "evidence": [],
+      "confidence": "low",
+      "status": "unknown",
+      "warnings": []
+    }
+  },
+  "run": {
+    "input_url": "https://www.ntu.edu.sg/admissions/undergraduate",
+    "retrieved_at": "2026-06-04T08:46:28.790839+00:00",
+    "crawler_version": null,
+    "config": {
+      "max_pages": 30,
+      "max_depth": 2,
+      "allowed_hosts": [],
+      "allowed_domains": [
+        "ntu.edu.sg"
+      ],
+      "source_strategy": [
+        {
+          "url": "https://www.ntu.edu.sg/admissions/undergraduate",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.ntu.edu.sg/admissions/undergraduate/admission-guide/international-qualifications",
+          "source_type": "html",
+          "category": "international_requirements",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.ntu.edu.sg/admissions/undergraduate/financial-matters/tuition-fees",
+          "source_type": "html",
+          "category": "fees",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.ntu.edu.sg/admissions/undergraduate-programmes?listingKeyword=&disciplines=all&programmelevels=all&programmetypes=all&page=1",
+          "source_type": "html",
+          "category": "programme_list",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.ntu.edu.sg/honours-college/signature-programmes/turing-ai-scholars-programme",
+          "source_type": "html",
+          "category": "programme_list",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.ntu.edu.sg/computing/admissions/undergraduate-programmes/minorprogrammes/minor-in-artificial-intelligence-ai",
+          "source_type": "html",
+          "category": "programme_list",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.ntu.edu.sg/honours-college/signature-programmes/turing-ai-scholars-programme",
+          "source_type": "html",
+          "category": "programme_list",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.ntu.edu.sg/honours-college/signature-programmes/renaissance-engineering-programme",
+          "source_type": "html",
+          "category": "programme_list",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.ntu.edu.sg/honours-college/signature-programmes/ntu-university-scholars-programme",
+          "source_type": "html",
+          "category": "irrelevant",
+          "strategy": "irrelevant"
+        },
+        {
+          "url": "https://www.ntu.edu.sg/honours-college/signature-programmes/cn-yang-scholars-programme",
+          "source_type": "html",
+          "category": "irrelevant",
+          "strategy": "irrelevant"
+        },
+        {
+          "url": "https://www.ntu.edu.sg/ase/admissions/undergraduate-programmes/second-major-in-sustainability",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.ntu.edu.sg/computing/admissions/undergraduate-programmes",
+          "source_type": "html",
+          "category": "programme_list",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.ntu.edu.sg/admissions/undergraduate/scholarships",
+          "source_type": "html",
+          "category": "scholarships",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.ntu.edu.sg/admissions/undergraduate/scholarships/faqs-on-scholarships",
+          "source_type": "html",
+          "category": "scholarships",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.ntu.edu.sg/admissions/undergraduate/financial-matters/tuition-grants",
+          "source_type": "html",
+          "category": "fees",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.ntu.edu.sg/admissions/undergraduate/financial-matters/miscellaneous-fees",
+          "source_type": "html",
+          "category": "fees",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.ntu.edu.sg/admissions/graduate/joint-graduate-programmes",
+          "source_type": "html",
+          "category": "programme_list",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.ntu.edu.sg/admissions/graduate/financialmatters/scholarships",
+          "source_type": "html",
+          "category": "scholarships",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.ntu.edu.sg/admissions/graduate/financialmatters/pgtuitionfees",
+          "source_type": "html",
+          "category": "fees",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.ntu.edu.sg/sss/admissions/programmes/PPE",
+          "source_type": "html",
+          "category": "programme_list",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.ntu.edu.sg/hass/admissions/programmes",
+          "source_type": "html",
+          "category": "programme_list",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.ntu.edu.sg/about-us/sustainability/sustainability-education/undergraduate-programmes",
+          "source_type": "html",
+          "category": "programme_list",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.ntu.edu.sg/admissions/undergraduate/admission-guide/international-baccalaureate-diploma",
+          "source_type": "html",
+          "category": "international_requirements",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.ntu.edu.sg/admissions/undergraduate/financial-matters",
+          "source_type": "html",
+          "category": "fees",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.ntu.edu.sg/admissions/undergraduate/financial-matters/financial-aid",
+          "source_type": "html",
+          "category": "scholarships",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.ntu.edu.sg/admissions/undergraduate/contact-us",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.ntu.edu.sg/life-at-ntu/accommodation/undergraduate-housing/application",
+          "source_type": "html",
+          "category": "housing",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.ntu.edu.sg/life-at-ntu/accommodation/undergraduate-housing/contact-us",
+          "source_type": "html",
+          "category": "housing",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://www.ntu.edu.sg/nie/admissions/undergraduate-education-admissions/teaching-scholars-programme",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        }
+      ],
+      "diff": {
+        "baseline": "none",
+        "changed_sources": [],
+        "changed_fields": []
+      },
+      "coverage": {
+        "core_fields_total": 9,
+        "found_count": 6,
+        "missing_count": 3,
+        "found": [
+          "application_periods",
+          "english_requirements",
+          "programmes",
+          "fees",
+          "scholarships",
+          "contacts"
+        ],
+        "missing": [
+          "undergraduate_application_entry",
+          "accepted_qualifications",
+          "required_documents"
+        ],
+        "coverage_ratio": 0.667,
+        "note": "Coverage reports whether core fields were found; overall confidence reports evidence/conflict quality for extracted claims."
+      },
+      "source_strategy_summary": {
+        "html_page": 27,
+        "irrelevant": 2
+      },
+      "university_id": "ntu",
+      "seed_urls": [
+        "https://www.ntu.edu.sg/admissions/undergraduate"
+      ]
+    }
+  },
+  "sources": [
+    {
+      "source_url": "https://www.ntu.edu.sg/admissions/undergraduate",
+      "source_type": "html",
+      "title": "Undergraduate | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:45:00.105727+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "ce4a812ef03b6cb2cc928add4a97e03a148e17e369e0c51663d72e7da65a8b81",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/admissions/undergraduate/admission-guide/international-qualifications",
+      "source_type": "html",
+      "title": "International Qualifications | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:45:03.655231+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "6f61f6ef45fda1dad21d14e98bd7023ef17db59a35ed2165287d22094439f0c0",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/admissions/undergraduate/financial-matters/tuition-fees",
+      "source_type": "html",
+      "title": "Tuition Fees | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:45:06.074825+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "fef4c4833248a4b54019fd38f2813b6b0ed797de4f62f588009d493541b3a02f",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/admissions/undergraduate-programmes?listingKeyword=&disciplines=all&programmelevels=all&programmetypes=all&page=1",
+      "source_type": "html",
+      "title": "Undergraduate Programmes | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:45:08.045388+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "69f68c8054720d74d995c34903400519842eeae468bcf00691f0b419bdb2bdec",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/honours-college/signature-programmes/turing-ai-scholars-programme",
+      "source_type": "html",
+      "title": "Turing AI Scholars Programme | NTU Honours College | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:45:11.222172+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "3e85ec822bac3ff14df09f49ddd0f5a81c06da5febc9f0a1f9cb927ee49b2eb2",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/computing/admissions/undergraduate-programmes/minorprogrammes/minor-in-artificial-intelligence-ai",
+      "source_type": "html",
+      "title": "Minor in Artificial Intelligence (AI) | College of Computing and Data Science | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:45:13.730073+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "1ff611aa106ae40daa793f6cd5365051547581766bf247568407d557e00e9e9c",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/honours-college/signature-programmes/turing-ai-scholars-programme",
+      "source_type": "html",
+      "title": "Turing AI Scholars Programme | NTU Honours College | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:45:15.676592+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "3e85ec822bac3ff14df09f49ddd0f5a81c06da5febc9f0a1f9cb927ee49b2eb2",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/honours-college/signature-programmes/renaissance-engineering-programme",
+      "source_type": "html",
+      "title": "Renaissance Engineering Programme | NTU Honours College | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:45:18.892684+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "27c53057acebe0e057e02ec4bcf4138a54d880119e6371b8f6d3a1e5137da426",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/honours-college/signature-programmes/ntu-university-scholars-programme",
+      "source_type": "html",
+      "title": "NTU-University Scholars Programme (NTU-USP) | NTU Honours College | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:45:21.155140+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "1be5cddf45f15cc906a2b7acae70b0a93f469cdae753cff681f20573e97d4a60",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/honours-college/signature-programmes/cn-yang-scholars-programme",
+      "source_type": "html",
+      "title": "CN Yang Scholars Programme (CNYSP) | Premier Scholars Programmes | NTU Honours College | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:45:24.870780+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "0c3b45833251336f3d190e7ca909532a05c6ea4b6bb33e1560a858cdf761dd29",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/ase/admissions/undergraduate-programmes/second-major-in-sustainability",
+      "source_type": "html",
+      "title": "Second Major in Sustainability | The Asian School of the Environment | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:45:26.931467+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "8a03da7f1cfb261e22a9d4018d9b2fc71ad901e10507d9645d3e807575debc9f",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/computing/admissions/undergraduate-programmes",
+      "source_type": "html",
+      "title": "Undergraduate Education at CCDS | College of Computing and Data Science, NTU Singapore | College of Computing and Data Science | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:45:28.998343+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "cbafcc48887e431d467bf01b272ad810c4ca0d160f32dc6c4019c2ff966fe9e6",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/admissions/undergraduate/scholarships",
+      "source_type": "html",
+      "title": "Scholarships and Awards | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:45:32.329998+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "72468184a257eee7eb42b597cecb118b5e77da8864653a995f63c49f7ce207de",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/admissions/undergraduate/scholarships/faqs-on-scholarships",
+      "source_type": "html",
+      "title": "FAQs on scholarships | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:45:34.890005+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "d29ca612a6dfe3499300c35746e9e22108cbd982b88c6abdee166067c469b07d",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/admissions/undergraduate/financial-matters/tuition-grants",
+      "source_type": "html",
+      "title": "Tuition Grants | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:45:37.216168+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "2975f4f450c4784d7bcc37fc6245642e2807b6f9a350d57066d9988e0df63d1a",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/admissions/undergraduate/financial-matters/miscellaneous-fees",
+      "source_type": "html",
+      "title": "Miscellaneous Fees | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:45:39.381533+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "0cfd3496c14772fb23d57cd9c7416b0987cfdfe0c3917fb2bd7b44c5efeb3431",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/admissions/graduate/joint-graduate-programmes",
+      "source_type": "html",
+      "title": "Joint-Graduate Programmes | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:45:42.197774+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "ec1b56246a43eb86f7e91858c08f1ec1f2658a79b2aea740406600801fa1e404",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/admissions/graduate/financialmatters/scholarships",
+      "source_type": "html",
+      "title": "Postgraduate Scholarships | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:45:45.694087+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "b2d06c06fb86209ec8b1d5bd8a2b4a19ea6a91905d70cec836a3227410d5ee2a",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/admissions/graduate/financialmatters/pgtuitionfees",
+      "source_type": "html",
+      "title": "Postgraduate Tuition Fees | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:45:48.451639+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "359466af0e460cb97949381b5525da84d6237c1d7bd8aad15452b914df9a8585",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/sss/admissions/programmes/PPE",
+      "source_type": "html",
+      "title": "Philosophy, Politics, and Economics (PPE) | School of Social Sciences | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:45:55.011110+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "f6ba1bd45b7d6c4d3e929012c84fb4b6308e2c1b34395097780e699db612d2c6",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/hass/admissions/programmes",
+      "source_type": "html",
+      "title": "Undergraduate Programmes | College of Humanities, Arts and Social Sciences | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:45:57.620507+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "13c558b3473942a2bbfa452da901e839d34c726428d275efef8e2d8cf30a5b89",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/about-us/sustainability/sustainability-education/undergraduate-programmes",
+      "source_type": "html",
+      "title": "Undergraduate Programmes | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:46:00.012534+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "31d6058374c66ebcb0b8aedd97df9423598afb86745c5967dfed86ef0c455cd7",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/admissions/undergraduate/admission-guide/international-baccalaureate-diploma",
+      "source_type": "html",
+      "title": "International Baccalaureate Diploma | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:46:02.751533+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "b6aea7b856354aadb6cc9a82fce95d480f27050ef56d48c1de3402acd6091472",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/admissions/undergraduate/financial-matters",
+      "source_type": "html",
+      "title": "Financial Matters | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:46:05.198536+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "d7950b50cdd3676759df8574695eb248a17fbf7ab3bfcd4e4fe0bfc7437c210e",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/admissions/undergraduate/financial-matters/financial-aid",
+      "source_type": "html",
+      "title": "Financial Aid | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:46:08.147035+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "5ababc82d22e658d95ef86324922ee31c2972cf14a06160defa3099223b34835",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/admissions/undergraduate/contact-us",
+      "source_type": "html",
+      "title": "Contact Us for Undergraduate Admissions | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:46:10.905477+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "fd92d528f951e200de933ee27ccaff368fa866e6dca40195fc81b6333a8a9a76",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/life-at-ntu/accommodation/undergraduate-housing/application",
+      "source_type": "html",
+      "title": "Undergraduate Housing Application Schedule | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:46:13.902521+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "584598f0097b46c95169fe12d696bc5c97aaeea7ac42a4b15180d59c215e5f8b",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/life-at-ntu/accommodation/undergraduate-housing/contact-us",
+      "source_type": "html",
+      "title": "Contact Us for Undergraduate Housing | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:46:16.312727+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "abb2dc49bbf8004b85715e66659a781617c3be667dca9372f07dc75cf66777c5",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/nie/admissions/undergraduate-education-admissions/teaching-scholars-programme",
+      "source_type": "html",
+      "title": "Teaching Scholars Programme | National Institute of Education (NIE) | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:46:25.339724+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "96d03514acdbc282eb8a287875990ed8646cdd80e309126edbedf91fbd52f942",
+      "engine": "playwright-browser",
+      "is_official": true
+    }
+  ],
+  "admissions": {
+    "undergraduate_application_entry": {
+      "value": "unknown",
+      "evidence": [],
+      "confidence": "low",
+      "status": "unknown",
+      "warnings": []
+    },
+    "international_requirements": [],
+    "accepted_qualifications": [],
+    "application_periods": [
+      {
+        "label": "application deadline",
+        "value": {
+          "value": "15 March 2026",
+          "evidence": [
+            "/admissions/application_periods/0/value"
+          ],
+          "confidence": "high",
+          "status": "known",
+          "warnings": []
+        },
+        "applicant_group": {
+          "value": "unknown",
+          "evidence": [],
+          "confidence": "low",
+          "status": "unknown",
+          "warnings": []
+        },
+        "qualification": {
+          "value": "unknown",
+          "evidence": [],
+          "confidence": "low",
+          "status": "unknown",
+          "warnings": []
+        },
+        "requires_applicant_group": false
+      }
+    ],
+    "required_documents": [
+      {
+        "label": "required documents",
+        "value": {
+          "value": "needs_manual_check",
+          "evidence": [],
+          "confidence": "low",
+          "status": "needs_manual_check",
+          "warnings": [
+            {
+              "code": "needs_manual_check",
+              "message": "Required documents were not found in the offline fixture.",
+              "field": "/admissions/required_documents/0/value",
+              "source_urls": []
+            }
+          ]
+        },
+        "applicant_group": {
+          "value": "unknown",
+          "evidence": [],
+          "confidence": "low",
+          "status": "unknown",
+          "warnings": []
+        },
+        "qualification": {
+          "value": "unknown",
+          "evidence": [],
+          "confidence": "low",
+          "status": "unknown",
+          "warnings": []
+        },
+        "requires_applicant_group": false
+      }
+    ],
+    "english_requirements": [
+      {
+        "label": "english language requirement",
+        "value": {
+          "value": "IELTS (a minimum Overall 6, writing 6, speaking 6) or TOEFL (a minimum of 90, verbal 25) [taken before 2026];-a minimum Overall score of 4.5, speaking 4.",
+          "evidence": [
+            "/admissions/english_requirements/0/value"
+          ],
+          "confidence": "medium",
+          "status": "known",
+          "warnings": []
+        },
+        "applicant_group": {
+          "value": "unknown",
+          "evidence": [],
+          "confidence": "low",
+          "status": "unknown",
+          "warnings": []
+        },
+        "qualification": {
+          "value": "unknown",
+          "evidence": [],
+          "confidence": "low",
+          "status": "unknown",
+          "warnings": []
+        },
+        "requires_applicant_group": false
+      },
+      {
+        "label": "english language requirement",
+        "value": {
+          "value": "Qualifying English Test (QET) | Click here for details .",
+          "evidence": [
+            "/admissions/english_requirements/1/value"
+          ],
+          "confidence": "medium",
+          "status": "known",
+          "warnings": []
+        },
+        "applicant_group": {
+          "value": "unknown",
+          "evidence": [],
+          "confidence": "low",
+          "status": "unknown",
+          "warnings": []
+        },
+        "qualification": {
+          "value": "unknown",
+          "evidence": [],
+          "confidence": "low",
+          "status": "unknown",
+          "warnings": []
+        },
+        "requires_applicant_group": false
+      }
+    ],
+    "standardized_tests": [],
+    "selection_tests_or_interviews": []
+  },
+  "programmes": [
+    {
+      "name": {
+        "value": "MBBS programme",
+        "evidence": [
+          "/programmes/0/name"
+        ],
+        "confidence": "medium",
+        "status": "known",
+        "warnings": []
+      },
+      "degree": {
+        "value": "unknown",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "faculty_or_school": {
+        "value": "unknown",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "source_url": "https://www.ntu.edu.sg/admissions/undergraduate/admission-guide/international-qualifications",
+      "prerequisites": [],
+      "evidence": [
+        "/programmes/0/name"
+      ]
+    },
+    {
+      "name": {
+        "value": "Bachelor of Communication Studies with honours to students",
+        "evidence": [
+          "/programmes/1/name"
+        ],
+        "confidence": "medium",
+        "status": "known",
+        "warnings": []
+      },
+      "degree": {
+        "value": "unknown",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "faculty_or_school": {
+        "value": "unknown",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "source_url": "https://www.ntu.edu.sg/hass/admissions/programmes",
+      "prerequisites": [],
+      "evidence": [
+        "/programmes/1/name"
+      ]
+    },
+    {
+      "name": {
+        "value": "Bachelor of Communication Studies programme, please click here",
+        "evidence": [
+          "/programmes/2/name"
+        ],
+        "confidence": "medium",
+        "status": "known",
+        "warnings": []
+      },
+      "degree": {
+        "value": "unknown",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "faculty_or_school": {
+        "value": "unknown",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "source_url": "https://www.ntu.edu.sg/hass/admissions/programmes",
+      "prerequisites": [],
+      "evidence": [
+        "/programmes/2/name"
+      ]
+    },
+    {
+      "name": {
+        "value": "Bachelor of Engineering in Robotics (B",
+        "evidence": [
+          "/programmes/3/name"
+        ],
+        "confidence": "medium",
+        "status": "known",
+        "warnings": []
+      },
+      "degree": {
+        "value": "unknown",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "faculty_or_school": {
+        "value": "unknown",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "source_url": "https://www.ntu.edu.sg/about-us/sustainability/sustainability-education/undergraduate-programmes",
+      "prerequisites": [],
+      "evidence": [
+        "/programmes/3/name"
+      ]
+    }
+  ],
+  "fees": [
+    {
+      "label": "tuition/fees",
+      "value": {
+        "value": "S$350",
+        "evidence": [
+          "/fees/0/value"
+        ],
+        "confidence": "medium",
+        "status": "known",
+        "warnings": []
+      },
+      "applicant_group": {
+        "value": "unknown",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "qualification": {
+        "value": "unknown",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "requires_applicant_group": false
+    },
+    {
+      "label": "tuition/fees",
+      "value": {
+        "value": "Tuition Fees For Semester 1 and 2 Accepted programme offer in 2026 Accepted programme offer in 2025 Accepted programme offer in 2024 Accepted programme offer in 2023 Accepted programme offer in 2022 Accepted programme offer in 2021 Accepted programme offer in 2020 For accepted programme offer in 2019 and before, please email to ubs@ntu.",
+        "evidence": [
+          "/fees/1/value"
+        ],
+        "confidence": "medium",
+        "status": "known",
+        "warnings": []
+      },
+      "applicant_group": {
+        "value": "unknown",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "qualification": {
+        "value": "unknown",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "requires_applicant_group": false
+    },
+    {
+      "label": "tuition/fees",
+      "value": {
+        "value": "Tuition Grant up to the normal programme duration less the number of semesters of Tuition Grant received for the previous programme(s).",
+        "evidence": [
+          "/fees/2/value"
+        ],
+        "confidence": "medium",
+        "status": "known",
+        "warnings": []
+      },
+      "applicant_group": {
+        "value": "unknown",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "qualification": {
+        "value": "unknown",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "requires_applicant_group": false
+    },
+    {
+      "label": "tuition/fees",
+      "value": {
+        "value": "fees are payable in each semester.",
+        "evidence": [
+          "/fees/3/value"
+        ],
+        "confidence": "medium",
+        "status": "known",
+        "warnings": []
+      },
+      "applicant_group": {
+        "value": "unknown",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "qualification": {
+        "value": "unknown",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "requires_applicant_group": false
+    },
+    {
+      "label": "tuition/fees",
+      "value": {
+        "value": "fees listed below are in Singapore dollars (S$), exclusive of Goods and Services Tax (GST).",
+        "evidence": [
+          "/fees/4/value"
+        ],
+        "confidence": "medium",
+        "status": "known",
+        "warnings": []
+      },
+      "applicant_group": {
+        "value": "unknown",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "qualification": {
+        "value": "unknown",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "requires_applicant_group": false
+    }
+  ],
+  "scholarships": [
+    {
+      "label": "scholarship",
+      "value": {
+        "value": "Scholarships and Awards For Returning NSmen Indicative Grade Profile (IGP) Freshmen Portal Contact Us Fast-track your edge at #NTUsg 🏎️ Discover how you can gear up for the #AI age and go full throttle towards achieving your dreams.",
+        "evidence": [
+          "/scholarships/0/value"
+        ],
+        "confidence": "medium",
+        "status": "known",
+        "warnings": []
+      },
+      "applicant_group": {
+        "value": "unknown",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "qualification": {
+        "value": "unknown",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "requires_applicant_group": false
+    },
+    {
+      "label": "scholarship",
+      "value": {
+        "value": "Scholarships and Awards | NTU Singapore 1 2 3 Guide to Scholarship Application for Freshmen With over 100 Scholarships available, we recognise that applicants may find it challenging to distinguish between the different awards and their respective benefits.",
+        "evidence": [
+          "/scholarships/1/value"
+        ],
+        "confidence": "medium",
+        "status": "known",
+        "warnings": []
+      },
+      "applicant_group": {
+        "value": "unknown",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "qualification": {
+        "value": "unknown",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "requires_applicant_group": false
+    },
+    {
+      "label": "scholarship",
+      "value": {
+        "value": "scholarships I can select in the online form? There is no restriction, you can select at least 1 of the scholarship categories in the scholarship application form.",
+        "evidence": [
+          "/scholarships/2/value"
+        ],
+        "confidence": "medium",
+        "status": "known",
+        "warnings": []
+      },
+      "applicant_group": {
+        "value": "unknown",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "qualification": {
+        "value": "unknown",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "requires_applicant_group": false
+    },
+    {
+      "label": "scholarship",
+      "value": {
+        "value": "Financial Aid | NTU Singapore We're here for you If you’re facing financial difficulties, NTU is here to support you.",
+        "evidence": [
+          "/scholarships/3/value"
+        ],
+        "confidence": "medium",
+        "status": "known",
+        "warnings": []
+      },
+      "applicant_group": {
+        "value": "unknown",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "qualification": {
+        "value": "unknown",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "requires_applicant_group": false
+    }
+  ],
+  "visa": [],
+  "housing": [
+    {
+      "label": "housing/accommodation",
+      "value": {
+        "value": "Housing if you have any questions.",
+        "evidence": [
+          "/housing/0/value"
+        ],
+        "confidence": "medium",
+        "status": "known",
+        "warnings": []
+      },
+      "applicant_group": {
+        "value": "unknown",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "qualification": {
+        "value": "unknown",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "requires_applicant_group": false
+    },
+    {
+      "label": "housing/accommodation",
+      "value": {
+        "value": "Housing Nanyang Technological University 42 Nanyang Avenue Student Services Centre, #04-01, Singapore 639815 Tel: (65) 67905155 Email: och-housing@ntu.",
+        "evidence": [
+          "/housing/1/value"
+        ],
+        "confidence": "medium",
+        "status": "known",
+        "warnings": []
+      },
+      "applicant_group": {
+        "value": "unknown",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "qualification": {
+        "value": "unknown",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "requires_applicant_group": false
+    }
+  ],
+  "contacts": [
+    {
+      "label": "admissions contact",
+      "value": {
+        "value": "ubs@ntu.edu.sg",
+        "evidence": [
+          "/contacts/0/value"
+        ],
+        "confidence": "medium",
+        "status": "known",
+        "warnings": []
+      },
+      "applicant_group": {
+        "value": "unknown",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "qualification": {
+        "value": "unknown",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "requires_applicant_group": false
+    }
+  ],
+  "discovered_categories": [
+    {
+      "source_url": "https://www.ntu.edu.sg/admissions/undergraduate",
+      "category": "undergraduate_admissions",
+      "score": 4,
+      "signals": [
+        "undergraduate admissions",
+        "admissions",
+        "apply"
+      ],
+      "title": "Undergraduate | NTU Singapore"
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/admissions/undergraduate/admission-guide/international-qualifications",
+      "category": "international_requirements",
+      "score": 7,
+      "signals": [
+        "international applicants",
+        "international",
+        "requirements",
+        "english"
+      ],
+      "title": "International Qualifications | NTU Singapore"
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/admissions/undergraduate/financial-matters/tuition-fees",
+      "category": "fees",
+      "score": 6,
+      "signals": [
+        "tuition",
+        "fees",
+        "fee"
+      ],
+      "title": "Tuition Fees | NTU Singapore"
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/admissions/undergraduate-programmes?listingKeyword=&disciplines=all&programmelevels=all&programmetypes=all&page=1",
+      "category": "programme_list",
+      "score": 6,
+      "signals": [
+        "programmes",
+        "degree",
+        "undergraduate programmes"
+      ],
+      "title": "Undergraduate Programmes | NTU Singapore"
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/honours-college/signature-programmes/turing-ai-scholars-programme",
+      "category": "programme_list",
+      "score": 2,
+      "signals": [
+        "programmes"
+      ],
+      "title": "Turing AI Scholars Programme | NTU Honours College | NTU Singapore"
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/computing/admissions/undergraduate-programmes/minorprogrammes/minor-in-artificial-intelligence-ai",
+      "category": "programme_list",
+      "score": 3,
+      "signals": [
+        "programmes",
+        "degree"
+      ],
+      "title": "Minor in Artificial Intelligence (AI) | College of Computing and Data Science | NTU Singapore"
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/honours-college/signature-programmes/turing-ai-scholars-programme",
+      "category": "programme_list",
+      "score": 2,
+      "signals": [
+        "programmes"
+      ],
+      "title": "Turing AI Scholars Programme | NTU Honours College | NTU Singapore"
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/honours-college/signature-programmes/renaissance-engineering-programme",
+      "category": "programme_list",
+      "score": 4,
+      "signals": [
+        "programmes",
+        "degrees",
+        "degree"
+      ],
+      "title": "Renaissance Engineering Programme | NTU Honours College | NTU Singapore"
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/honours-college/signature-programmes/ntu-university-scholars-programme",
+      "category": "irrelevant",
+      "score": -3,
+      "signals": [
+        "news",
+        "giving",
+        "blog"
+      ],
+      "title": "NTU-University Scholars Programme (NTU-USP) | NTU Honours College | NTU Singapore"
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/honours-college/signature-programmes/cn-yang-scholars-programme",
+      "category": "irrelevant",
+      "score": -3,
+      "signals": [
+        "alumni",
+        "giving",
+        "jobs"
+      ],
+      "title": "CN Yang Scholars Programme (CNYSP) | Premier Scholars Programmes | NTU Honours College | NTU Singapore"
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/ase/admissions/undergraduate-programmes/second-major-in-sustainability",
+      "category": "undergraduate_admissions",
+      "score": 3,
+      "signals": [
+        "admissions",
+        "apply"
+      ],
+      "title": "Second Major in Sustainability | The Asian School of the Environment | NTU Singapore"
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/computing/admissions/undergraduate-programmes",
+      "category": "programme_list",
+      "score": 5,
+      "signals": [
+        "programmes",
+        "degrees",
+        "degree",
+        "undergraduate programmes"
+      ],
+      "title": "Undergraduate Education at CCDS | College of Computing and Data Science, NTU Singapore | College of Computing and Data Science | NTU Singapore"
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/admissions/undergraduate/scholarships",
+      "category": "scholarships",
+      "score": 5,
+      "signals": [
+        "scholarship",
+        "scholarships"
+      ],
+      "title": "Scholarships and Awards | NTU Singapore"
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/admissions/undergraduate/scholarships/faqs-on-scholarships",
+      "category": "scholarships",
+      "score": 5,
+      "signals": [
+        "scholarship",
+        "scholarships"
+      ],
+      "title": "FAQs on scholarships | NTU Singapore"
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/admissions/undergraduate/financial-matters/tuition-grants",
+      "category": "fees",
+      "score": 6,
+      "signals": [
+        "tuition",
+        "fees",
+        "fee"
+      ],
+      "title": "Tuition Grants | NTU Singapore"
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/admissions/undergraduate/financial-matters/miscellaneous-fees",
+      "category": "fees",
+      "score": 6,
+      "signals": [
+        "tuition",
+        "fees",
+        "fee"
+      ],
+      "title": "Miscellaneous Fees | NTU Singapore"
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/admissions/graduate/joint-graduate-programmes",
+      "category": "programme_list",
+      "score": 5,
+      "signals": [
+        "programmes",
+        "degree"
+      ],
+      "title": "Joint-Graduate Programmes | NTU Singapore"
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/admissions/graduate/financialmatters/scholarships",
+      "category": "scholarships",
+      "score": 5,
+      "signals": [
+        "scholarship",
+        "scholarships"
+      ],
+      "title": "Postgraduate Scholarships | NTU Singapore"
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/admissions/graduate/financialmatters/pgtuitionfees",
+      "category": "fees",
+      "score": 6,
+      "signals": [
+        "tuition",
+        "fees",
+        "fee"
+      ],
+      "title": "Postgraduate Tuition Fees | NTU Singapore"
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/sss/admissions/programmes/PPE",
+      "category": "programme_list",
+      "score": 3,
+      "signals": [
+        "programmes",
+        "degree"
+      ],
+      "title": "Philosophy, Politics, and Economics (PPE) | School of Social Sciences | NTU Singapore"
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/hass/admissions/programmes",
+      "category": "programme_list",
+      "score": 7,
+      "signals": [
+        "programmes",
+        "degrees",
+        "degree",
+        "undergraduate programmes"
+      ],
+      "title": "Undergraduate Programmes | College of Humanities, Arts and Social Sciences | NTU Singapore"
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/about-us/sustainability/sustainability-education/undergraduate-programmes",
+      "category": "programme_list",
+      "score": 7,
+      "signals": [
+        "programmes",
+        "degrees",
+        "degree",
+        "undergraduate programmes"
+      ],
+      "title": "Undergraduate Programmes | NTU Singapore"
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/admissions/undergraduate/admission-guide/international-baccalaureate-diploma",
+      "category": "international_requirements",
+      "score": 7,
+      "signals": [
+        "international applicants",
+        "international",
+        "requirements",
+        "english"
+      ],
+      "title": "International Baccalaureate Diploma | NTU Singapore"
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/admissions/undergraduate/financial-matters",
+      "category": "fees",
+      "score": 3,
+      "signals": [
+        "tuition",
+        "fees",
+        "fee"
+      ],
+      "title": "Financial Matters | NTU Singapore"
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/admissions/undergraduate/financial-matters/financial-aid",
+      "category": "scholarships",
+      "score": 6,
+      "signals": [
+        "scholarship",
+        "scholarships",
+        "financial aid"
+      ],
+      "title": "Financial Aid | NTU Singapore"
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/admissions/undergraduate/contact-us",
+      "category": "undergraduate_admissions",
+      "score": 5,
+      "signals": [
+        "undergraduate admissions",
+        "admissions"
+      ],
+      "title": "Contact Us for Undergraduate Admissions | NTU Singapore"
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/life-at-ntu/accommodation/undergraduate-housing/application",
+      "category": "housing",
+      "score": 5,
+      "signals": [
+        "housing",
+        "accommodation"
+      ],
+      "title": "Undergraduate Housing Application Schedule | NTU Singapore"
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/life-at-ntu/accommodation/undergraduate-housing/contact-us",
+      "category": "housing",
+      "score": 5,
+      "signals": [
+        "housing",
+        "accommodation"
+      ],
+      "title": "Contact Us for Undergraduate Housing | NTU Singapore"
+    },
+    {
+      "source_url": "https://www.ntu.edu.sg/nie/admissions/undergraduate-education-admissions/teaching-scholars-programme",
+      "category": "undergraduate_admissions",
+      "score": 4,
+      "signals": [
+        "admissions",
+        "apply",
+        "how to apply"
+      ],
+      "title": "Teaching Scholars Programme | National Institute of Education (NIE) | NTU Singapore"
+    }
+  ],
+  "evidence": [
+    {
+      "claim_path": "/scholarships/0/value",
+      "source_url": "https://www.ntu.edu.sg/admissions/undergraduate",
+      "snippet": "Scholarships and Awards For Returning NSmen Indicative Grade Profile (IGP) Freshmen Portal Contact Us Fast-track your edge at #NTUsg 🏎️ Discover how you can gear up for the #AI age and go full throttle towards achieving your dreams.",
+      "source_type": "html",
+      "title": "Undergraduate | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:45:00.105727+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "confidence": "medium",
+      "warnings": []
+    },
+    {
+      "claim_path": "/admissions/english_requirements/0/value",
+      "source_url": "https://www.ntu.edu.sg/admissions/undergraduate/admission-guide/international-qualifications",
+      "snippet": "IELTS (a minimum Overall 6, writing 6, speaking 6) or TOEFL (a minimum of 90, verbal 25) [taken before 2026];-a minimum Overall score of 4.5, speaking 4.",
+      "source_type": "html",
+      "title": "International Qualifications | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:45:03.655231+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "confidence": "medium",
+      "warnings": []
+    },
+    {
+      "claim_path": "/fees/0/value",
+      "source_url": "https://www.ntu.edu.sg/admissions/undergraduate/admission-guide/international-qualifications",
+      "snippet": "S$350",
+      "source_type": "html",
+      "title": "International Qualifications | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:45:03.655231+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "confidence": "medium",
+      "warnings": []
+    },
+    {
+      "claim_path": "/programmes/0/name",
+      "source_url": "https://www.ntu.edu.sg/admissions/undergraduate/admission-guide/international-qualifications",
+      "snippet": "MBBS programme",
+      "source_type": "html",
+      "title": "International Qualifications | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:45:03.655231+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "confidence": "medium",
+      "warnings": []
+    },
+    {
+      "claim_path": "/fees/1/value",
+      "source_url": "https://www.ntu.edu.sg/admissions/undergraduate/financial-matters/tuition-fees",
+      "snippet": "Tuition Fees For Semester 1 and 2 Accepted programme offer in 2026 Accepted programme offer in 2025 Accepted programme offer in 2024 Accepted programme offer in 2023 Accepted programme offer in 2022 Accepted programme offer in 2021 Accepted programme offer in 2020 For accepted programme offer in 2019 and before, please email to ubs@ntu.",
+      "source_type": "html",
+      "title": "Tuition Fees | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:45:06.074825+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "confidence": "medium",
+      "warnings": []
+    },
+    {
+      "claim_path": "/contacts/0/value",
+      "source_url": "https://www.ntu.edu.sg/admissions/undergraduate/financial-matters/tuition-fees",
+      "snippet": "Tuition Fees For Semester 1 and 2 Accepted programme offer in 2026 Accepted programme offer in 2025 Accepted programme offer in 2024 Accepted programme offer in 2023 Accepted programme offer in 2022 Accepted programme offer in 2021 Accepted programme offer in 2020 For accepted programme offer in 2019 and before, please email to ubs@ntu.edu.sg .",
+      "source_type": "html",
+      "title": "Tuition Fees | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:45:06.074825+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "confidence": "medium",
+      "warnings": []
+    },
+    {
+      "claim_path": "/scholarships/1/value",
+      "source_url": "https://www.ntu.edu.sg/admissions/undergraduate/scholarships",
+      "snippet": "Scholarships and Awards | NTU Singapore 1 2 3 Guide to Scholarship Application for Freshmen With over 100 Scholarships available, we recognise that applicants may find it challenging to distinguish between the different awards and their respective benefits.",
+      "source_type": "html",
+      "title": "Scholarships and Awards | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:45:32.329998+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "confidence": "medium",
+      "warnings": []
+    },
+    {
+      "claim_path": "/scholarships/2/value",
+      "source_url": "https://www.ntu.edu.sg/admissions/undergraduate/scholarships/faqs-on-scholarships",
+      "snippet": "scholarships I can select in the online form? There is no restriction, you can select at least 1 of the scholarship categories in the scholarship application form.",
+      "source_type": "html",
+      "title": "FAQs on scholarships | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:45:34.890005+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "confidence": "medium",
+      "warnings": []
+    },
+    {
+      "claim_path": "/fees/2/value",
+      "source_url": "https://www.ntu.edu.sg/admissions/undergraduate/financial-matters/tuition-grants",
+      "snippet": "Tuition Grant up to the normal programme duration less the number of semesters of Tuition Grant received for the previous programme(s).",
+      "source_type": "html",
+      "title": "Tuition Grants | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:45:37.216168+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "confidence": "medium",
+      "warnings": []
+    },
+    {
+      "claim_path": "/fees/3/value",
+      "source_url": "https://www.ntu.edu.sg/admissions/undergraduate/financial-matters/miscellaneous-fees",
+      "snippet": "fees are payable in each semester.",
+      "source_type": "html",
+      "title": "Miscellaneous Fees | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:45:39.381533+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "confidence": "medium",
+      "warnings": []
+    },
+    {
+      "claim_path": "/fees/4/value",
+      "source_url": "https://www.ntu.edu.sg/admissions/graduate/financialmatters/pgtuitionfees",
+      "snippet": "fees listed below are in Singapore dollars (S$), exclusive of Goods and Services Tax (GST).",
+      "source_type": "html",
+      "title": "Postgraduate Tuition Fees | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:45:48.451639+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "confidence": "medium",
+      "warnings": []
+    },
+    {
+      "claim_path": "/programmes/1/name",
+      "source_url": "https://www.ntu.edu.sg/hass/admissions/programmes",
+      "snippet": "Bachelor of Communication Studies with honours to students",
+      "source_type": "html",
+      "title": "Undergraduate Programmes | College of Humanities, Arts and Social Sciences | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:45:57.620507+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "confidence": "medium",
+      "warnings": []
+    },
+    {
+      "claim_path": "/programmes/2/name",
+      "source_url": "https://www.ntu.edu.sg/hass/admissions/programmes",
+      "snippet": "Bachelor of Communication Studies programme, please click here",
+      "source_type": "html",
+      "title": "Undergraduate Programmes | College of Humanities, Arts and Social Sciences | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:45:57.620507+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "confidence": "medium",
+      "warnings": []
+    },
+    {
+      "claim_path": "/programmes/3/name",
+      "source_url": "https://www.ntu.edu.sg/about-us/sustainability/sustainability-education/undergraduate-programmes",
+      "snippet": "Bachelor of Engineering in Robotics (B",
+      "source_type": "html",
+      "title": "Undergraduate Programmes | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:46:00.012534+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "confidence": "medium",
+      "warnings": []
+    },
+    {
+      "claim_path": "/admissions/english_requirements/1/value",
+      "source_url": "https://www.ntu.edu.sg/admissions/undergraduate/admission-guide/international-baccalaureate-diploma",
+      "snippet": "Qualifying English Test (QET) | Click here for details .",
+      "source_type": "html",
+      "title": "International Baccalaureate Diploma | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:46:02.751533+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "confidence": "medium",
+      "warnings": []
+    },
+    {
+      "claim_path": "/admissions/application_periods/0/value",
+      "source_url": "https://www.ntu.edu.sg/admissions/undergraduate/admission-guide/international-baccalaureate-diploma",
+      "snippet": "closing date on 15 March 2026",
+      "source_type": "html",
+      "title": "International Baccalaureate Diploma | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:46:02.751533+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "confidence": "high",
+      "warnings": []
+    },
+    {
+      "claim_path": "/scholarships/3/value",
+      "source_url": "https://www.ntu.edu.sg/admissions/undergraduate/financial-matters/financial-aid",
+      "snippet": "Financial Aid | NTU Singapore We're here for you If you’re facing financial difficulties, NTU is here to support you.",
+      "source_type": "html",
+      "title": "Financial Aid | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:46:08.147035+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "confidence": "medium",
+      "warnings": []
+    },
+    {
+      "claim_path": "/housing/0/value",
+      "source_url": "https://www.ntu.edu.sg/life-at-ntu/accommodation/undergraduate-housing/application",
+      "snippet": "Housing if you have any questions.",
+      "source_type": "html",
+      "title": "Undergraduate Housing Application Schedule | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:46:13.902521+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "confidence": "medium",
+      "warnings": []
+    },
+    {
+      "claim_path": "/housing/1/value",
+      "source_url": "https://www.ntu.edu.sg/life-at-ntu/accommodation/undergraduate-housing/contact-us",
+      "snippet": "Housing Nanyang Technological University 42 Nanyang Avenue Student Services Centre, #04-01, Singapore 639815 Tel: (65) 67905155 Email: och-housing@ntu.",
+      "source_type": "html",
+      "title": "Contact Us for Undergraduate Housing | NTU Singapore",
+      "retrieved_at": "2026-06-04T08:46:16.312727+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "confidence": "medium",
+      "warnings": []
+    }
+  ],
+  "confidence": "low",
+  "warnings": [
+    {
+      "code": "fetch_failed",
+      "message": "Playwright fetch raised Error: Page.goto: net::ERR_CONNECTION_CLOSED at https://admissions.ntu.edu.sg/UndergraduateAdmissions/Pages/ApplytoNTU.aspx\nCall log:\n  - navigating to \"https://admissions.ntu.edu.sg/UndergraduateAdmissions/Pages/ApplytoNTU.aspx\", waiting until \"domcontentloaded\"\n",
+      "field": "https://admissions.ntu.edu.sg/UndergraduateAdmissions/Pages/ApplytoNTU.aspx",
+      "source_urls": [
+        "https://admissions.ntu.edu.sg/UndergraduateAdmissions/Pages/ApplytoNTU.aspx"
+      ]
+    },
+    {
+      "code": "needs_manual_check",
+      "message": "No prior result supplied; incremental diff baseline is unavailable.",
+      "field": "/run/diff",
+      "source_urls": []
+    },
+    {
+      "code": "needs_manual_check",
+      "message": "Some core undergraduate admissions fields were not found; review coverage.missing.",
+      "field": "/run/config/coverage",
+      "source_urls": []
+    },
+    {
+      "code": "needs_manual_check",
+      "message": "Required documents were not found in the offline fixture.",
+      "field": "/admissions/required_documents/0/value",
+      "source_urls": []
+    },
+    {
+      "code": "conflict",
+      "message": "Conflicting official values found for english language requirement; preserve all sources for manual review.",
+      "field": "/conflicts/english_language_requirement",
+      "source_urls": [
+        "https://www.ntu.edu.sg/admissions/undergraduate/admission-guide/international-baccalaureate-diploma",
+        "https://www.ntu.edu.sg/admissions/undergraduate/admission-guide/international-qualifications"
+      ]
+    },
+    {
+      "code": "conflict",
+      "message": "Conflicting official values found for tuition/fees; preserve all sources for manual review.",
+      "field": "/conflicts/tuition/fees",
+      "source_urls": [
+        "https://www.ntu.edu.sg/admissions/graduate/financialmatters/pgtuitionfees",
+        "https://www.ntu.edu.sg/admissions/undergraduate/admission-guide/international-qualifications",
+        "https://www.ntu.edu.sg/admissions/undergraduate/financial-matters/miscellaneous-fees",
+        "https://www.ntu.edu.sg/admissions/undergraduate/financial-matters/tuition-fees",
+        "https://www.ntu.edu.sg/admissions/undergraduate/financial-matters/tuition-grants"
+      ]
+    },
+    {
+      "code": "conflict",
+      "message": "Conflicting official values found for scholarship; preserve all sources for manual review.",
+      "field": "/conflicts/scholarship",
+      "source_urls": [
+        "https://www.ntu.edu.sg/admissions/undergraduate",
+        "https://www.ntu.edu.sg/admissions/undergraduate/financial-matters/financial-aid",
+        "https://www.ntu.edu.sg/admissions/undergraduate/scholarships",
+        "https://www.ntu.edu.sg/admissions/undergraduate/scholarships/faqs-on-scholarships"
+      ]
+    },
+    {
+      "code": "conflict",
+      "message": "Conflicting official values found for housing/accommodation; preserve all sources for manual review.",
+      "field": "/conflicts/housing/accommodation",
+      "source_urls": [
+        "https://www.ntu.edu.sg/life-at-ntu/accommodation/undergraduate-housing/application",
+        "https://www.ntu.edu.sg/life-at-ntu/accommodation/undergraduate-housing/contact-us"
+      ]
+    }
+  ]
+}

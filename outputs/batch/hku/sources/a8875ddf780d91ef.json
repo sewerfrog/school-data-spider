@@ -1,0 +1,11 @@
+{
+  "source_url": "https://admissions.hku.hk/fees-and-scholarships/scholarships",
+  "source_type": "html",
+  "title": "Scholarships | Admissions Office, the Registry",
+  "retrieved_at": "2026-06-04T09:47:59.143635+00:00",
+  "academic_year": null,
+  "page_number": null,
+  "content_hash": "a8875ddf780d91efd456d84a2ac77f1464b6de7bb33f8e792592d2e792331501",
+  "engine": "playwright-browser",
+  "is_official": true
+}

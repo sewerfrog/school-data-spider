@@ -1,0 +1,11 @@
+{
+  "source_url": "https://admissions.hku.hk/apply/international-qualifications",
+  "source_type": "html",
+  "title": "International Qualifications | Admissions Office, the Registry",
+  "retrieved_at": "2026-06-08T02:52:54.255002+00:00",
+  "academic_year": null,
+  "page_number": null,
+  "content_hash": "3e3a3cdfa2c4d7085e30892221ffc7977725f2150e33f90dbcf5a7d067dba1de",
+  "engine": "playwright-browser",
+  "is_official": true
+}

@@ -1,0 +1,122 @@
+{
+  "institution": {
+    "name": {
+      "value": "Nanyang Technological University",
+      "evidence": [],
+      "confidence": "low",
+      "status": "unknown",
+      "warnings": []
+    },
+    "homepage_url": "https://www.ntu.edu.sg/admissions/undergraduate",
+    "country_or_region": {
+      "value": "unknown",
+      "evidence": [],
+      "confidence": "low",
+      "status": "unknown",
+      "warnings": []
+    }
+  },
+  "run": {
+    "input_url": "https://www.ntu.edu.sg/admissions/undergraduate",
+    "retrieved_at": "2026-06-04T07:06:10.774983+00:00",
+    "crawler_version": null,
+    "config": {
+      "max_pages": 30,
+      "max_depth": 2,
+      "allowed_hosts": [],
+      "allowed_domains": [
+        "ntu.edu.sg"
+      ],
+      "diff": {
+        "baseline": "none",
+        "changed_sources": [],
+        "changed_fields": []
+      },
+      "university_id": "ntu",
+      "seed_urls": [
+        "https://www.ntu.edu.sg/admissions/undergraduate"
+      ]
+    }
+  },
+  "sources": [],
+  "admissions": {
+    "undergraduate_application_entry": {
+      "value": "unknown",
+      "evidence": [],
+      "confidence": "low",
+      "status": "unknown",
+      "warnings": []
+    },
+    "international_requirements": [],
+    "accepted_qualifications": [],
+    "application_periods": [],
+    "required_documents": [
+      {
+        "label": "required documents",
+        "value": {
+          "value": "needs_manual_check",
+          "evidence": [],
+          "confidence": "low",
+          "status": "needs_manual_check",
+          "warnings": [
+            {
+              "code": "needs_manual_check",
+              "message": "Required documents were not found in the offline fixture.",
+              "field": "/admissions/required_documents/0/value",
+              "source_urls": []
+            }
+          ]
+        },
+        "applicant_group": {
+          "value": "unknown",
+          "evidence": [],
+          "confidence": "low",
+          "status": "unknown",
+          "warnings": []
+        },
+        "qualification": {
+          "value": "unknown",
+          "evidence": [],
+          "confidence": "low",
+          "status": "unknown",
+          "warnings": []
+        },
+        "requires_applicant_group": false
+      }
+    ],
+    "english_requirements": [],
+    "standardized_tests": [],
+    "selection_tests_or_interviews": []
+  },
+  "programmes": [],
+  "fees": [],
+  "scholarships": [],
+  "visa": [],
+  "housing": [],
+  "contacts": [],
+  "discovered_categories": [],
+  "evidence": [],
+  "confidence": "low",
+  "warnings": [
+    {
+      "code": "optional_dependency_missing",
+      "message": "Playwright browser support is optional and not available: ModuleNotFoundError: No module named 'playwright'",
+      "field": "https://www.ntu.edu.sg/admissions/undergraduate",
+      "source_urls": [
+        "https://www.ntu.edu.sg/admissions/undergraduate"
+      ]
+    },
+    {
+      "code": "needs_manual_check",
+      "message": "No prior result supplied; incremental diff baseline is unavailable.",
+      "field": "/run/diff",
+      "source_urls": []
+    },
+    {
+      "code": "needs_manual_check",
+      "message": "Required documents were not found in the offline fixture.",
+      "field": "/admissions/required_documents/0/value",
+      "source_urls": []
+    }
+  ]
+}

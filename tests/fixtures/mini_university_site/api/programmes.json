@@ -1,0 +1,10 @@
+{
+  "programmes": [
+    {
+      "programmeName": "Bachelor of Science",
+      "applicationDeadline": "15 February 2027",
+      "tuitionFee": "SGD 32000 per year",
+      "requiredDocuments": ["transcript", "passport copy"]
+    }
+  ]
+}

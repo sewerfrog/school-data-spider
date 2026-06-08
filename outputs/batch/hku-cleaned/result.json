@@ -1,0 +1,1780 @@
+{
+  "institution": {
+    "name": {
+      "value": "unknown",
+      "raw_text": null,
+      "parsed": null,
+      "parse_status": "unparsed",
+      "evidence": [],
+      "confidence": "low",
+      "status": "unknown",
+      "warnings": []
+    },
+    "homepage_url": "https://admissions.hku.hk/",
+    "country_or_region": {
+      "value": "unknown",
+      "raw_text": null,
+      "parsed": null,
+      "parse_status": "unparsed",
+      "evidence": [],
+      "confidence": "low",
+      "status": "unknown",
+      "warnings": []
+    }
+  },
+  "run": {
+    "input_url": "https://admissions.hku.hk/",
+    "retrieved_at": "2026-06-08T07:51:30.476425+00:00",
+    "crawler_version": null,
+    "config": {
+      "max_pages": 45,
+      "max_depth": 3,
+      "allowed_hosts": [],
+      "allowed_domains": [
+        "hku.hk"
+      ],
+      "source_strategy": [
+        {
+          "url": "https://admissions.hku.hk/",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://admissions.hku.hk/apply/international-qualifications",
+          "source_type": "html",
+          "category": "international_requirements",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://admissions.hku.hk/programmes/university-collaborative-programmes/hku-university-of-british-columbia-dual-degree-programme",
+          "source_type": "html",
+          "category": "programme_list",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://hku.berkeley.edu/",
+          "source_type": "html",
+          "category": "programme_list",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://admissions.hku.hk/programmes/undergraduate-programmes",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://admissions.hku.hk/apply/jupas",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://admissions.hku.hk/sndas_highschool",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://admissions.hku.hk/apply/hong-kong-sub-degrees",
+          "source_type": "html",
+          "category": "programme_list",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://admissions.hku.hk/programmes/undergraduate-programmes",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://admissions.hku.hk/programmes/undergraduate-programmes/bachelor-of-science-and-bachelor-of-laws",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://admissions.hku.hk/programmes/undergraduate-programmes/bachelor-of-psychology",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://admissions.hku.hk/programmes/undergraduate-programmes/bachelor-of-science-speech-language-pathology",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://admissions.hku.hk/programmes/undergraduate-programmes/bachelor-of-arts-and-bachelor-of-engineering-artificial",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://admissions.hku.hk/programmes/undergraduate-programmes/bachelor-of-science-marketing-analytics-and-technology",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://admissions.hku.hk/programmes/undergraduate-programmes/bachelor-of-arts-and-sciences-design",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://admissions.hku.hk/programmes/undergraduate-programmes/bachelor-of-arts-humanities-and-digital-technologies",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://admissions.hku.hk/programmes/undergraduate-programmes/bachelor-of-arts-and-sciences-global-health-and-development",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://admissions.hku.hk/programmes/undergraduate-programmes/bachelor-of-business-administration",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://admissions.hku.hk/programmes/undergraduate-programmes/bachelor-of-business-administration-accounting-and-finance",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://admissions.hku.hk/programmes/university-collaborative-programmes",
+          "source_type": "html",
+          "category": "programme_list",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://admissions.hku.hk/fees-and-scholarships/fees",
+          "source_type": "html",
+          "category": "fees",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://admissions.hku.hk/fees-and-scholarships/scholarships",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://admissions.hku.hk/contact-us",
+          "source_type": "html",
+          "category": "contact",
+          "strategy": "blocked_or_challenge"
+        },
+        {
+          "url": "https://admissions.hku.hk/apply/overview",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://admissions.hku.hk/apply/jupas/eligibility",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://admissions.hku.hk/apply/jupas/score-calculator",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://admissions.hku.hk/zh-hans/apply/mainland",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://admissions.hku.hk/sites/default/files/2025-10/HKU-JUPAS-Admissions-Information-2026.pdf",
+          "source_type": "pdf",
+          "category": "undergraduate_admissions",
+          "strategy": "pdf_document"
+        },
+        {
+          "url": "https://admissions.hku.hk/experience/pre-university-programme",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://extranet.hku.hk/admission2/servlet/prc_register/get_login",
+          "source_type": "html",
+          "category": "application_deadlines",
+          "strategy": "application_portal"
+        },
+        {
+          "url": "https://admissions.hku.hk/sites/default/files/2021-02/GDPR%20Privacy%20Notice%20%28Applicants%20and%20Students%29190913_0.pdf",
+          "source_type": "pdf",
+          "category": "fees",
+          "strategy": "pdf_document"
+        },
+        {
+          "url": "https://admissions.hku.hk/offerholders",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://admissions.hku.hk/explore/publications",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://admissions.hku.hk/faqs",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://admissions.hku.hk/zh-hant",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://admissions.hku.hk/zh-hans",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://admissions.hku.hk/explore/global-reputation",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://admissions.hku.hk/explore/why-hong-kong",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://admissions.hku.hk/our-faculties",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://admissions.hku.hk/experience/study-at-hku",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://admissions.hku.hk/experience/life-at-hku",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://admissions.hku.hk/experience/hear-from-our-students",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://admissions.hku.hk/experience/student-experiences/bianca-olivia",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        },
+        {
+          "url": "https://admissions.hku.hk/experience/student-experiences/joy-pamnani",
+          "source_type": "html",
+          "category": "undergraduate_admissions",
+          "strategy": "html_page"
+        }
+      ],
+      "diff": {
+        "baseline": "none",
+        "changed_sources": [],
+        "changed_fields": []
+      },
+      "coverage": {
+        "core_fields_total": 9,
+        "found_count": 4,
+        "missing_count": 5,
+        "found": [
+          "programmes",
+          "fees",
+          "scholarships",
+          "contacts"
+        ],
+        "missing": [
+          "undergraduate_application_entry",
+          "application_periods",
+          "english_requirements",
+          "accepted_qualifications",
+          "required_documents"
+        ],
+        "coverage_ratio": 0.444,
+        "note": "Coverage reports whether core fields were found; overall confidence reports evidence/conflict quality for extracted claims."
+      },
+      "source_strategy_summary": {
+        "application_portal": 1,
+        "blocked_or_challenge": 1,
+        "html_page": 40,
+        "pdf_document": 2
+      }
+    }
+  },
+  "sources": [
+    {
+      "source_url": "https://admissions.hku.hk/",
+      "source_type": "html",
+      "title": "Home | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:49:31.834087+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "e76f336dba675f9201a8c096172e28cd315b887100535bb85d39c1d842395142",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://admissions.hku.hk/apply/international-qualifications",
+      "source_type": "html",
+      "title": "International Qualifications | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:49:34.888407+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "b888630a7b7d149751d9a1ddd921c20621504135435343cd7631574d2559faef",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://admissions.hku.hk/programmes/university-collaborative-programmes/hku-university-of-british-columbia-dual-degree-programme",
+      "source_type": "html",
+      "title": "HKU-UBC Dual Degree Programme | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:49:38.642400+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "42bcb7039598d030c0eebf0a9268a4fec36b2ea7473e628af7e2e0cb057e779e",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://hku.berkeley.edu/",
+      "source_type": "html",
+      "title": "Home | Berkeley and University of Hong Kong Dual Degree Program",
+      "retrieved_at": "2026-06-08T07:49:40.875377+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "85f5b2b5763131a76726b42420761ab059d68927dd86aafcd5567e1297d964c2",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://admissions.hku.hk/programmes/undergraduate-programmes",
+      "source_type": "html",
+      "title": "Undergraduate Courses | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:49:45.809113+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "ca5dc3b40c1f32bc3d09ee9523aeb770fd35b4a7619a83799804be43927aac19",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://admissions.hku.hk/apply/jupas",
+      "source_type": "html",
+      "title": "JUPAS | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:49:47.906524+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "b41d437a478be1a9617f71c937392855ce13f62082d54299336c430943900ba6",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://admissions.hku.hk/sndas_highschool",
+      "source_type": "html",
+      "title": "Talent Search Scheme (previously known as School Nominations Direct Admission Scheme (SNDAS)) for High School Students | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:49:51.748137+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "9d52f05b5da8a081ed3a5fdaf38698a23d491a1c053d9bc9048c5087a62b4ec9",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://admissions.hku.hk/apply/hong-kong-sub-degrees",
+      "source_type": "html",
+      "title": "HONG KONG SUB-DEGREES | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:49:53.948199+00:00",
+      "academic_year": "2026/2027",
+      "page_number": null,
+      "content_hash": "2a42250b76bd545fb07246a717e3833c5fb40a4b7e04724fbbe78e27400cf8a8",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://admissions.hku.hk/programmes/undergraduate-programmes",
+      "source_type": "html",
+      "title": "Undergraduate Courses | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:49:55.716486+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "334362764d01da8847bcf0fba611f6f72f586b065e5f1947566216caa23fc085",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://admissions.hku.hk/programmes/undergraduate-programmes/bachelor-of-science-and-bachelor-of-laws",
+      "source_type": "html",
+      "title": "Bachelor of Science and Bachelor of Laws | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:49:57.994581+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "7c1f2070195ca280e959c6ca8ab4ab7b2245607ed8afd115fe4fcc5c9194f0ee",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://admissions.hku.hk/programmes/undergraduate-programmes/bachelor-of-psychology",
+      "source_type": "html",
+      "title": "Bachelor of Psychology | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:49:59.940245+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "1b2b0cfd797cdca8c6c9ec3cec358a0fc9234c57e84e95e5c743c42769a14074",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://admissions.hku.hk/programmes/undergraduate-programmes/bachelor-of-science-speech-language-pathology",
+      "source_type": "html",
+      "title": "Bachelor of Science in Speech-Language Pathology | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:50:01.987619+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "36075d97a780ae65ec000a0ac17eb1130b937e187e88735f1fb995cd9110bee7",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://admissions.hku.hk/programmes/undergraduate-programmes/bachelor-of-arts-and-bachelor-of-engineering-artificial",
+      "source_type": "html",
+      "title": "Bachelor of Arts and Bachelor of Engineering in Artificial Intelligence and Data Science | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:50:04.202224+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "9c874ac9cecf11ac5793258fcd08cedbb1e0d58c052cc7de9323398b04b0c2ae",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://admissions.hku.hk/programmes/undergraduate-programmes/bachelor-of-science-marketing-analytics-and-technology",
+      "source_type": "html",
+      "title": "Bachelor of Science in Marketing Analytics and Technology | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:50:06.375464+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "d73e5293c65ff95144878d3643a42b2791711c2feebce23f47d3e477a050f80d",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://admissions.hku.hk/programmes/undergraduate-programmes/bachelor-of-arts-and-sciences-design",
+      "source_type": "html",
+      "title": "Bachelor of Arts and Sciences in Design+ | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:50:13.456172+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "e66a87f3590722e373eff764105adc20600f50459a6b4d30b7852b9e00938bd6",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://admissions.hku.hk/programmes/undergraduate-programmes/bachelor-of-arts-humanities-and-digital-technologies",
+      "source_type": "html",
+      "title": "Bachelor of Arts in Humanities and Digital Technologies | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:50:15.577815+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "26e7e520def8ced5b6a1c989a521979994cfc8ddf9ceac06211058952d8983bc",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://admissions.hku.hk/programmes/undergraduate-programmes/bachelor-of-arts-and-sciences-global-health-and-development",
+      "source_type": "html",
+      "title": "Bachelor of Arts and Sciences in Global Health and Development | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:50:18.100861+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "ecbf8ccf56a8b180ce5f6c28c448d396b22fa2bad613fcce6b308a19689d1493",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://admissions.hku.hk/programmes/undergraduate-programmes/bachelor-of-business-administration",
+      "source_type": "html",
+      "title": "Bachelor of Business Administration | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:50:20.048618+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "ad66702363d7412e84fcfd0a59d5ec9dc05d71d0a45745238d138fc639e5f496",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://admissions.hku.hk/programmes/undergraduate-programmes/bachelor-of-business-administration-accounting-and-finance",
+      "source_type": "html",
+      "title": "Bachelor of Business Administration in Accounting and Finance / Bachelor of Business Administration in Accounting Data Analytics | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:50:22.421948+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "40cb155f41af57d52e625560a8ab8e81f8c1344a77dde09f3cf58939968b1967",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://admissions.hku.hk/programmes/university-collaborative-programmes",
+      "source_type": "html",
+      "title": "Dual Degrees and University Collaborative Programmes | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:50:24.533819+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "5f9735fbc712f266b058de496733f9ede862d7d615a193eba7c19aa9bfa427b2",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://admissions.hku.hk/fees-and-scholarships/fees",
+      "source_type": "html",
+      "title": "Tuition and Living Expenses | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:50:26.712049+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "852f1e4fb9e080d39f97ee0fdbb5411c3d0876cf82bd3af46662b67833604466",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://admissions.hku.hk/fees-and-scholarships/scholarships",
+      "source_type": "html",
+      "title": "Scholarships | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:50:28.608319+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "6aa90aa57d7f1dbd872c1393799f7c2c5244f089fae49b427955cc231bb52ec1",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://admissions.hku.hk/contact-us",
+      "source_type": "html",
+      "title": "Contact Us | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:50:30.397210+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "acc63d0a3b995f2715991e4d07950fe8d404c1580eae8ab0a1e426b1ae9b2f01",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://admissions.hku.hk/apply/overview",
+      "source_type": "html",
+      "title": "Overview | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:50:33.984208+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "6f8a443791afba886a0a96f6e133582d142f59c8c96040adf56ad0d4ecfe8a63",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://admissions.hku.hk/apply/jupas/eligibility",
+      "source_type": "html",
+      "title": "Eligibility to apply via JUPAS | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:50:36.485003+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "202f799c85c27b7fba7f9bbca849d0a88367578dcb274f36e6d94f5bccb5f232",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://admissions.hku.hk/apply/jupas/score-calculator",
+      "source_type": "html",
+      "title": "JUPAS Score Calculator | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:50:38.435570+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "3ed1103615b47ce5d4ab99283ecaf3ebeb6dc3e432b6eb58e8f45083c8657137",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://admissions.hku.hk/zh-hans/apply/mainland",
+      "source_type": "html",
+      "title": "内地高考 | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:50:41.276502+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "42c86bbfdd6eeab20361b5ab322f60e78450eac78e78c6ec14693ed29df7f0b3",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://admissions.hku.hk/sites/default/files/2025-10/HKU-JUPAS-Admissions-Information-2026.pdf",
+      "source_type": "pdf",
+      "title": "HKU-JUPAS-Admissions-Information-2026.pdf",
+      "retrieved_at": "2026-06-08T07:50:43.146928+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "f84032d6357710845a16d2da02de89dd461d2d925cabcc31be7ca541097045f5",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://admissions.hku.hk/experience/pre-university-programme",
+      "source_type": "html",
+      "title": "Pre-University Programme | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:50:45.756630+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "e2a4b8a16c55a445d2bfda0c1e18b860fd1d0a2334a9a9ae2416a4f252b70021",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://extranet.hku.hk/admission2/servlet/prc_register/get_login",
+      "source_type": "html",
+      "title": "Login | Application for Admission of Undergraduate Students from the Mainland 2026 | HKU",
+      "retrieved_at": "2026-06-08T07:50:48.157875+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "3e113edd982116686734249990452d747c9691dd1b3d78286aca8dbf04be0be3",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://admissions.hku.hk/sites/default/files/2021-02/GDPR%20Privacy%20Notice%20%28Applicants%20and%20Students%29190913_0.pdf",
+      "source_type": "pdf",
+      "title": "GDPR%20Privacy%20Notice%20%28Applicants%20and%20Students%29190913_0.pdf",
+      "retrieved_at": "2026-06-08T07:50:51.265222+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "3842b62f854a44691995a874520b5a9003bf546b2af555c1e51ba6ca8b07d705",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://admissions.hku.hk/offerholders",
+      "source_type": "html",
+      "title": "Undergraduate Offer Holders (International/Non-JUPAS students) | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:50:55.825336+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "9cdb6b48d0509f5b02b5f79dc96fb85806708bb1e2d22b16d94c5220e9c2c50f",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://admissions.hku.hk/explore/publications",
+      "source_type": "html",
+      "title": "Publications | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:50:58.073098+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "00bf2981f37c662adec7a83af4ba4a0659dfd6f3945b98d991db138e36274974",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://admissions.hku.hk/faqs",
+      "source_type": "html",
+      "title": "Frequently Asked Questions | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:50:59.778967+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "ad4d8bd7d80445a572faf34e63626a79369edafbc4017fcc0129b78c9a2925b9",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://admissions.hku.hk/zh-hant",
+      "source_type": "html",
+      "title": "Home | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:51:02.544350+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "77cd6a06b0abb21965653cc1aa26065dbb5edd138920dd07d7b303e22c443f28",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://admissions.hku.hk/zh-hans",
+      "source_type": "html",
+      "title": "Home | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:51:05.512812+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "de375e404455038e99f37ed3b2f27ff4e965dd7b90e3f5d1261e3d12225d4ae6",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://admissions.hku.hk/explore/global-reputation",
+      "source_type": "html",
+      "title": "Global Reputation | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:51:08.648620+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "3a29364d26c7087b181060531a6ebea278ac5ad33d76ef8587aa23417ce1a47d",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://admissions.hku.hk/explore/why-hong-kong",
+      "source_type": "html",
+      "title": "Live in Hong Kong | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:51:13.074501+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "b585db4fc3301d3bf3267f112b33dd888454d79e60c872cb28d03e6d01d6babe",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://admissions.hku.hk/our-faculties",
+      "source_type": "html",
+      "title": "Our Faculties | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:51:15.158599+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "3f6f503dda8696a8d8b8242cfc4d3b7f9787e7b2b235c1e4c53dc661bcf391b9",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://admissions.hku.hk/experience/study-at-hku",
+      "source_type": "html",
+      "title": "Study at HKU | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:51:17.027766+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "4b3c1d394dd8afab27af605b520745cd9b00132c0689009e6a414cc8106c0e58",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://admissions.hku.hk/experience/life-at-hku",
+      "source_type": "html",
+      "title": "Live at HKU | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:51:19.387060+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "42f10e96df303c9d38aa42b62ac963448c18774acd16e3d7504bca4fc2dbe8ad",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://admissions.hku.hk/experience/hear-from-our-students",
+      "source_type": "html",
+      "title": "Hear from Our Students | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:51:21.656708+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "1ffa8eeec906098d90421f2b6261332c0f62b475ec922302c13fbc64186944fd",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://talented.hku.hk/summer-programme-2026",
+      "source_type": "html",
+      "title": "Error 403 Forbidden",
+      "retrieved_at": "2026-06-08T07:51:24.987332+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "a9461cf883ae83d8231095088fe310a3dfc513b1e20c66f7a2f5c1afc2dd51a2",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://admissions.hku.hk/experience/student-experiences/bianca-olivia",
+      "source_type": "html",
+      "title": "Bianca Olivia | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:51:25.881968+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "3f3b7f4de5614876af1d60fec860db4d12ce543a4b9b1d69d2a2846d140d0b3b",
+      "engine": "playwright-browser",
+      "is_official": true
+    },
+    {
+      "source_url": "https://admissions.hku.hk/experience/student-experiences/joy-pamnani",
+      "source_type": "html",
+      "title": "Joy Pamnani | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:51:27.920044+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "content_hash": "e6206dc12d76fb3de70ea518643d7930ce6db2d97139bf5947c46ef6112e8675",
+      "engine": "playwright-browser",
+      "is_official": true
+    }
+  ],
+  "admissions": {
+    "undergraduate_application_entry": {
+      "value": "unknown",
+      "raw_text": null,
+      "parsed": null,
+      "parse_status": "unparsed",
+      "evidence": [],
+      "confidence": "low",
+      "status": "unknown",
+      "warnings": []
+    },
+    "international_requirements": [],
+    "accepted_qualifications": [],
+    "application_periods": [],
+    "required_documents": [
+      {
+        "label": "required documents",
+        "value": {
+          "value": "needs_manual_check",
+          "raw_text": null,
+          "parsed": null,
+          "parse_status": "unparsed",
+          "evidence": [],
+          "confidence": "low",
+          "status": "needs_manual_check",
+          "warnings": [
+            {
+              "code": "needs_manual_check",
+              "message": "Required documents were not found in the offline fixture.",
+              "field": "/admissions/required_documents/0/value",
+              "source_urls": []
+            }
+          ]
+        },
+        "applicant_group": {
+          "value": "unknown",
+          "raw_text": null,
+          "parsed": null,
+          "parse_status": "unparsed",
+          "evidence": [],
+          "confidence": "low",
+          "status": "unknown",
+          "warnings": []
+        },
+        "qualification": {
+          "value": "unknown",
+          "raw_text": null,
+          "parsed": null,
+          "parse_status": "unparsed",
+          "evidence": [],
+          "confidence": "low",
+          "status": "unknown",
+          "warnings": []
+        },
+        "requires_applicant_group": false
+      }
+    ],
+    "english_requirements": [],
+    "standardized_tests": [],
+    "selection_tests_or_interviews": []
+  },
+  "programmes": [
+    {
+      "name": {
+        "value": "Bachelor of Management from PKU upon completion of this four-year programme",
+        "raw_text": null,
+        "parsed": null,
+        "parse_status": "unparsed",
+        "evidence": [
+          "/programmes/0/name"
+        ],
+        "confidence": "medium",
+        "status": "known",
+        "warnings": []
+      },
+      "degree": {
+        "value": "unknown",
+        "raw_text": null,
+        "parsed": null,
+        "parse_status": "unparsed",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "faculty_or_school": {
+        "value": "unknown",
+        "raw_text": null,
+        "parsed": null,
+        "parse_status": "unparsed",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "source_url": "https://admissions.hku.hk/apply/international-qualifications",
+      "prerequisites": [],
+      "evidence": [
+        "/programmes/0/name"
+      ]
+    },
+    {
+      "name": {
+        "value": "Bachelor of Commerce option and get paid to do it",
+        "raw_text": null,
+        "parsed": null,
+        "parse_status": "unparsed",
+        "evidence": [
+          "/programmes/1/name"
+        ],
+        "confidence": "medium",
+        "status": "known",
+        "warnings": []
+      },
+      "degree": {
+        "value": "unknown",
+        "raw_text": null,
+        "parsed": null,
+        "parse_status": "unparsed",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "faculty_or_school": {
+        "value": "unknown",
+        "raw_text": null,
+        "parsed": null,
+        "parse_status": "unparsed",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "source_url": "https://admissions.hku.hk/programmes/university-collaborative-programmes/hku-university-of-british-columbia-dual-degree-programme",
+      "prerequisites": [],
+      "evidence": [
+        "/programmes/1/name"
+      ]
+    },
+    {
+      "name": {
+        "value": "Bachelor of Business Administration programme",
+        "raw_text": null,
+        "parsed": null,
+        "parse_status": "unparsed",
+        "evidence": [
+          "/programmes/2/name"
+        ],
+        "confidence": "medium",
+        "status": "known",
+        "warnings": []
+      },
+      "degree": {
+        "value": "unknown",
+        "raw_text": null,
+        "parsed": null,
+        "parse_status": "unparsed",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "faculty_or_school": {
+        "value": "unknown",
+        "raw_text": null,
+        "parsed": null,
+        "parse_status": "unparsed",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "source_url": "https://admissions.hku.hk/programmes/university-collaborative-programmes/hku-university-of-british-columbia-dual-degree-programme",
+      "prerequisites": [],
+      "evidence": [
+        "/programmes/2/name"
+      ]
+    }
+  ],
+  "fees": [
+    {
+      "label": "tuition/fees",
+      "value": {
+        "value": "Tuition Fees The tentative annual composition (tuition) fee for local students admitted in the academic year 2026-2027 is HK$47,000.",
+        "raw_text": "Tuition Fees The tentative annual composition (tuition) fee for local students admitted in the academic year 2026-2027 is HK$47,000.",
+        "parsed": [
+          {
+            "currency": "HKD",
+            "amount": 47000,
+            "student_group": "local",
+            "academic_year": "2026/2027",
+            "cohort": null,
+            "billing_period": "per year",
+            "fee_type": "tuition",
+            "raw_text": "Tuition Fees The tentative annual composition (tuition) fee for local students admitted in the academic year 2026-2027 is HK$47,000"
+          }
+        ],
+        "parse_status": "parsed",
+        "evidence": [
+          "/fees/0/value"
+        ],
+        "confidence": "medium",
+        "status": "known",
+        "warnings": []
+      },
+      "applicant_group": {
+        "value": "unknown",
+        "raw_text": null,
+        "parsed": null,
+        "parse_status": "unparsed",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "qualification": {
+        "value": "unknown",
+        "raw_text": null,
+        "parsed": null,
+        "parse_status": "unparsed",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "requires_applicant_group": false
+    },
+    {
+      "label": "tuition/fees",
+      "value": {
+        "value": "FEES Tuition Fees Tuition Fees Left Column HKD47,000 Annual Tuition Fees for Local Hong Kong Students (2026-27 cohort) Middle Column HKD224,000 Annual Tuition Fees for Non-local Students Admitted to Non-STEM Faculties # (2026-27 cohort) # Faculties of Architecture, Arts, Business and Economics, Education, Law, Social Sciences and School of Future Media Right Column HKD249,000 Annual Tuition Fees (inclusive of STEM Fee) for Non-local Students Admitted to the STEM Faculties and Schools ^ (2026-27 cohort) ^ Faculties of Dentistry, Engineering, Medicine, and Science; School of Biomedical Engineering, School of Computing and Data Science* and School of Innovation *including a STEM-related double-degree programme, jointly offered with the Faculty of Arts For definition of local students, please visit Joint University Programmes Admissions System (JUPAS) website here .",
+        "raw_text": "FEES Tuition Fees Tuition Fees Left Column HKD47,000 Annual Tuition Fees for Local Hong Kong Students (2026-27 cohort) Middle Column HKD224,000 Annual Tuition Fees for Non-local Students Admitted to Non-STEM Faculties # (2026-27 cohort) # Faculties of Architecture, Arts, Business and Economics, Education, Law, Social Sciences and School of Future Media Right Column HKD249,000 Annual Tuition Fees (inclusive of STEM Fee) for Non-local Students Admitted to the STEM Faculties and Schools ^ (2026-27 cohort) ^ Faculties of Dentistry, Engineering, Medicine, and Science; School of Biomedical Engineering, School of Computing and Data Science* and School of Innovation *including a STEM-related double-degree programme, jointly offered with the Faculty of Arts For definition of local students, please visit Joint University Programmes Admissions System (JUPAS) website here .",
+        "parsed": [
+          {
+            "currency": "HKD",
+            "amount": 47000,
+            "student_group": "local",
+            "academic_year": null,
+            "cohort": "2026-27 cohort",
+            "billing_period": "per year",
+            "fee_type": "tuition",
+            "raw_text": "Left Column HKD47,000 Annual Tuition Fees for Local Hong Kong Students (2026-27 cohort)"
+          },
+          {
+            "currency": "HKD",
+            "amount": 224000,
+            "student_group": "non-local non-STEM",
+            "academic_year": null,
+            "cohort": "2026-27 cohort",
+            "billing_period": "per year",
+            "fee_type": "tuition",
+            "raw_text": "Middle Column HKD224,000 Annual Tuition Fees for Non-local Students Admitted to Non-STEM Faculties # (2026-27 cohort) # Faculties of Architecture, Arts, Business and Economics, Education, Law, Social Sciences and School of Future Media"
+          },
+          {
+            "currency": "HKD",
+            "amount": 249000,
+            "student_group": "non-local STEM",
+            "academic_year": null,
+            "cohort": "2026-27 cohort",
+            "billing_period": "per year",
+            "fee_type": "tuition",
+            "raw_text": "Right Column HKD249,000 Annual Tuition Fees (inclusive of STEM Fee) for Non-local Students Admitted to the STEM Faculties and Schools ^ (2026-27 cohort) ^ Faculties of Dentistry, Engineering, Medicine, and Science; School of Biomedical Enginee"
+          }
+        ],
+        "parse_status": "parsed",
+        "evidence": [
+          "/fees/1/value"
+        ],
+        "confidence": "medium",
+        "status": "known",
+        "warnings": []
+      },
+      "applicant_group": {
+        "value": "unknown",
+        "raw_text": null,
+        "parsed": null,
+        "parse_status": "unparsed",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "qualification": {
+        "value": "unknown",
+        "raw_text": null,
+        "parsed": null,
+        "parse_status": "unparsed",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "requires_applicant_group": false
+    }
+  ],
+  "scholarships": [
+    {
+      "label": "scholarship",
+      "value": {
+        "value": "Scholarships Special Considerations Admissions Standards Admissions Standards Referencing HKU’s admissions standards to ensure you meet both the entrance and programme-specific requirements.",
+        "raw_text": "Scholarships Special Considerations Admissions Standards Admissions Standards Referencing HKU’s admissions standards to ensure you meet both the entrance and programme-specific requirements.",
+        "parsed": null,
+        "parse_status": "unparsed",
+        "evidence": [
+          "/scholarships/0/value"
+        ],
+        "confidence": "medium",
+        "status": "known",
+        "warnings": []
+      },
+      "applicant_group": {
+        "value": "unknown",
+        "raw_text": null,
+        "parsed": null,
+        "parse_status": "unparsed",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "qualification": {
+        "value": "unknown",
+        "raw_text": null,
+        "parsed": null,
+        "parse_status": "unparsed",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "requires_applicant_group": false
+    }
+  ],
+  "visa": [],
+  "housing": [],
+  "contacts": [
+    {
+      "label": "admissions contact",
+      "value": {
+        "value": "counsellors@hku.hk",
+        "raw_text": "counsellors@hku.hk",
+        "parsed": null,
+        "parse_status": "unparsed",
+        "evidence": [
+          "/contacts/0/value"
+        ],
+        "confidence": "medium",
+        "status": "known",
+        "warnings": []
+      },
+      "applicant_group": {
+        "value": "unknown",
+        "raw_text": null,
+        "parsed": null,
+        "parse_status": "unparsed",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "qualification": {
+        "value": "unknown",
+        "raw_text": null,
+        "parsed": null,
+        "parse_status": "unparsed",
+        "evidence": [],
+        "confidence": "low",
+        "status": "unknown",
+        "warnings": []
+      },
+      "requires_applicant_group": false
+    }
+  ],
+  "discovered_categories": [
+    {
+      "source_url": "https://admissions.hku.hk/",
+      "category": "undergraduate_admissions",
+      "score": 6,
+      "signals": [
+        "undergraduate admissions",
+        "admissions",
+        "apply"
+      ],
+      "title": "Home | Admissions Office, the Registry"
+    },
+    {
+      "source_url": "https://admissions.hku.hk/apply/international-qualifications",
+      "category": "international_requirements",
+      "score": 6,
+      "signals": [
+        "international",
+        "requirements",
+        "english"
+      ],
+      "title": "International Qualifications | Admissions Office, the Registry"
+    },
+    {
+      "source_url": "https://admissions.hku.hk/programmes/university-collaborative-programmes/hku-university-of-british-columbia-dual-degree-programme",
+      "category": "programme_list",
+      "score": 7,
+      "signals": [
+        "programmes",
+        "programs",
+        "degrees",
+        "degree"
+      ],
+      "title": "HKU-UBC Dual Degree Programme | Admissions Office, the Registry"
+    },
+    {
+      "source_url": "https://hku.berkeley.edu/",
+      "category": "programme_list",
+      "score": 5,
+      "signals": [
+        "programs",
+        "degrees",
+        "degree"
+      ],
+      "title": "Home | Berkeley and University of Hong Kong Dual Degree Program"
+    },
+    {
+      "source_url": "https://admissions.hku.hk/programmes/undergraduate-programmes",
+      "category": "undergraduate_admissions",
+      "score": 5,
+      "signals": [
+        "admissions",
+        "apply"
+      ],
+      "title": "Undergraduate Courses | Admissions Office, the Registry"
+    },
+    {
+      "source_url": "https://admissions.hku.hk/apply/jupas",
+      "category": "undergraduate_admissions",
+      "score": 5,
+      "signals": [
+        "admissions",
+        "apply"
+      ],
+      "title": "JUPAS | Admissions Office, the Registry"
+    },
+    {
+      "source_url": "https://admissions.hku.hk/sndas_highschool",
+      "category": "undergraduate_admissions",
+      "score": 5,
+      "signals": [
+        "admissions",
+        "apply"
+      ],
+      "title": "Talent Search Scheme (previously known as School Nominations Direct Admission Scheme (SNDAS)) for High School Students | Admissions Office, the Registry"
+    },
+    {
+      "source_url": "https://admissions.hku.hk/apply/hong-kong-sub-degrees",
+      "category": "programme_list",
+      "score": 6,
+      "signals": [
+        "programmes",
+        "degrees",
+        "degree"
+      ],
+      "title": "HONG KONG SUB-DEGREES | Admissions Office, the Registry"
+    },
+    {
+      "source_url": "https://admissions.hku.hk/programmes/undergraduate-programmes",
+      "category": "undergraduate_admissions",
+      "score": 5,
+      "signals": [
+        "admissions",
+        "apply"
+      ],
+      "title": "Undergraduate Courses | Admissions Office, the Registry"
+    },
+    {
+      "source_url": "https://admissions.hku.hk/programmes/undergraduate-programmes/bachelor-of-science-and-bachelor-of-laws",
+      "category": "undergraduate_admissions",
+      "score": 5,
+      "signals": [
+        "admissions",
+        "apply"
+      ],
+      "title": "Bachelor of Science and Bachelor of Laws | Admissions Office, the Registry"
+    },
+    {
+      "source_url": "https://admissions.hku.hk/programmes/undergraduate-programmes/bachelor-of-psychology",
+      "category": "undergraduate_admissions",
+      "score": 5,
+      "signals": [
+        "admissions",
+        "apply"
+      ],
+      "title": "Bachelor of Psychology | Admissions Office, the Registry"
+    },
+    {
+      "source_url": "https://admissions.hku.hk/programmes/undergraduate-programmes/bachelor-of-science-speech-language-pathology",
+      "category": "undergraduate_admissions",
+      "score": 5,
+      "signals": [
+        "admissions",
+        "apply"
+      ],
+      "title": "Bachelor of Science in Speech-Language Pathology | Admissions Office, the Registry"
+    },
+    {
+      "source_url": "https://admissions.hku.hk/programmes/undergraduate-programmes/bachelor-of-arts-and-bachelor-of-engineering-artificial",
+      "category": "undergraduate_admissions",
+      "score": 5,
+      "signals": [
+        "admissions",
+        "apply"
+      ],
+      "title": "Bachelor of Arts and Bachelor of Engineering in Artificial Intelligence and Data Science | Admissions Office, the Registry"
+    },
+    {
+      "source_url": "https://admissions.hku.hk/programmes/undergraduate-programmes/bachelor-of-science-marketing-analytics-and-technology",
+      "category": "undergraduate_admissions",
+      "score": 5,
+      "signals": [
+        "admissions",
+        "apply"
+      ],
+      "title": "Bachelor of Science in Marketing Analytics and Technology | Admissions Office, the Registry"
+    },
+    {
+      "source_url": "https://admissions.hku.hk/programmes/undergraduate-programmes/bachelor-of-arts-and-sciences-design",
+      "category": "undergraduate_admissions",
+      "score": 5,
+      "signals": [
+        "admissions",
+        "apply"
+      ],
+      "title": "Bachelor of Arts and Sciences in Design+ | Admissions Office, the Registry"
+    },
+    {
+      "source_url": "https://admissions.hku.hk/programmes/undergraduate-programmes/bachelor-of-arts-humanities-and-digital-technologies",
+      "category": "undergraduate_admissions",
+      "score": 5,
+      "signals": [
+        "admissions",
+        "apply"
+      ],
+      "title": "Bachelor of Arts in Humanities and Digital Technologies | Admissions Office, the Registry"
+    },
+    {
+      "source_url": "https://admissions.hku.hk/programmes/undergraduate-programmes/bachelor-of-arts-and-sciences-global-health-and-development",
+      "category": "undergraduate_admissions",
+      "score": 5,
+      "signals": [
+        "admissions",
+        "apply"
+      ],
+      "title": "Bachelor of Arts and Sciences in Global Health and Development | Admissions Office, the Registry"
+    },
+    {
+      "source_url": "https://admissions.hku.hk/programmes/undergraduate-programmes/bachelor-of-business-administration",
+      "category": "undergraduate_admissions",
+      "score": 5,
+      "signals": [
+        "admissions",
+        "apply"
+      ],
+      "title": "Bachelor of Business Administration | Admissions Office, the Registry"
+    },
+    {
+      "source_url": "https://admissions.hku.hk/programmes/undergraduate-programmes/bachelor-of-business-administration-accounting-and-finance",
+      "category": "undergraduate_admissions",
+      "score": 5,
+      "signals": [
+        "admissions",
+        "apply"
+      ],
+      "title": "Bachelor of Business Administration in Accounting and Finance / Bachelor of Business Administration in Accounting Data Analytics | Admissions Office, the Registry"
+    },
+    {
+      "source_url": "https://admissions.hku.hk/programmes/university-collaborative-programmes",
+      "category": "programme_list",
+      "score": 6,
+      "signals": [
+        "programmes",
+        "degrees",
+        "degree"
+      ],
+      "title": "Dual Degrees and University Collaborative Programmes | Admissions Office, the Registry"
+    },
+    {
+      "source_url": "https://admissions.hku.hk/fees-and-scholarships/fees",
+      "category": "fees",
+      "score": 6,
+      "signals": [
+        "tuition",
+        "fees",
+        "fee"
+      ],
+      "title": "Tuition and Living Expenses | Admissions Office, the Registry"
+    },
+    {
+      "source_url": "https://admissions.hku.hk/fees-and-scholarships/scholarships",
+      "category": "undergraduate_admissions",
+      "score": 5,
+      "signals": [
+        "admissions",
+        "apply"
+      ],
+      "title": "Scholarships | Admissions Office, the Registry"
+    },
+    {
+      "source_url": "https://admissions.hku.hk/contact-us",
+      "category": "contact",
+      "score": 7,
+      "signals": [
+        "contact",
+        "email",
+        "phone",
+        "admissions office"
+      ],
+      "title": "Contact Us | Admissions Office, the Registry"
+    },
+    {
+      "source_url": "https://admissions.hku.hk/apply/overview",
+      "category": "undergraduate_admissions",
+      "score": 5,
+      "signals": [
+        "admissions",
+        "apply"
+      ],
+      "title": "Overview | Admissions Office, the Registry"
+    },
+    {
+      "source_url": "https://admissions.hku.hk/apply/jupas/eligibility",
+      "category": "undergraduate_admissions",
+      "score": 5,
+      "signals": [
+        "admissions",
+        "apply"
+      ],
+      "title": "Eligibility to apply via JUPAS | Admissions Office, the Registry"
+    },
+    {
+      "source_url": "https://admissions.hku.hk/apply/jupas/score-calculator",
+      "category": "undergraduate_admissions",
+      "score": 5,
+      "signals": [
+        "admissions",
+        "apply"
+      ],
+      "title": "JUPAS Score Calculator | Admissions Office, the Registry"
+    },
+    {
+      "source_url": "https://admissions.hku.hk/zh-hans/apply/mainland",
+      "category": "undergraduate_admissions",
+      "score": 5,
+      "signals": [
+        "admissions",
+        "apply"
+      ],
+      "title": "内地高考 | Admissions Office, the Registry"
+    },
+    {
+      "source_url": "https://admissions.hku.hk/sites/default/files/2025-10/HKU-JUPAS-Admissions-Information-2026.pdf",
+      "category": "undergraduate_admissions",
+      "score": 4,
+      "signals": [
+        "admissions"
+      ],
+      "title": "HKU-JUPAS-Admissions-Information-2026.pdf"
+    },
+    {
+      "source_url": "https://admissions.hku.hk/experience/pre-university-programme",
+      "category": "undergraduate_admissions",
+      "score": 5,
+      "signals": [
+        "admissions",
+        "apply"
+      ],
+      "title": "Pre-University Programme | Admissions Office, the Registry"
+    },
+    {
+      "source_url": "https://extranet.hku.hk/admission2/servlet/prc_register/get_login",
+      "category": "application_deadlines",
+      "score": 1,
+      "signals": [
+        "year"
+      ],
+      "title": "Login | Application for Admission of Undergraduate Students from the Mainland 2026 | HKU"
+    },
+    {
+      "source_url": "https://admissions.hku.hk/sites/default/files/2021-02/GDPR%20Privacy%20Notice%20%28Applicants%20and%20Students%29190913_0.pdf",
+      "category": "fees",
+      "score": 3,
+      "signals": [
+        "tuition",
+        "fees",
+        "fee"
+      ],
+      "title": "GDPR%20Privacy%20Notice%20%28Applicants%20and%20Students%29190913_0.pdf"
+    },
+    {
+      "source_url": "https://admissions.hku.hk/offerholders",
+      "category": "undergraduate_admissions",
+      "score": 5,
+      "signals": [
+        "admissions",
+        "apply"
+      ],
+      "title": "Undergraduate Offer Holders (International/Non-JUPAS students) | Admissions Office, the Registry"
+    },
+    {
+      "source_url": "https://admissions.hku.hk/explore/publications",
+      "category": "undergraduate_admissions",
+      "score": 4,
+      "signals": [
+        "admissions"
+      ],
+      "title": "Publications | Admissions Office, the Registry"
+    },
+    {
+      "source_url": "https://admissions.hku.hk/faqs",
+      "category": "undergraduate_admissions",
+      "score": 4,
+      "signals": [
+        "admissions"
+      ],
+      "title": "Frequently Asked Questions | Admissions Office, the Registry"
+    },
+    {
+      "source_url": "https://admissions.hku.hk/zh-hant",
+      "category": "undergraduate_admissions",
+      "score": 5,
+      "signals": [
+        "admissions",
+        "apply"
+      ],
+      "title": "Home | Admissions Office, the Registry"
+    },
+    {
+      "source_url": "https://admissions.hku.hk/zh-hans",
+      "category": "undergraduate_admissions",
+      "score": 5,
+      "signals": [
+        "admissions",
+        "apply"
+      ],
+      "title": "Home | Admissions Office, the Registry"
+    },
+    {
+      "source_url": "https://admissions.hku.hk/explore/global-reputation",
+      "category": "undergraduate_admissions",
+      "score": 4,
+      "signals": [
+        "admissions"
+      ],
+      "title": "Global Reputation | Admissions Office, the Registry"
+    },
+    {
+      "source_url": "https://admissions.hku.hk/explore/why-hong-kong",
+      "category": "undergraduate_admissions",
+      "score": 4,
+      "signals": [
+        "admissions"
+      ],
+      "title": "Live in Hong Kong | Admissions Office, the Registry"
+    },
+    {
+      "source_url": "https://admissions.hku.hk/our-faculties",
+      "category": "undergraduate_admissions",
+      "score": 4,
+      "signals": [
+        "admissions"
+      ],
+      "title": "Our Faculties | Admissions Office, the Registry"
+    },
+    {
+      "source_url": "https://admissions.hku.hk/experience/study-at-hku",
+      "category": "undergraduate_admissions",
+      "score": 4,
+      "signals": [
+        "admissions"
+      ],
+      "title": "Study at HKU | Admissions Office, the Registry"
+    },
+    {
+      "source_url": "https://admissions.hku.hk/experience/life-at-hku",
+      "category": "undergraduate_admissions",
+      "score": 4,
+      "signals": [
+        "admissions"
+      ],
+      "title": "Live at HKU | Admissions Office, the Registry"
+    },
+    {
+      "source_url": "https://admissions.hku.hk/experience/hear-from-our-students",
+      "category": "undergraduate_admissions",
+      "score": 4,
+      "signals": [
+        "admissions"
+      ],
+      "title": "Hear from Our Students | Admissions Office, the Registry"
+    },
+    {
+      "source_url": "https://admissions.hku.hk/experience/student-experiences/bianca-olivia",
+      "category": "undergraduate_admissions",
+      "score": 4,
+      "signals": [
+        "admissions"
+      ],
+      "title": "Bianca Olivia | Admissions Office, the Registry"
+    },
+    {
+      "source_url": "https://admissions.hku.hk/experience/student-experiences/joy-pamnani",
+      "category": "undergraduate_admissions",
+      "score": 4,
+      "signals": [
+        "admissions"
+      ],
+      "title": "Joy Pamnani | Admissions Office, the Registry"
+    }
+  ],
+  "evidence": [
+    {
+      "claim_path": "/contacts/0/value",
+      "source_url": "https://admissions.hku.hk/apply/international-qualifications",
+      "snippet": "If the counsellor is unable to do so through the system, he/she shall contact the Admissions Office via email ( counsellors@hku.hk ).",
+      "source_type": "html",
+      "title": "International Qualifications | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:49:34.888407+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "confidence": "medium",
+      "warnings": []
+    },
+    {
+      "claim_path": "/programmes/0/name",
+      "source_url": "https://admissions.hku.hk/apply/international-qualifications",
+      "snippet": "Bachelor of Management from PKU upon completion of this four-year programme",
+      "source_type": "html",
+      "title": "International Qualifications | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:49:34.888407+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "confidence": "medium",
+      "warnings": []
+    },
+    {
+      "claim_path": "/programmes/1/name",
+      "source_url": "https://admissions.hku.hk/programmes/university-collaborative-programmes/hku-university-of-british-columbia-dual-degree-programme",
+      "snippet": "Bachelor of Commerce option and get paid to do it",
+      "source_type": "html",
+      "title": "HKU-UBC Dual Degree Programme | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:49:38.642400+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "confidence": "medium",
+      "warnings": []
+    },
+    {
+      "claim_path": "/programmes/2/name",
+      "source_url": "https://admissions.hku.hk/programmes/university-collaborative-programmes/hku-university-of-british-columbia-dual-degree-programme",
+      "snippet": "Bachelor of Business Administration programme",
+      "source_type": "html",
+      "title": "HKU-UBC Dual Degree Programme | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:49:38.642400+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "confidence": "medium",
+      "warnings": []
+    },
+    {
+      "claim_path": "/scholarships/0/value",
+      "source_url": "https://admissions.hku.hk/apply/jupas",
+      "snippet": "Scholarships Special Considerations Admissions Standards Admissions Standards Referencing HKU’s admissions standards to ensure you meet both the entrance and programme-specific requirements.",
+      "source_type": "html",
+      "title": "JUPAS | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:49:47.906524+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "confidence": "medium",
+      "warnings": []
+    },
+    {
+      "claim_path": "/fees/0/value",
+      "source_url": "https://admissions.hku.hk/apply/hong-kong-sub-degrees",
+      "snippet": "Tuition Fees The tentative annual composition (tuition) fee for local students admitted in the academic year 2026-2027 is HK$47,000.",
+      "source_type": "html",
+      "title": "HONG KONG SUB-DEGREES | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:49:53.948199+00:00",
+      "academic_year": "2026/2027",
+      "page_number": null,
+      "confidence": "medium",
+      "warnings": []
+    },
+    {
+      "claim_path": "/fees/1/value",
+      "source_url": "https://admissions.hku.hk/fees-and-scholarships/fees",
+      "snippet": "FEES Tuition Fees Tuition Fees Left Column HKD47,000 Annual Tuition Fees for Local Hong Kong Students (2026-27 cohort) Middle Column HKD224,000 Annual Tuition Fees for Non-local Students Admitted to Non-STEM Faculties # (2026-27 cohort) # Faculties of Architecture, Arts, Business and Economics, Education, Law, Social Sciences and School of Future Media Right Column HKD249,000 Annual Tuition Fees (inclusive of STEM Fee) for Non-local Students Admitted to the STEM Faculties and Schools ^ (2026-27 cohort) ^ Faculties of Dentistry, Engineering, Medicine, and Science; School of Biomedical Engineering, School of Computing and Data Science* and School of Innovation *including a STEM-related double-degree programme, jointly offered with the Faculty of Arts For definition of local students, please visit Joint University Programmes Admissions System (JUPAS) website here .",
+      "source_type": "html",
+      "title": "Tuition and Living Expenses | Admissions Office, the Registry",
+      "retrieved_at": "2026-06-08T07:50:26.712049+00:00",
+      "academic_year": null,
+      "page_number": null,
+      "confidence": "medium",
+      "warnings": []
+    }
+  ],
+  "confidence": "low",
+  "warnings": [
+    {
+      "code": "fetch_failed",
+      "message": "Fetch returned HTTP status 403.",
+      "field": "https://talented.hku.hk/summer-programme-2026",
+      "source_urls": [
+        "https://talented.hku.hk/summer-programme-2026"
+      ]
+    },
+    {
+      "code": "needs_manual_check",
+      "message": "No prior result supplied; incremental diff baseline is unavailable.",
+      "field": "/run/diff",
+      "source_urls": []
+    },
+    {
+      "code": "needs_manual_check",
+      "message": "Some core undergraduate admissions fields were not found; review coverage.missing.",
+      "field": "/run/config/coverage",
+      "source_urls": []
+    },
+    {
+      "code": "needs_manual_check",
+      "message": "Some sources look like application portals or bot/challenge pages; crawler will not bypass restricted systems.",
+      "field": "/run/config/source_strategy",
+      "source_urls": [
+        "https://admissions.hku.hk/contact-us",
+        "https://extranet.hku.hk/admission2/servlet/prc_register/get_login"
+      ]
+    },
+    {
+      "code": "needs_manual_check",
+      "message": "Required documents were not found in the offline fixture.",
+      "field": "/admissions/required_documents/0/value",
+      "source_urls": []
+    },
+    {
+      "code": "conflict",
+      "message": "Conflicting official values found for tuition/fees; preserve all sources for manual review.",
+      "field": "/conflicts/tuition/fees",
+      "source_urls": [
+        "https://admissions.hku.hk/apply/hong-kong-sub-degrees",
+        "https://admissions.hku.hk/fees-and-scholarships/fees"
+      ]
+    }
+  ]
+}

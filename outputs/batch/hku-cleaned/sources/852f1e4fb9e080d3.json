@@ -1,0 +1,11 @@
+{
+  "source_url": "https://admissions.hku.hk/fees-and-scholarships/fees",
+  "source_type": "html",
+  "title": "Tuition and Living Expenses | Admissions Office, the Registry",
+  "retrieved_at": "2026-06-08T07:50:26.712049+00:00",
+  "academic_year": null,
+  "page_number": null,
+  "content_hash": "852f1e4fb9e080d39f97ee0fdbb5411c3d0876cf82bd3af46662b67833604466",
+  "engine": "playwright-browser",
+  "is_official": true
+}

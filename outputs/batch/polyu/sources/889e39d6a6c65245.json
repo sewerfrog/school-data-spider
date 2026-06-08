@@ -1,0 +1,11 @@
+{
+  "source_url": "https://www.polyu.edu.hk/cus/",
+  "source_type": "html",
+  "title": "Home | College of Undergraduate Studies",
+  "retrieved_at": "2026-06-04T08:50:12.639024+00:00",
+  "academic_year": null,
+  "page_number": null,
+  "content_hash": "889e39d6a6c65245b1130bcb0951c8d451e5aef0e243ee95370682a57fa8834a",
+  "engine": "playwright-browser",
+  "is_official": true
+}

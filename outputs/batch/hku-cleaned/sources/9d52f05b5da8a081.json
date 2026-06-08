@@ -1,0 +1,11 @@
+{
+  "source_url": "https://admissions.hku.hk/sndas_highschool",
+  "source_type": "html",
+  "title": "Talent Search Scheme (previously known as School Nominations Direct Admission Scheme (SNDAS)) for High School Students | Admissions Office, the Registry",
+  "retrieved_at": "2026-06-08T07:49:51.748137+00:00",
+  "academic_year": null,
+  "page_number": null,
+  "content_hash": "9d52f05b5da8a081ed3a5fdaf38698a23d491a1c053d9bc9048c5087a62b4ec9",
+  "engine": "playwright-browser",
+  "is_official": true
+}

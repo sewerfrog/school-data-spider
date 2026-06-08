@@ -1,0 +1,11 @@
+{
+  "source_url": "https://admissions.hku.hk/zh-hans",
+  "source_type": "html",
+  "title": "Home | Admissions Office, the Registry",
+  "retrieved_at": "2026-06-08T07:51:05.512812+00:00",
+  "academic_year": null,
+  "page_number": null,
+  "content_hash": "de375e404455038e99f37ed3b2f27ff4e965dd7b90e3f5d1261e3d12225d4ae6",
+  "engine": "playwright-browser",
+  "is_official": true
+}

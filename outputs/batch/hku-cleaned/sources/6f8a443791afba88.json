@@ -1,0 +1,11 @@
+{
+  "source_url": "https://admissions.hku.hk/apply/overview",
+  "source_type": "html",
+  "title": "Overview | Admissions Office, the Registry",
+  "retrieved_at": "2026-06-08T07:50:33.984208+00:00",
+  "academic_year": null,
+  "page_number": null,
+  "content_hash": "6f8a443791afba886a0a96f6e133582d142f59c8c96040adf56ad0d4ecfe8a63",
+  "engine": "playwright-browser",
+  "is_official": true
+}

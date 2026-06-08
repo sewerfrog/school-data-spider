@@ -1,0 +1,11 @@
+{
+  "source_url": "https://www.ntu.edu.sg/admissions/undergraduate",
+  "source_type": "html",
+  "title": "Undergraduate | NTU Singapore",
+  "retrieved_at": "2026-06-04T03:24:19.354594+00:00",
+  "academic_year": null,
+  "page_number": null,
+  "content_hash": "182b10dc23ce4c556996fa26bc278d855069a420526b422a63873385fac7316c",
+  "engine": "playwright-browser",
+  "is_official": true
+}

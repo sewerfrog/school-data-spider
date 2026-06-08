@@ -1,0 +1,96 @@
+{
+  "version": 1,
+  "createdAt": "2026-06-01T08:34:08.336Z",
+  "updatedAt": "2026-06-01T08:58:11.627Z",
+  "briefPath": ".omx/ultragoal/brief.md",
+  "goalsPath": ".omx/ultragoal/goals.json",
+  "ledgerPath": ".omx/ultragoal/ledger.jsonl",
+  "codexGoalMode": "aggregate",
+  "goals": [
+    {
+      "id": "G001-prd-omx-plans-prd-university-admissi",
+      "title": "PRD: `.omx/plans/prd-university-admissions-crawler.md`",
+      "objective": "PRD: `.omx/plans/prd-university-admissions-crawler.md`",
+      "status": "complete",
+      "attempt": 1,
+      "createdAt": "2026-06-01T08:34:08.336Z",
+      "updatedAt": "2026-06-01T08:35:12.192Z",
+      "startedAt": "2026-06-01T08:34:38.376Z",
+      "completedAt": "2026-06-01T08:35:12.192Z",
+      "evidence": "PRD absorbed and verified present at .omx/plans/prd-university-admissions-crawler.md; required sections and consensus improvements already checked."
+    },
+    {
+      "id": "G002-test-spec-omx-plans-test-spec-univer",
+      "title": "Test spec: `.omx/plans/test-spec-university-admissions-crawler.md`",
+      "objective": "Test spec: `.omx/plans/test-spec-university-admissions-crawler.md`",
+      "status": "complete",
+      "attempt": 1,
+      "createdAt": "2026-06-01T08:34:08.336Z",
+      "updatedAt": "2026-06-01T08:35:31.293Z",
+      "startedAt": "2026-06-01T08:35:18.266Z",
+      "completedAt": "2026-06-01T08:35:31.293Z",
+      "evidence": "Test spec absorbed and verified present at .omx/plans/test-spec-university-admissions-crawler.md; includes offline tests, fixture coverage, adapter-contract, incremental diff, failure recovery, optional dependency guards, and quality gates."
+    },
+    {
+      "id": "G003-requirements-source-omx-specs-deep-i",
+      "title": "Requirements source: `.omx/specs/deep-interview-university-admissions...",
+      "objective": "Requirements source: `.omx/specs/deep-interview-university-admissions-crawler.md`",
+      "status": "complete",
+      "attempt": 1,
+      "createdAt": "2026-06-01T08:34:08.336Z",
+      "updatedAt": "2026-06-01T08:35:52.778Z",
+      "startedAt": "2026-06-01T08:35:39.662Z",
+      "completedAt": "2026-06-01T08:35:52.778Z",
+      "evidence": "Requirements source absorbed at .omx/specs/deep-interview-university-admissions-crawler.md; implementation constraints are evidence-first, bounded, no UI/backend, no admissions verdict, optional live/provider capabilities guarded."
+    },
+    {
+      "id": "G004-schema-evidence-warning-models",
+      "title": "schema/evidence/warning models",
+      "objective": "schema/evidence/warning models",
+      "status": "complete",
+      "attempt": 1,
+      "createdAt": "2026-06-01T08:34:08.336Z",
+      "updatedAt": "2026-06-01T08:38:37.451Z",
+      "startedAt": "2026-06-01T08:35:57.784Z",
+      "completedAt": "2026-06-01T08:38:37.451Z",
+      "evidence": "Implemented schema/evidence/warning foundation using stdlib dataclasses and explicit validators. Files: pyproject.toml, README.md, university_admissions_crawler/extractor/schema.py, university_admissions_crawler/evidence/provenance.py, tests/test_schema_evidence.py. Verification: python3 -m compileall -q university_admissions_crawler; direct stdlib runner executed 5 schema/evidence tests. pytest unavailable in environment (No module named pytest), documented as dev optional dependency."
+    },
+    {
+      "id": "G005-fixture-fetcher",
+      "title": "fixture fetcher",
+      "objective": "fixture fetcher",
+      "status": "complete",
+      "attempt": 1,
+      "createdAt": "2026-06-01T08:34:08.336Z",
+      "updatedAt": "2026-06-01T08:40:01.008Z",
+      "startedAt": "2026-06-01T08:38:45.719Z",
+      "completedAt": "2026-06-01T08:40:01.008Z",
+      "evidence": "Implemented fetch contract and fixture/static fetcher with optional crawl4ai stub. Files: university_admissions_crawler/crawler/fetcher.py, fixture mini-site under tests/fixtures/mini_university_site, tests/test_fetcher.py. Verification: python3 -m compileall -q university_admissions_crawler; direct stdlib runner executed schema + fetcher tests (9 tests)."
+    },
+    {
+      "id": "G006-offline-fixture-pipeline",
+      "title": "offline fixture pipeline",
+      "objective": "offline fixture pipeline",
+      "status": "complete",
+      "attempt": 1,
+      "createdAt": "2026-06-01T08:34:08.336Z",
+      "updatedAt": "2026-06-01T08:41:36.803Z",
+      "startedAt": "2026-06-01T08:40:08.430Z",
+      "completedAt": "2026-06-01T08:41:36.803Z",
+      "evidence": "Implemented offline fixture pipeline with bounded discovery, rule classification, deterministic extraction, normalization/validation, manual-check baseline warning, and jsonable AdmissionsData. Files: university_admissions_crawler/crawler/discovery.py, classifier/page_classifier.py, extractor/html_extractor.py, pipeline/run_university_scan.py, tests/test_pipeline.py. Verification: compileall; direct stdlib runner executed schema + fetcher + pipeline tests (12 tests)."
+    },
+    {
+      "id": "G007-json-markdown-report-smoke",
+      "title": "JSON/Markdown report smoke",
+      "objective": "JSON/Markdown report smoke",
+      "status": "complete",
+      "attempt": 1,
+      "createdAt": "2026-06-01T08:34:08.336Z",
+      "updatedAt": "2026-06-01T08:58:11.627Z",
+      "startedAt": "2026-06-01T08:41:45.283Z",
+      "evidence": "Implemented JSON/Markdown report smoke and resolved final review blockers. Files include CLI, report renderer, schema/evidence fixes, fetcher security fix, pipeline evidence path fixes, and tests. Verification: compileall; 16 direct tests; CLI smoke at /tmp/uac-smoke; final independent review APPROVE + CLEAR.",
+      "completedAt": "2026-06-01T08:58:11.627Z"
+    }
+  ],
+  "codexObjective": "Complete the durable ultragoal plan in .omx/ultragoal/goals.json, including later accepted/appended stories, under the original brief constraints; use .omx/ultragoal/ledger.jsonl as the audit trail."
+}

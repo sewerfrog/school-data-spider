@@ -1,0 +1,11 @@
+{
+  "source_url": "https://www.ntu.edu.sg/admissions/undergraduate-programmes?listingKeyword=&disciplines=all&programmelevels=all&programmetypes=all&page=1",
+  "source_type": "html",
+  "title": "Undergraduate Programmes | NTU Singapore",
+  "retrieved_at": "2026-06-04T03:24:25.349800+00:00",
+  "academic_year": null,
+  "page_number": null,
+  "content_hash": "58c94dc035a85bdc201233518c8ca15b3343b16b544785e8eb33ec75fb114010",
+  "engine": "playwright-browser",
+  "is_official": true
+}

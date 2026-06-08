@@ -1,0 +1,11 @@
+{
+  "source_url": "https://www.ntu.edu.sg/life-at-ntu/accommodation/undergraduate-housing/application",
+  "source_type": "html",
+  "title": "Undergraduate Housing Application Schedule | NTU Singapore",
+  "retrieved_at": "2026-06-04T03:25:26.278035+00:00",
+  "academic_year": null,
+  "page_number": null,
+  "content_hash": "51eae3e6d31d088bef7a5d5af6c55954626ddc593085680256b85588ade66f77",
+  "engine": "playwright-browser",
+  "is_official": true
+}

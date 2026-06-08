@@ -1,0 +1,11 @@
+{
+  "source_url": "https://extranet.hku.hk/admission2/servlet/prc_register/get_login",
+  "source_type": "html",
+  "title": "Login | Application for Admission of Undergraduate Students from the Mainland 2026 | HKU",
+  "retrieved_at": "2026-06-04T09:48:25.009838+00:00",
+  "academic_year": null,
+  "page_number": null,
+  "content_hash": "99aa8c7b8658b0bed79bc40133ccb56a3d2b733513af7a574b229d646dbac627",
+  "engine": "playwright-browser",
+  "is_official": true
+}

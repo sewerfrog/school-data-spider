@@ -1,0 +1,34 @@
+{
+  "sessions": {
+    "019e825b-8f9c-7901-88d1-69ae26d5c1dd": {
+      "ordinary_no_progress_guard": {
+        "fingerprint": "ordinary|已改好 `~/.codex/config.toml`： ```toml [tui] status_line_use_colors = true status_line = [\"model-with-reasoning\", \"project-name\", \"git-branch\", \"context-remaining\", \"session-id\"] ``` 重启 codex cli 后生效。 说明一下限制：`/rename` 的名字当前不能直接显示在 status line；我加的是 `session-id`，至少能在底栏稳定识别当前会话。真正想显示人类可读任务名的话，还是需要配合： ```bash tmux rename-window \"你的任务名\" ```",
+        "first_seen_at": "2026-06-01T08:48:16.062Z",
+        "last_seen_at": "2026-06-01T08:48:16.062Z",
+        "repeat_count": 1,
+        "last_turn_id": "019e825e-04d9-7e51-8685-df5fddd01cd0",
+        "last_thread_id": null
+      }
+    },
+    "019e8609-7550-7ac1-ae08-aa4f3f2c22f2": {
+      "ordinary_no_progress_guard": {
+        "fingerprint": "ordinary|已生成 `agents.md`，标题是 **repository guidelines**，内容控制在约 371 词，符合你要求的 200-400 词范围。 主要包含这些部分： - **project structure & module organization**：说明源码在 `university_admissions_crawler/`，测试在 `tests/`，夹具在 `tests/fixtures/mini_university_site/`，输出样例在 `outputs/`。 - **build, test, and development commands**：列出常用命令，比如 `python3 -m pytest -q`、`compileall`、以及 fixture 模式的 cli smoke run。 - **coding style & naming conventions**：说明 python 3.11、4 空格缩进、`snake_case` / `pascalcase` 命名、核心代码保持确定性和少依赖。 - **testing guidelines**：说明使用 pytest，测试文件命名为 `tests/test_*.py`，核心测试不依赖网络、浏览器、api key 或付费服务。 - **commit & pull request guidelines**：因为当前目录没有 `.git` 历史，无法推断已有提交风格，所以写明遵循你提供的 lore commit trailer 规范，比如 `constraint:`、`tested:`、`not-tested:` 等。 - **security & configuration tips**：提醒 `--enable-llm`、`--enable-browser`、`--enable-scrapegraph` 是受保护的可选能力，不要把凭据写进测试、输出或提交信息。 文件位置：`/users/jax/project/school-data-spider/agents.md`。",
+        "first_seen_at": "2026-06-02T01:58:03.893Z",
+        "last_seen_at": "2026-06-02T01:58:03.893Z",
+        "repeat_count": 1,
+        "last_turn_id": "019e860d-38ce-7310-9f54-2b81fc2daa55",
+        "last_thread_id": null
+      }
+    },
+    "019e81df-d09f-73e0-8a73-33488bda3018": {
+      "ordinary_no_progress_guard": {
+        "fingerprint": "ordinary|已临时放到项目里了，位置： ```text /users/jax/project/school-data-spider/temp_imports/previous-session-archive/ ``` 里面包括： ```text temp_imports/previous-session-archive/ readme.zh.md context/ handoff-summary.zh.md fixture-smoke-run/ summary.zh.md nus-live-programmes/ result.json programmes.csv report.zh.md report.md summary.zh.md sources/official-source-index.md ``` 说明： - 我检查了之前的 `/tmp/uac-smoke-run`，当前已经没有可读文件，所以没有办法原样复制临时目录里的 fixture json/source 文件。 - 我把已经在项目里的 nus 真实官网采集内容复制了一份到临时归档目录。 - 同时根据之前会话中已经确认的信息，重建了： - 上一阶段交接总结 - fixture smoke run 摘要 - nus 真实采集摘要 校验结果：归档关键文件都已生成，命令返回 `archive_ok`。",
+        "first_seen_at": "2026-06-03T01:43:21.289Z",
+        "last_seen_at": "2026-06-03T01:43:21.289Z",
+        "repeat_count": 1,
+        "last_turn_id": "019e8b25-24aa-7623-90d7-a5e3e185998d",
+        "last_thread_id": null
+      }
+    }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "source_url": "https://admissions.hku.hk/explore/why-hong-kong",
+  "source_type": "html",
+  "title": "Live in Hong Kong | Admissions Office, the Registry",
+  "retrieved_at": "2026-06-08T02:54:22.083946+00:00",
+  "academic_year": null,
+  "page_number": null,
+  "content_hash": "109e57ac8300db1c143097660ebe0982bee3f83c5b416e3e3a4bfe90a1619f75",
+  "engine": "playwright-browser",
+  "is_official": true
+}

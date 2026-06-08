@@ -1,0 +1,11 @@
+{
+  "source_url": "https://www.polyu.edu.hk/admissions/polyu-student-stories/",
+  "source_type": "html",
+  "title": "Student Stories | The Hong Kong Polytechnic University",
+  "retrieved_at": "2026-06-04T08:49:00.782618+00:00",
+  "academic_year": null,
+  "page_number": null,
+  "content_hash": "a6ec7c323e724dec8941080eff52b0fdec112f7b412cef8d8fc05e74ad5f7f09",
+  "engine": "playwright-browser",
+  "is_official": true
+}

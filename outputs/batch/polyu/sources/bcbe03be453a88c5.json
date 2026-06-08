@@ -1,0 +1,11 @@
+{
+  "source_url": "https://www.polyu.edu.hk/prospective-students/",
+  "source_type": "html",
+  "title": "Master's Degree Programme - PolyU Programme List",
+  "retrieved_at": "2026-06-04T08:50:15.475263+00:00",
+  "academic_year": null,
+  "page_number": null,
+  "content_hash": "bcbe03be453a88c529f6bf39f47eb82200a465d02dfe3ee268ebad5030c82cfd",
+  "engine": "playwright-browser",
+  "is_official": true
+}
