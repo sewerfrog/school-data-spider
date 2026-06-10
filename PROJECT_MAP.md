@@ -93,7 +93,9 @@ python3 -m compileall university_admissions_crawler tests
 - `university_admissions_crawler/reports/`：Markdown 报告渲染。
 - `tests/`：pytest 测试与 fixture 站点。
 - `configs/`：示例大学批量配置。
-- `outputs/`：历史/生成输出；部分测试目前引用其中 saved source，不能直接整体删除。
+- `outputs/`：generated-only 输出目录；当前测试 fixture 已迁到 `tests/fixtures/saved_sources/`，测试不应再依赖这里。
+- `outputs/nus-live-programmes/`：旧 NUS 一次性产物，包含 `result.json`、reports、`programmes.csv` 和 source index；作为参考样例保留，是否迁到 docs unclear。
+- `outputs/batch*/`：旧 live/batch 扫描产物，包含 HKU、NTU、PolyU 等历史结果；作为参考样例保留，重新运行后才会反映当前代码。
 - `temp_imports/`：previous-session archive。是否仍需保留 unclear。
 
 ## 6. 重要函数、类、组件说明
@@ -121,7 +123,7 @@ python3 -m compileall university_admissions_crawler tests
 - `crawler/fetcher.py` 文件偏大：fixture/live/browser fetcher、future stub、HTML 文本化 helper 都在同一文件。
 - 抽取质量主要取决于 regex 和文本上下文 gate，对真实复杂官网不稳定。
 - 未启用 `--enable-pdf` 时，pipeline 默认使用 `FixturePDFExtractor()`；对真实 PDF bytes 的语义不清晰。
-- `outputs/` 同时承担生成输出和 saved-source 回归材料，边界不清晰。
+- `outputs/` 已不应承担当期测试 fixture；如果后续需要保留样例，应迁到 `docs/examples/` 或记录清单。
 - `.venv314/`、`.omx/`、`.idea/`、`temp_imports/` 不属于核心产品源码；是否保留需进一步确认。
 - README / VERSION_NOTES 可能描述旧输出状态；真实站点旧结果需要重跑才反映当前代码。
 
@@ -129,8 +131,8 @@ python3 -m compileall university_admissions_crawler tests
 
 1. 稳定当前 housekeeping 变更。先单独提交 `.gitignore`、`PROJECT_MAP.md` 和已删除的缓存/`.DS_Store`，避免后续结构调整与生成物清理混在一起。
 2. 把测试依赖的 saved source 从 `outputs/` 迁到 `tests/fixtures/saved_sources/`，只迁移测试实际读取的 HKU/NTU/PolyU source 文件，再更新测试路径。
-3. 在测试不再依赖 `outputs/` 后，把 `outputs/` 明确为 generated-only；仍有价值的样例输出可移动到 `docs/examples/` 或记录保留清单。
-4. 不要直接整体删除 `outputs/`。当前 `tests/test_pipeline.py` 和 `tests/test_classifier_ntu_regression.py` 仍读取其中的 saved source。
+3. 已将 `outputs/` 明确为 generated-only；不要让新测试再读取 `outputs/`。仍有价值的样例输出可移动到 `docs/examples/` 或记录保留清单。
+4. 不要直接整体删除 `outputs/`。当前目录仍保留 NUS、HKU、NTU、PolyU 历史输出，删除前需要确认是否迁移样例或归档。
 5. 把 `cli.py` 的 batch 扫描、数据 merge 和结果写入逻辑拆到 pipeline 层，例如 `pipeline/batch.py` 和 `pipeline/merge.py`，保持 CLI 行为不变。
 6. 拆分 `crawler/fetcher.py`，先把 HTML 文本化 helper 与 fetcher 实现分开，再按 fixture/live HTTP/Playwright/stub 拆文件。
 7. 处理未使用或半使用接口：`CrawlConfig` / `smoke_config()`、`parse_sitemap_urls()`、`source_hashes()`、`_looks_like_false_english_requirement()`。先加说明或测试，再决定删除。

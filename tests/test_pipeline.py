@@ -10,7 +10,7 @@ from university_admissions_crawler.extractor.schema import SourceType
 from university_admissions_crawler.pipeline.run_university_scan import run_fixture_scan, run_scan
 
 ROOT = Path("tests/fixtures/mini_university_site")
-SAVED = Path("outputs")
+SAVED = Path("tests/fixtures/saved_sources")
 
 
 def test_offline_fixture_pipeline_discovers_extracts_and_warns():
@@ -132,7 +132,7 @@ def test_english_extractor_rejects_polyu_style_false_positive_programme_lists():
 
 
 def test_english_extractor_rejects_hku_generic_ielts_toefl_mention_without_scores():
-    text = (SAVED / "batch-classifier-fixed/hku/sources/3e3a3cdfa2c4d708.txt").read_text(encoding="utf-8")
+    text = (SAVED / "hku/3e3a3cdfa2c4d708.txt").read_text(encoding="utf-8")
     source = source_from_text(
         source_url="https://admissions.hku.hk/apply/international-qualifications",
         source_type=SourceType.HTML,
@@ -145,7 +145,7 @@ def test_english_extractor_rejects_hku_generic_ielts_toefl_mention_without_score
 
 
 def test_fee_extractor_parses_hku_tuition_rows_from_saved_source():
-    text = (SAVED / "batch-classifier-fixed/hku/sources/386d94a09ffd4eb7.txt").read_text(encoding="utf-8")
+    text = (SAVED / "hku/386d94a09ffd4eb7.txt").read_text(encoding="utf-8")
     source = source_from_text(
         source_url="https://admissions.hku.hk/fees-and-scholarships/fees",
         source_type=SourceType.HTML,
@@ -164,7 +164,7 @@ def test_fee_extractor_parses_hku_tuition_rows_from_saved_source():
 
 
 def test_english_extractor_parses_ntu_saved_scores():
-    text = (SAVED / "batch/ntu/sources/347ce27695edcec6.txt").read_text(encoding="utf-8")
+    text = (SAVED / "ntu/347ce27695edcec6.txt").read_text(encoding="utf-8")
     source = source_from_text(
         source_url="https://www.ntu.edu.sg/admissions/undergraduate/admission-guide/international-qualifications",
         source_type=SourceType.HTML,
@@ -195,9 +195,9 @@ def test_english_extractor_supports_score_before_ielts_name():
 
 
 def test_saved_polyu_noise_pages_do_not_pass_core_context_gates_or_contact_extraction():
-    contact_text = (SAVED / "batch/polyu/sources/06ee85c60541773c.txt").read_text(encoding="utf-8")
-    hall_text = (SAVED / "batch/polyu/sources/d780f9f68077c714.txt").read_text(encoding="utf-8")
-    phd_text = (SAVED / "batch/polyu/sources/e5811e8bced1de9c.txt").read_text(encoding="utf-8")
+    contact_text = (SAVED / "polyu/06ee85c60541773c.txt").read_text(encoding="utf-8")
+    hall_text = (SAVED / "polyu/d780f9f68077c714.txt").read_text(encoding="utf-8")
+    phd_text = (SAVED / "polyu/e5811e8bced1de9c.txt").read_text(encoding="utf-8")
     assert not has_admissions_contact_context("https://www.polyu.edu.hk/contact-us/form.php", "Contact Us", contact_text)
     assert not has_undergraduate_fee_context("https://www.polyu.edu.hk/sao/student-resources-and-support-section/residential-life/hall-admission/hall-fees/", "Hall Fees", hall_text)
     assert not has_undergraduate_fee_context("https://www.polyu.edu.hk/gs/prospective-students/fellowship-scholarship-schemes/", "Hong Kong PhD Fellowship Scheme Applications", phd_text)
@@ -211,8 +211,8 @@ def test_pipeline_does_not_extract_polyu_hall_or_phd_fees_from_saved_sources():
     fetcher = _SavedSinglePageFetcher(
         {
             "https://fixture.test/": ("Home", '<a href="https://www.polyu.edu.hk/sao/student-resources-and-support-section/residential-life/hall-admission/hall-fees/">Hall</a><a href="https://www.polyu.edu.hk/gs/prospective-students/fellowship-scholarship-schemes/">PhD</a>'),
-            "https://www.polyu.edu.hk/sao/student-resources-and-support-section/residential-life/hall-admission/hall-fees/": ("Hall Fees", (SAVED / "batch/polyu/sources/d780f9f68077c714.txt").read_text(encoding="utf-8")),
-            "https://www.polyu.edu.hk/gs/prospective-students/fellowship-scholarship-schemes/": ("Hong Kong PhD Fellowship Scheme Applications", (SAVED / "batch/polyu/sources/e5811e8bced1de9c.txt").read_text(encoding="utf-8")),
+            "https://www.polyu.edu.hk/sao/student-resources-and-support-section/residential-life/hall-admission/hall-fees/": ("Hall Fees", (SAVED / "polyu/d780f9f68077c714.txt").read_text(encoding="utf-8")),
+            "https://www.polyu.edu.hk/gs/prospective-students/fellowship-scholarship-schemes/": ("Hong Kong PhD Fellowship Scheme Applications", (SAVED / "polyu/e5811e8bced1de9c.txt").read_text(encoding="utf-8")),
         }
     )
     data = run_scan(
@@ -224,7 +224,7 @@ def test_pipeline_does_not_extract_polyu_hall_or_phd_fees_from_saved_sources():
 
 
 def test_pipeline_does_not_extract_ntu_graduate_tuition_from_saved_source():
-    text = (SAVED / "batch/ntu/sources/359466af0e460cb9.txt").read_text(encoding="utf-8")
+    text = (SAVED / "ntu/359466af0e460cb9.txt").read_text(encoding="utf-8")
     fetcher = _SavedSinglePageFetcher(
         {
             "https://fixture.test/": ("Home", '<a href="https://www.ntu.edu.sg/admissions/graduate/financialmatters/pgtuitionfees">Graduate tuition</a>'),
