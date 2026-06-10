@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -13,8 +12,8 @@ from university_admissions_crawler.evidence.store import load_previous_result
 from university_admissions_crawler.extractor.pdf_extractor import PypdfPDFExtractor
 from university_admissions_crawler.pipeline.batch import _run_batch
 from university_admissions_crawler.pipeline.diagnostics import inferred_allowed_domain
+from university_admissions_crawler.pipeline.output_writer import write_result_files
 from university_admissions_crawler.pipeline.run_university_scan import run_fixture_scan, run_scan
-from university_admissions_crawler.reports.render_report import render_markdown_report
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -103,10 +102,7 @@ def main(argv: list[str] | None = None) -> int:
             pdf_extractor=PypdfPDFExtractor() if args.enable_pdf else None,
             source_output_dir=source_output_dir,
         )
-    result_path = output_dir / "result.json"
-    report_path = output_dir / "report.md"
-    result_path.write_text(json.dumps(data.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
-    report_path.write_text(render_markdown_report(data), encoding="utf-8")
+    result_path, report_path = write_result_files(data, output_dir)
     print(f"Wrote {result_path}")
     print(f"Wrote {report_path}")
     return 0

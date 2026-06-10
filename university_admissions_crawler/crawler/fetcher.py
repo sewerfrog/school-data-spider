@@ -12,14 +12,21 @@ import re
 
 from university_admissions_crawler.crawler.html_text import _html_to_text, _strip_tags
 from university_admissions_crawler.crawler.json_content import (
-    _dedupe_preserve_order,
-    _extract_json_links,
-    _json_to_text,
-    _looks_like_link,
-    _walk_json_values,
+    dedupe_preserve_order,
+    extract_json_links,
+    json_to_text,
+    looks_like_link,
+    walk_json_values,
 )
+from university_admissions_crawler.crawler.optional_stubs import Crawl4AIFetcherStub, ScrapeGraphFetcherStub
 from university_admissions_crawler.evidence.provenance import content_hash
 from university_admissions_crawler.extractor.schema import SourceRecord, SourceType, WarningCode, WarningRecord
+
+_dedupe_preserve_order = dedupe_preserve_order
+_extract_json_links = extract_json_links
+_json_to_text = json_to_text
+_looks_like_link = looks_like_link
+_walk_json_values = walk_json_values
 
 
 @dataclass(slots=True)
@@ -365,58 +372,6 @@ class PlaywrightBrowserFetcher:
         if result.source is not None:
             result.source.engine = self.engine
         return result
-
-
-class Crawl4AIFetcherStub:
-    """Contract stub for future crawl4ai adapter.
-
-    The stub deliberately warns instead of importing browser/crawl4ai dependencies,
-    so core tests prove optional browser support is not required.
-    """
-
-    engine = "crawl4ai-stub"
-
-    def fetch(self, url: str) -> FetchResult:
-        return FetchResult(
-            url=url,
-            final_url=url,
-            status=0,
-            title=None,
-            content_type="application/octet-stream",
-            retrieved_at=_fixed_retrieved_at(),
-            engine=self.engine,
-            warnings=[
-                WarningRecord(
-                    WarningCode.OPTIONAL_DEPENDENCY_MISSING,
-                    "crawl4ai/browser support is optional and not installed/enabled for this run.",
-                    field=url,
-                )
-            ],
-        )
-
-
-class ScrapeGraphFetcherStub:
-    """Contract stub for a future optional ScrapeGraphAI adapter."""
-
-    engine = "scrapegraph-stub"
-
-    def fetch(self, url: str) -> FetchResult:
-        return FetchResult(
-            url=url,
-            final_url=url,
-            status=0,
-            title=None,
-            content_type="application/octet-stream",
-            retrieved_at=_fixed_retrieved_at(),
-            engine=self.engine,
-            warnings=[
-                WarningRecord(
-                    WarningCode.OPTIONAL_DEPENDENCY_MISSING,
-                    "ScrapeGraphAI support is optional and not installed/enabled for this run.",
-                    field=url,
-                )
-            ],
-        )
 
 
 def assert_fetch_contract(result: FetchResult) -> None:
