@@ -10,6 +10,7 @@ from university_admissions_crawler.cli import main
 from university_admissions_crawler.crawler.fetcher import FetchResult
 from university_admissions_crawler.evidence.provenance import source_from_text
 from university_admissions_crawler.extractor.schema import SourceType
+from university_admissions_crawler.pipeline.output_writer import write_result_files
 from university_admissions_crawler.pipeline.run_university_scan import run_fixture_scan
 from university_admissions_crawler.reports.render_report import render_markdown_report
 
@@ -53,6 +54,16 @@ def test_cli_fixture_smoke_writes_json_and_markdown():
         assert data["warnings"]
         assert data["discovered_categories"]
         assert "Evidence appendix" in report.read_text()
+
+
+def test_write_result_files_writes_json_and_markdown():
+    data = run_fixture_scan(ROOT, max_pages=1, max_depth=0)
+    with TemporaryDirectory() as tmp:
+        result_path, report_path = write_result_files(data, tmp)
+        assert result_path == Path(tmp) / "result.json"
+        assert report_path == Path(tmp) / "report.md"
+        assert json.loads(result_path.read_text(encoding="utf-8"))["sources"]
+        assert "Evidence appendix" in report_path.read_text(encoding="utf-8")
 
 
 def test_cli_smoke_flag_caps_depth_and_provider_flags_are_guarded():

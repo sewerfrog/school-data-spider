@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -14,8 +13,8 @@ from university_admissions_crawler.extractor.pdf_extractor import PypdfPDFExtrac
 from university_admissions_crawler.extractor.schema import AdmissionsData, Institution, RunMetadata, attach_validation_warnings
 from university_admissions_crawler.pipeline.diagnostics import inferred_allowed_domain
 from university_admissions_crawler.pipeline.merge import merge_data
+from university_admissions_crawler.pipeline.output_writer import write_result_files
 from university_admissions_crawler.pipeline.run_university_scan import run_scan
-from university_admissions_crawler.reports.render_report import render_markdown_report
 
 
 def _run_batch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
@@ -29,11 +28,9 @@ def _run_batch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int
         if university.name and data.institution.name.is_unknownish:
             data.institution.name.value = university.name
         out_dir = output_root / university.id
-        out_dir.mkdir(parents=True, exist_ok=True)
-        (out_dir / "result.json").write_text(json.dumps(data.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
-        (out_dir / "report.md").write_text(render_markdown_report(data), encoding="utf-8")
-        print(f"Wrote {out_dir / 'result.json'}")
-        print(f"Wrote {out_dir / 'report.md'}")
+        result_path, report_path = write_result_files(data, out_dir)
+        print(f"Wrote {result_path}")
+        print(f"Wrote {report_path}")
     return 0
 
 

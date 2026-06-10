@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-import json
 from pathlib import Path
 from typing import Protocol
 from urllib.parse import urldefrag, urljoin, urlparse
@@ -12,6 +11,13 @@ from urllib.request import Request, urlopen
 import re
 
 from university_admissions_crawler.crawler.html_text import _html_to_text, _strip_tags
+from university_admissions_crawler.crawler.json_content import (
+    _dedupe_preserve_order,
+    _extract_json_links,
+    _json_to_text,
+    _looks_like_link,
+    _walk_json_values,
+)
 from university_admissions_crawler.evidence.provenance import content_hash
 from university_admissions_crawler.extractor.schema import SourceRecord, SourceType, WarningCode, WarningRecord
 
@@ -524,45 +530,6 @@ def _text_for_source(text: str, source_type: SourceType) -> str:
     return text
 
 
-def _json_to_text(text: str) -> str:
-    try:
-        payload = json.loads(text)
-    except json.JSONDecodeError:
-        return text
-    return json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2)
-
-
-def _extract_json_links(text: str, base_url: str) -> list[str]:
-    try:
-        payload = json.loads(text)
-    except json.JSONDecodeError:
-        return []
-    links: list[str] = []
-    for value in _walk_json_values(payload):
-        if isinstance(value, str) and _looks_like_link(value):
-            links.append(urljoin(base_url, value))
-    return _dedupe_preserve_order(links)
-
-
-def _walk_json_values(value):
-    if isinstance(value, dict):
-        for subvalue in value.values():
-            yield from _walk_json_values(subvalue)
-        return
-    if isinstance(value, list):
-        for subvalue in value:
-            yield from _walk_json_values(subvalue)
-        return
-    yield value
-
-
-def _looks_like_link(value: str) -> bool:
-    stripped = value.strip()
-    if stripped.startswith(("http://", "https://", "/")):
-        return True
-    return bool(re.search(r"\.(?:html?|pdf|json)(?:[?#].*)?$", stripped, flags=re.IGNORECASE))
-
-
 def _capture_api_response_url(response, links: list[str]) -> None:
     try:
         content_type = response.headers.get("content-type", "").split(";", 1)[0].lower()
@@ -577,13 +544,3 @@ def _looks_like_api_url(url: str) -> bool:
     parsed = urlparse(url)
     path = parsed.path.lower()
     return "/api/" in path or path.endswith(".json") or "/graphql" in path or "/odata/" in path
-
-
-def _dedupe_preserve_order(values: list[str]) -> list[str]:
-    seen: set[str] = set()
-    out: list[str] = []
-    for value in values:
-        if value not in seen:
-            out.append(value)
-            seen.add(value)
-    return out

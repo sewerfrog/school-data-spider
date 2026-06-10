@@ -22,6 +22,7 @@ def merge_data(target: AdmissionsData, other: AdmissionsData) -> AdmissionsData:
     return target
 
 
+# Compatibility alias for callers that imported the previous private helper.
 _merge_data = merge_data
 
 
