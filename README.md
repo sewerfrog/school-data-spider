@@ -4,7 +4,7 @@ Evidence-first MVP for extracting undergraduate admissions information from offi
 
 ## What it does now
 
-- Starts from a seed homepage in `--fixture` mode.
+- Starts from fixture roots, guarded live URLs, or batch-configured seed URLs.
 - Discovers bounded official links with `max_pages` / `max_depth` limits.
 - Classifies admissions-related pages into undergraduate admissions, international requirements, deadlines, accepted qualifications, programme lists/prerequisites, fees, scholarships, visa, housing, contact, and irrelevant pages.
 - Extracts only claims that can be tied to source evidence snippets.
@@ -19,7 +19,7 @@ Evidence-first MVP for extracting undergraduate admissions information from offi
 - Adds a lightweight cleaned-candidate layer for key fields: `raw_text`, `parsed`, and `parse_status`.
 - Parses common English test scores, fee amounts, and application dates when the raw text is specific enough; otherwise the raw candidate remains visible for manual review.
 - Filters undergraduate core extraction away from common pollution pages such as postgraduate/graduate pages, hall/accommodation pages, search pages, current-students pages, privacy/contact forms, and generic marketing pages unless they have strong undergraduate admissions context.
-- Guards optional live/browser/PDF/LLM/ScrapeGraphAI capabilities behind interfaces; they are not required for core tests.
+- Guards optional live/browser/PDF/LLM/crawl4ai/ScrapeGraphAI capabilities behind interfaces; they are not required for core tests.
 - Writes `result.json` and `report.md`.
 
 ## Current implementation decision
@@ -31,9 +31,13 @@ Optional capabilities are represented as dependency groups / guarded execution m
 - `browser`: Playwright browser-backed live crawling support
 - `pdf`: optional pypdf parsing support for live PDF sources
 - `llm`: future LLM provider support
+- `crawl4ai`: future crawl4ai adapter surface, currently warning-only stub
 - `scrapegraph`: future ScrapeGraphAI adapter support
 
 Core deterministic tests pass without browser installation, paid credentials, hosted APIs, or live network access.
+Recent internal cleanup split shared output writing, fetch result types,
+source/content-type helpers, JSON helpers, and optional warning-only stubs into
+small modules while keeping legacy import paths compatible.
 
 ## Install / run
 
@@ -80,7 +84,7 @@ For extracted key fields, `result.json` now keeps both the original candidate an
 
 If a field cannot be safely parsed, it is left as a raw candidate with `parse_status` such as `unparsed` or `raw_needs_manual_review`; it should not be treated as a cleaned business field.
 
-For a smaller smoke run, add `--smoke`; it caps the run at `max_pages<=20` and `max_depth<=2` even if larger values are supplied. Optional provider flags such as `--enable-llm` and `--enable-scrapegraph` exist as explicit guarded surfaces and fail closed in this dependency-free MVP.
+For a smaller smoke run, add `--smoke`; it caps the run at `max_pages<=20` and `max_depth<=2` even if larger values are supplied. In batch mode, a university config's own `max_pages` or `max_depth` still overrides the CLI smoke cap for that university. Optional provider flags such as `--enable-llm` and `--enable-scrapegraph` exist as explicit guarded surfaces and fail closed in this dependency-free MVP.
 
 To compare with a previous run:
 
@@ -209,8 +213,8 @@ When browser mode discovers a PDF URL, the browser fetcher now downloads the
 PDF through the HTTP fetcher instead of trying to render it as a page. This
 allows the source to be saved as `pdf` and counted as `pdf_document`. Use
 `--enable-pdf` plus the `pdf` extra when you want the PDF text parsed with
-`pypdf`; otherwise the PDF source can still be captured but may not yield
-extractable text.
+`pypdf`; otherwise non-fixture PDF sources return an optional-dependency
+warning and do not contribute parsed PDF evidence.
 
 Public JSON/API sources are detected through `application/json`, `.json` URLs,
 and browser network responses. JSON values are preserved as source text, and
@@ -243,8 +247,9 @@ the report's "Core Field Coverage" section to see which fields remain missing.
 ## Current real-site caveat
 
 The saved outputs under `outputs/batch-classifier-fixed/hku`,
-`outputs/batch/ntu`, and `outputs/batch/polyu` were generated before the latest
-cleaned-candidate and context-filter fixes. They are useful as regression
-references, but tests now use copied fixtures under `tests/fixtures/saved_sources/`.
-Their `result.json` / `report.md` files will not reflect the latest behavior
-until those schools are rerun.
+`outputs/batch-classifier-fixed/ntu`, `outputs/batch/hku`,
+`outputs/batch/hku-cleaned`, `outputs/batch/ntu`, `outputs/batch/polyu`, and
+`outputs/nus-live-programmes/` are historical generated outputs. They are
+useful as references, but tests now use copied fixtures under
+`tests/fixtures/saved_sources/`. Their `result.json` / `report.md` files will
+not reflect the latest behavior until those schools are rerun.

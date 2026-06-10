@@ -32,7 +32,7 @@
 - 复杂专业体系抽取：当前主要是 regex，无法稳定区分 degree、major、minor、second major、special programme 等。
 - 复杂表格/PDF 表格：HTML table 只转文本，`pypdf` 只抽文本；不是结构化表格解析。
 - 部分 schema 字段未填充：`international_requirements`、`standardized_tests`、`selection_tests_or_interviews` 当前基本未由 pipeline 写入。用途 partially unclear。
-- `CrawlConfig` / `smoke_config()` 当前不是主要运行路径。保留原因 unclear。
+- `CrawlConfig` / `smoke_config()` 当前不是主要运行路径；作为兼容/未来配置入口保留，并由边界测试固定当前契约。
 
 ## 4. 如何运行项目
 

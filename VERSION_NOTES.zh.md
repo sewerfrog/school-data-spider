@@ -14,7 +14,7 @@
 - 不生成录取判断。
 - 不绕过登录、验证码、WAF 或申请系统。
 - 没有证据支撑的招生事实应保持 `unknown` 或进入 `needs_manual_check` warning。
-- 浏览器、真实 PDF、LLM、ScrapeGraphAI 等能力必须显式开启或仍处于 guarded/stub 状态。
+- 浏览器、真实 PDF、LLM、crawl4ai、ScrapeGraphAI 等能力必须显式开启或仍处于 guarded/stub 状态。
 
 ## 2. 本轮主要变化
 
@@ -26,12 +26,16 @@
 - 诊断输出：`run.config` 记录 coverage、source strategy 和 source strategy summary，报告中也会显示解析状态。
 - Saved-source 回归材料：测试依赖的 HKU/NTU/PolyU saved source 已复制到 `tests/fixtures/saved_sources/`，测试不应再读取 `outputs/`。
 - `outputs/` 语义收敛：`outputs/` 保留为生成输出和历史参考样例目录，不作为当前 deterministic test fixture 来源。
+- 结构清理：单次扫描和 batch 扫描已共用 `pipeline/output_writer.py` 写出 `result.json` / `report.md`。
+- crawler 边界拆分：`FetchResult` / `Fetcher` 已拆到 `crawler/types.py`，source/content-type 判断已拆到 `crawler/source_types.py`，JSON helper 已拆到 `crawler/json_content.py`，optional warning-only stubs 已拆到 `crawler/optional_stubs.py`。
+- 兼容保护：旧的 `crawler.fetcher` 导入路径、JSON underscored helper、`pipeline.merge._merge_data` 等兼容入口仍保留，并由 `tests/test_compatibility_boundaries.py` 覆盖。
+- Batch 边界收敛：`pipeline/batch.py` 已抽出 `_scan_limits_for_config()`，但仍保留 `argparse.Namespace`、`parser.error()` 和 `print()` 行为。
 
 ## 3. 已知仍有限制
 
 - 真实官网抽取仍不是生产级；复杂专业体系、复杂费用表、多轮申请日期和 PDF 表格需要更强的 section/table 级解析。
 - `outputs/nus-live-programmes/` 是旧的一次性 NUS 产物，不能代表当前通用 pipeline 已能稳定复现完整 NUS 专业体系。
-- 旧的 HKU/NTU/PolyU `outputs/` 结果不会因代码修复自动更新；要看到新行为需要重新跑真实学校 crawl。
+- 旧的 HKU/NTU/PolyU/NUS `outputs/` 结果不会因代码修复自动更新；要看到新行为需要重新跑真实学校 crawl。
 - Browser 抓取依赖本地 Playwright 和 Chromium；缺失时应返回 `optional_dependency_missing` warning。
 - WAF、portal、challenge 页面和连接关闭仍可能导致抓取失败或抓到无效内容。
 - `overall confidence` 不是覆盖率指标；字段是否完整应同时查看 coverage 和 warnings。
@@ -40,7 +44,15 @@
 
 ## 4. 本轮验证参考
 
-与 saved-source fixture 迁移相关的局部验证已通过：
+当前完整验证已通过：
+
+```bash
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider
+```
+
+结果：`85 passed`。
+
+与 saved-source fixture 迁移相关的局部验证仍可作为专项参考：
 
 ```bash
 env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_pipeline.py tests/test_classifier_ntu_regression.py
@@ -57,7 +69,8 @@ env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovid
 - 增强日期、费用和奖学金抽取，支持多申请人群、多轮次、多 cohort 和资助类型。
 - 增强 PDF 表格解析；是否引入 `pdfplumber` 或同类依赖需要单独评估。
 - 将有价值的真实学校样例迁移到更明确的 `docs/examples/` 或记录保留清单，避免继续混用 `outputs/`。
-- 在小步测试保护下拆分 `cli.py`、`pipeline/run_university_scan.py` 和 `crawler/fetcher.py` 的过重职责。
+- 继续小步拆分 `crawler/fetcher.py` 剩余的 PDF fallback 或时间 helper，避免同时移动 fixture/live/browser fetcher 类。
+- 继续收敛 `pipeline/batch.py` 和 `pipeline/run_university_scan.py` 的过重职责；任何删除兼容入口前先用 `rg` 确认调用风险并单独提交。
 
 ## 6. 文档分工
 
