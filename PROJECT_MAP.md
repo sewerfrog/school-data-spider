@@ -21,7 +21,7 @@
 - 证据与校验：记录 source、snippet、claim path、hash、warnings，并校验 non-unknown claim 是否有 evidence。
 - 报告输出：生成 Markdown evidence report。
 - 增量 diff：传入 previous result 时记录 source hash 和字段变化。
-- 测试：`.venv314` 环境下当前 pytest 结果为 `76 passed`。
+- 测试：`.venv314` 环境下当前 pytest 结果为 `76 passed`；saved-source 迁移相关局部测试为 `20 passed`。
 
 ## 3. 未完成或实验性功能
 
@@ -82,14 +82,16 @@ python3 -m compileall university_admissions_crawler tests
 ## 5. 主要文件夹和文件说明
 
 - `university_admissions_crawler/`：源码包。
-- `university_admissions_crawler/cli.py`：CLI、单次扫描、批量扫描、结果写入。
+- `university_admissions_crawler/cli.py`：CLI 参数解析、单次 fixture/live 扫描、单次结果写入；batch 扫描已委托给 pipeline 层。
 - `university_admissions_crawler/config.py`：关键词和 `CrawlConfig`；当前使用较少。
 - `university_admissions_crawler/config_loader.py`：batch JSON 配置读取。
 - `university_admissions_crawler/crawler/`：fetcher、discovery、URL filter、招生上下文 gate、sitemap parser。
 - `university_admissions_crawler/classifier/`：规则页面分类器。
 - `university_admissions_crawler/extractor/`：schema、HTML/API/PDF/LLM 抽取和标准化解析。
 - `university_admissions_crawler/evidence/`：source/evidence helper、hash、source 文件写入、previous result 加载。
-- `university_admissions_crawler/pipeline/`：扫描主流程、diff、coverage/source strategy diagnostics。
+- `university_admissions_crawler/pipeline/`：扫描主流程、batch orchestration、batch 结果合并、diff、coverage/source strategy diagnostics。
+- `university_admissions_crawler/pipeline/batch.py`：`--config` 批量扫描 orchestration；负责读取配置、按 university id 写输出、调用 `run_scan()`。
+- `university_admissions_crawler/pipeline/merge.py`：批量多 seed 扫描结果合并；负责合并 requirement/programme/evidence claim path。
 - `university_admissions_crawler/reports/`：Markdown 报告渲染。
 - `tests/`：pytest 测试与 fixture 站点。
 - `configs/`：示例大学批量配置。
@@ -101,6 +103,8 @@ python3 -m compileall university_admissions_crawler tests
 ## 6. 重要函数、类、组件说明
 
 - `cli.main()`：命令行入口。
+- `pipeline.batch._run_batch()` / `_run_university_config()`：batch config 扫描入口和单个大学配置扫描。
+- `pipeline.merge._merge_data()`：合并多个 `AdmissionsData`，并重新指向合并后的 evidence claim path。
 - `run_fixture_scan()` / `run_scan()`：fixture 和通用扫描主入口。
 - `DiscoveryConfig` / `discover()`：扫描范围配置和 bounded discovery。
 - `DomainPolicy` / `canonicalize_url()` / `score_url()`：域名允许规则、URL 规范化、链接排序。
@@ -118,24 +122,36 @@ python3 -m compileall university_admissions_crawler tests
 
 ## 7. 已知问题
 
-- `cli.py` 职责偏重：参数解析、批量扫描、merge、文件写入混在一起。
+- `cli.py` 职责已减轻：merge 和 batch runner 已拆到 pipeline 层；但 CLI 仍同时负责参数解析、单次扫描、结果写入和部分 URL/domain helper。
+- `pipeline/batch.py` 当前仍依赖 `argparse.Namespace` 和 `parser.error()`，还负责输出文件写入与 `print()`。这保持了行为不变，但 pipeline 层和 CLI 层边界仍不够干净。
+- `pipeline/merge.py` 当前暴露的是下划线私有函数名，`pipeline/batch.py` 跨模块导入 `_merge_data()`。后续可考虑小步改成公开 `merge_data()` 并补专门测试。
+- `cli.py` 和 `pipeline/batch.py` 之间仍有相似 URL/domain helper 逻辑；为避免扩大行为变更，本轮未抽公共 helper。
 - `pipeline/run_university_scan.py` 职责偏重：调度、分类分流、抽取、PDF、补抽取、diff 混在一起。
 - `crawler/fetcher.py` 文件偏大：fixture/live/browser fetcher、future stub、HTML 文本化 helper 都在同一文件。
 - 抽取质量主要取决于 regex 和文本上下文 gate，对真实复杂官网不稳定。
 - 未启用 `--enable-pdf` 时，pipeline 默认使用 `FixturePDFExtractor()`；对真实 PDF bytes 的语义不清晰。
 - `outputs/` 已不应承担当期测试 fixture；如果后续需要保留样例，应迁到 `docs/examples/` 或记录清单。
 - `.venv314/`、`.omx/`、`.idea/`、`temp_imports/` 不属于核心产品源码；是否保留需进一步确认。
-- README / VERSION_NOTES 可能描述旧输出状态；真实站点旧结果需要重跑才反映当前代码。
+- README / VERSION_NOTES 已收敛职责；真实站点旧结果仍需要重跑才反映当前代码。
 
 ## 8. 下一步推荐清理方向
 
-1. 稳定当前 housekeeping 变更。先单独提交 `.gitignore`、`PROJECT_MAP.md` 和已删除的缓存/`.DS_Store`，避免后续结构调整与生成物清理混在一起。
-2. 把测试依赖的 saved source 从 `outputs/` 迁到 `tests/fixtures/saved_sources/`，只迁移测试实际读取的 HKU/NTU/PolyU source 文件，再更新测试路径。
-3. 已将 `outputs/` 明确为 generated-only；不要让新测试再读取 `outputs/`。仍有价值的样例输出可移动到 `docs/examples/` 或记录保留清单。
-4. 不要直接整体删除 `outputs/`。当前目录仍保留 NUS、HKU、NTU、PolyU 历史输出，删除前需要确认是否迁移样例或归档。
-5. 把 `cli.py` 的 batch 扫描、数据 merge 和结果写入逻辑拆到 pipeline 层，例如 `pipeline/batch.py` 和 `pipeline/merge.py`，保持 CLI 行为不变。
-6. 拆分 `crawler/fetcher.py`，先把 HTML 文本化 helper 与 fetcher 实现分开，再按 fixture/live HTTP/Playwright/stub 拆文件。
-7. 处理未使用或半使用接口：`CrawlConfig` / `smoke_config()`、`parse_sitemap_urls()`、`source_hashes()`、`_looks_like_false_english_requirement()`。先加说明或测试，再决定删除。
-8. 明确 live PDF 默认策略。未启用 `--enable-pdf` 时，live PDF 应记录 source 和 warning，而不是按 fixture PDF 解析；fixture PDF 仍可使用 `FixturePDFExtractor`。
-9. 对未填充 schema 字段做兼容性决策：`international_requirements`、`standardized_tests`、`selection_tests_or_interviews` 应标为 experimental、补 pipeline 行为，或在兼容计划后移除。
-10. 不要一次性重写 extractor，也不要随便引入新依赖；先用 fixture-backed tests 支撑小步重构，再针对复杂 table、PDF、programme 抽取补专项能力。
+已完成：
+
+1. 已稳定 housekeeping 变更并提交：`.gitignore`、`PROJECT_MAP.md`、缓存/`.DS_Store` 清理。
+2. 已把测试依赖的 saved source 迁到 `tests/fixtures/saved_sources/`，并更新 HKU/NTU/PolyU 相关测试路径。
+3. 已将 `outputs/` 明确为 generated-only；新测试不应再读取 `outputs/`。
+4. 已保留 `outputs/` 历史输出，没有整体删除。删除或迁移样例前仍需要人工确认。
+5. 已收敛 README / VERSION_NOTES 文档职责，避免把运行教程、版本快照和项目地图混在一起。
+6. 已拆出 `cli.py` 的 merge helper 到 `pipeline/merge.py`。行为保持原样，当前验证：`tests/test_report_cli.py tests/test_pipeline.py` 为 `26 passed`，完整 pytest 为 `76 passed`。
+7. 已拆出 `cli.py` 的 batch runner 到 `pipeline/batch.py`。CLI 只保留 `--config` 分支调用，当前验证同上。
+
+建议的后续顺序：
+
+1. 从 `crawler/fetcher.py` 先拆 HTML 文本化 helper 到 `crawler/html_text.py`，例如 `_html_to_text`、`_main_content_fragment`、`_remove_html_noise`、`_tables_to_text`。先不拆 fetcher 类。风险：MEDIUM。
+2. 复盘刚拆出的 pipeline 边界：把 `_merge_data()` 改成公开 `merge_data()`，或保留私有名但补测试说明；再决定是否把 batch 输出写入从 `pipeline/batch.py` 继续拆出。风险：SAFE 到 MEDIUM。
+3. 明确 live PDF 默认策略。未启用 `--enable-pdf` 时，live PDF 应记录 source 和 warning，而不是按 fixture PDF 解析；fixture PDF 仍可使用 `FixturePDFExtractor`。风险：MEDIUM。
+4. 处理未使用或半使用接口：`CrawlConfig` / `smoke_config()`、`parse_sitemap_urls()`、`source_hashes()`、`_looks_like_false_english_requirement()`。先加说明或测试，再决定删除。风险：SAFE 到 MEDIUM。
+5. 对未填充 schema 字段做兼容性决策：`international_requirements`、`standardized_tests`、`selection_tests_or_interviews` 应标为 experimental、补 pipeline 行为，或在兼容计划后移除。风险：MEDIUM 到 HIGH。
+6. 评估 `outputs/nus-live-programmes/` 和 `outputs/batch*/` 中仍有价值的样例是否迁到 `docs/examples/` 或保留清单。任何移动或删除都需要人工确认。风险：MEDIUM。
+7. 不要一次性重写 extractor，也不要随便引入新依赖；先用 fixture-backed tests 支撑小步重构，再针对复杂 table、PDF、programme 抽取补专项能力。风险：HIGH。
