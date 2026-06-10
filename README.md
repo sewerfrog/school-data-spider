@@ -12,9 +12,13 @@ Evidence-first MVP for extracting undergraduate admissions information from offi
 - Preserves official source URLs, including discovered official subdomains, in source/evidence/report output.
 - Records discovered page categories in JSON and Markdown.
 - Handles PDF-like fixture sources and optional real PDF parsing through a page-indexed extractor protocol.
+- In browser mode, obvious PDF URLs and Playwright `Download is starting` PDF navigations fall back to HTTP byte download so the source is recorded as `SourceType.PDF`.
 - Handles public JSON/API sources as first-class evidence sources.
 - Preserves HTML table text for deterministic extraction from table-heavy admissions pages.
 - Strips common navigation/header/footer/cookie noise before extraction and records core-field coverage diagnostics.
+- Adds a lightweight cleaned-candidate layer for key fields: `raw_text`, `parsed`, and `parse_status`.
+- Parses common English test scores, fee amounts, and application dates when the raw text is specific enough; otherwise the raw candidate remains visible for manual review.
+- Filters undergraduate core extraction away from common pollution pages such as postgraduate/graduate pages, hall/accommodation pages, search pages, current-students pages, privacy/contact forms, and generic marketing pages unless they have strong undergraduate admissions context.
 - Guards optional live/browser/PDF/LLM/ScrapeGraphAI capabilities behind interfaces; they are not required for core tests.
 - Writes `result.json` and `report.md`.
 
@@ -60,6 +64,22 @@ Outputs:
 - `/tmp/uac-smoke/result.json` — structured data, sources, evidence, warnings, and diff metadata.
 - `/tmp/uac-smoke/report.md` — human-readable fact/warning/source/evidence report.
 
+For extracted key fields, `result.json` now keeps both the original candidate and the cleaned parse status:
+
+```json
+{
+  "value": "English language requirements: IELTS 6.5 overall; TOEFL 90 minimum",
+  "raw_text": "English language requirements: IELTS 6.5 overall; TOEFL 90 minimum",
+  "parsed": [
+    {"test_name": "IELTS", "overall_score": 6.5, "component_scores": {}},
+    {"test_name": "TOEFL iBT", "overall_score": 90, "component_scores": {}}
+  ],
+  "parse_status": "parsed"
+}
+```
+
+If a field cannot be safely parsed, it is left as a raw candidate with `parse_status` such as `unparsed` or `raw_needs_manual_review`; it should not be treated as a cleaned business field.
+
 For a smaller smoke run, add `--smoke`; it caps the run at `max_pages<=20` and `max_depth<=2` even if larger values are supplied. Optional provider flags such as `--enable-llm` and `--enable-scrapegraph` exist as explicit guarded surfaces and fail closed in this dependency-free MVP.
 
 To compare with a previous run:
@@ -82,9 +102,12 @@ python -m pytest -q
 python -m compileall -q university_admissions_crawler tests
 ```
 
-If `pytest` is not installed in the active environment, the deterministic suite
-can still be checked with a small stdlib direct runner, but `pytest` is the
-intended test command.
+If `pytest` is not installed in the active environment, install the `dev` extra
+before running the deterministic suite.
+
+Saved-source regression fixtures live under `tests/fixtures/saved_sources/`.
+The `outputs/` directory is for generated run output and should not be required
+by deterministic tests.
 
 ## Evidence and safety policy
 
@@ -158,6 +181,11 @@ All modes write the same output shape:
   `json_api`, `application_portal`, `blocked_or_challenge`, or `irrelevant`.
 - `source_strategy_summary` — counts by strategy label.
 
+The report also marks parsed versus raw-only values. For example, parsed fee
+rows appear with structured `currency`, `amount`, `student_group`,
+`academic_year`/`cohort`, `billing_period`, `fee_type`, and `raw_text` when
+those parts can be inferred.
+
 Some university sites use WAF/anti-bot protection. When that happens, the
 captured source may be a challenge page rather than the admissions content; the
 report and source files should be reviewed before trusting extracted fields.
@@ -176,6 +204,13 @@ python -m university_admissions_crawler.cli https://www.example.edu/admissions/p
   --max-pages 1 \
   --max-depth 0
 ```
+
+When browser mode discovers a PDF URL, the browser fetcher now downloads the
+PDF through the HTTP fetcher instead of trying to render it as a page. This
+allows the source to be saved as `pdf` and counted as `pdf_document`. Use
+`--enable-pdf` plus the `pdf` extra when you want the PDF text parsed with
+`pypdf`; otherwise the PDF source can still be captured but may not yield
+extractable text.
 
 Public JSON/API sources are detected through `application/json`, `.json` URLs,
 and browser network responses. JSON values are preserved as source text, and
@@ -204,3 +239,12 @@ The current extractors are conservative and still rule-based. For real sites,
 `overall confidence` reflects evidence/conflict status for extracted claims; it
 does not mean all admissions fields were found. Use `run.config.coverage` and
 the report's "Core Field Coverage" section to see which fields remain missing.
+
+## Current real-site caveat
+
+The saved outputs under `outputs/batch-classifier-fixed/hku`,
+`outputs/batch/ntu`, and `outputs/batch/polyu` were generated before the latest
+cleaned-candidate and context-filter fixes. They are useful as regression
+references, but tests now use copied fixtures under `tests/fixtures/saved_sources/`.
+Their `result.json` / `report.md` files will not reflect the latest behavior
+until those schools are rerun.
