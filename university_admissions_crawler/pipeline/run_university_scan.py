@@ -33,7 +33,7 @@ from university_admissions_crawler.extractor.html_extractor import (
     extract_visa,
 )
 from university_admissions_crawler.extractor.normalizer import add_warning
-from university_admissions_crawler.extractor.pdf_extractor import FixturePDFExtractor, PDFExtractor
+from university_admissions_crawler.extractor.pdf_extractor import FixturePDFExtractor, MissingPDFExtractor, PDFExtractor
 from university_admissions_crawler.pipeline.diagnostics import attach_run_diagnostics, source_strategy_for
 from university_admissions_crawler.extractor.schema import (
     AdmissionsData,
@@ -86,7 +86,7 @@ def run_scan(
         institution=Institution(homepage_url=seed_url),
         run=RunMetadata(input_url=seed_url, config={"max_pages": (config.max_pages if config else 20), "max_depth": (config.max_depth if config else 3), "allowed_hosts": sorted(config.allowed_hosts) if config else [], "allowed_domains": sorted(config.allowed_domains) if config else []}),
     )
-    pdf_extractor = pdf_extractor or FixturePDFExtractor()
+    pdf_extractor = pdf_extractor or _default_pdf_extractor(fetcher)
 
     for page in pages:
         result = page.result
@@ -312,6 +312,12 @@ def _append_requirement(dest: list[RequirementRecord], evidence_dest, extractor,
     if record:
         dest.append(record)
         evidence_dest.extend(evidence)
+
+
+def _default_pdf_extractor(fetcher: Fetcher) -> PDFExtractor:
+    if isinstance(fetcher, FixtureFetcher):
+        return FixturePDFExtractor()
+    return MissingPDFExtractor()
 
 
 def _extract_core_supplements(data: AdmissionsData, text: str, source) -> None:

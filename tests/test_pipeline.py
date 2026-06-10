@@ -57,6 +57,41 @@ def test_pdf_prerequisite_evidence_uses_fixture_page_number():
     assert pdf_items[0].page_number == 2
 
 
+def test_live_pdf_without_enabled_pdf_parser_warns_instead_of_fixture_parsing():
+    class LivePDFTextFetcher:
+        engine = "live-http"
+
+        def fetch(self, url: str) -> FetchResult:
+            source = source_from_text(
+                source_url=url,
+                title="Prospectus",
+                source_type=SourceType.PDF,
+                text="PDF PAGE 1\nMathematics required",
+                retrieved_at="2026-06-01T00:00:00+00:00",
+                engine=self.engine,
+            )
+            return FetchResult(
+                url=url,
+                final_url=url,
+                status=200,
+                title="Prospectus",
+                content_type="application/pdf",
+                retrieved_at="2026-06-01T00:00:00+00:00",
+                engine=self.engine,
+                text="PDF PAGE 1\nMathematics required",
+                source=source,
+            )
+
+    data = run_scan(
+        "https://example.edu/prospectus.pdf",
+        LivePDFTextFetcher(),
+        DiscoveryConfig(max_pages=1, max_depth=0, allowed_hosts={"example.edu"}),
+    )
+
+    assert any(w.code == WarningCode.OPTIONAL_DEPENDENCY_MISSING and w.field == "https://example.edu/prospectus.pdf" for w in data.warnings)
+    assert not any(item.source_url == "https://example.edu/prospectus.pdf" for item in data.evidence)
+
+
 def test_external_subdomain_source_and_evidence_urls_are_preserved():
     data = run_fixture_scan(ROOT, max_pages=30)
     assert any(source.source_url == "https://apply.fixture.test/apply.html" for source in data.sources)

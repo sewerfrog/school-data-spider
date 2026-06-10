@@ -13,7 +13,7 @@ from university_admissions_crawler.crawler.fetcher import LiveHTTPFetcher, Playw
 from university_admissions_crawler.extractor.pdf_extractor import PypdfPDFExtractor
 from university_admissions_crawler.extractor.schema import AdmissionsData, Institution, RunMetadata, attach_validation_warnings
 from university_admissions_crawler.pipeline.diagnostics import inferred_allowed_domain
-from university_admissions_crawler.pipeline.merge import _merge_data
+from university_admissions_crawler.pipeline.merge import merge_data
 from university_admissions_crawler.pipeline.run_university_scan import run_scan
 from university_admissions_crawler.reports.render_report import render_markdown_report
 
@@ -61,7 +61,7 @@ def _run_university_config(args: argparse.Namespace, university: UniversityConfi
             pdf_extractor=PypdfPDFExtractor() if args.enable_pdf else None,
             source_output_dir=Path(args.output_dir) / university.id / "sources",
         )
-        combined = data if combined is None else _merge_data(combined, data)
+        combined = data if combined is None else merge_data(combined, data)
     if combined is None:
         combined = AdmissionsData(institution=Institution(homepage_url=""), run=RunMetadata(input_url=""))
     combined.institution.name.value = university.name

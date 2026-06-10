@@ -5,7 +5,7 @@ from __future__ import annotations
 from university_admissions_crawler.extractor.schema import AdmissionsData, EvidenceItem, FieldValue, RequirementRecord
 
 
-def _merge_data(target: AdmissionsData, other: AdmissionsData) -> AdmissionsData:
+def merge_data(target: AdmissionsData, other: AdmissionsData) -> AdmissionsData:
     target.sources.extend(other.sources)
     _merge_requirement_list(target.admissions.application_periods, other.admissions.application_periods, target.evidence, other.evidence, "/admissions/application_periods")
     _merge_requirement_list(target.admissions.required_documents, other.admissions.required_documents, target.evidence, other.evidence, "/admissions/required_documents")
@@ -20,6 +20,9 @@ def _merge_data(target: AdmissionsData, other: AdmissionsData) -> AdmissionsData
     target.discovered_categories.extend(other.discovered_categories)
     target.warnings.extend(other.warnings)
     return target
+
+
+_merge_data = merge_data
 
 
 def _merge_requirement_list(
