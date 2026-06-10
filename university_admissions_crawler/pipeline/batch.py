@@ -36,8 +36,7 @@ def _run_batch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int
 
 def _run_university_config(args: argparse.Namespace, university: UniversityConfig) -> AdmissionsData:
     combined: AdmissionsData | None = None
-    max_pages = university.max_pages or (min(args.max_pages, 20) if args.smoke else args.max_pages)
-    max_depth = university.max_depth or (min(args.max_depth, 2) if args.smoke else args.max_depth)
+    max_pages, max_depth = _scan_limits_for_config(args, university)
     for seed_url in university.seed_urls:
         fetcher = _fetcher_for_mode(
             university.mode,
@@ -66,6 +65,12 @@ def _run_university_config(args: argparse.Namespace, university: UniversityConfi
     combined.run.config["university_id"] = university.id
     combined.run.config["seed_urls"] = university.seed_urls
     return attach_validation_warnings(combined)
+
+
+def _scan_limits_for_config(args: argparse.Namespace, university: UniversityConfig) -> tuple[int, int]:
+    max_pages = min(args.max_pages, 20) if args.smoke else args.max_pages
+    max_depth = min(args.max_depth, 2) if args.smoke else args.max_depth
+    return university.max_pages or max_pages, university.max_depth or max_depth
 
 
 def _fetcher_for_mode(mode: str, *, timeout_seconds: float, wait_until: str, user_agent: str | None, headless: bool):

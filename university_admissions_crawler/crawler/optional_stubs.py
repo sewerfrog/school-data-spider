@@ -2,12 +2,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
+from university_admissions_crawler.crawler.types import FetchResult
 from university_admissions_crawler.extractor.schema import WarningCode, WarningRecord
-
-if TYPE_CHECKING:
-    from university_admissions_crawler.crawler.fetcher import FetchResult
 
 
 class Crawl4AIFetcherStub:
@@ -41,7 +37,7 @@ class ScrapeGraphFetcherStub:
 
 
 def _optional_dependency_result(url: str, engine: str, message: str) -> FetchResult:
-    from university_admissions_crawler.crawler.fetcher import FetchResult, _fixed_retrieved_at
+    from university_admissions_crawler.crawler.fetcher import _fixed_retrieved_at
 
     return FetchResult(
         url=url,

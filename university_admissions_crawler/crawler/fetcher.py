@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Protocol
 from urllib.parse import urldefrag, urljoin, urlparse
 from urllib.request import Request, urlopen
 import re
@@ -19,6 +17,13 @@ from university_admissions_crawler.crawler.json_content import (
     walk_json_values,
 )
 from university_admissions_crawler.crawler.optional_stubs import Crawl4AIFetcherStub, ScrapeGraphFetcherStub
+from university_admissions_crawler.crawler.source_types import (
+    content_type_for_source_type,
+    looks_like_pdf_url,
+    source_type_for_fixture_path,
+    source_type_for_url_or_content,
+)
+from university_admissions_crawler.crawler.types import FetchResult, Fetcher
 from university_admissions_crawler.evidence.provenance import content_hash
 from university_admissions_crawler.extractor.schema import SourceRecord, SourceType, WarningCode, WarningRecord
 
@@ -27,33 +32,10 @@ _extract_json_links = extract_json_links
 _json_to_text = json_to_text
 _looks_like_link = looks_like_link
 _walk_json_values = walk_json_values
-
-
-@dataclass(slots=True)
-class FetchResult:
-    url: str
-    final_url: str
-    status: int
-    title: str | None
-    content_type: str
-    retrieved_at: str
-    engine: str
-    text: str = ""
-    markdown: str | None = None
-    links: list[str] = field(default_factory=list)
-    source: SourceRecord | None = None
-    warnings: list[WarningRecord] = field(default_factory=list)
-
-    @property
-    def ok(self) -> bool:
-        return 200 <= self.status < 400 and not any(w.code == WarningCode.FETCH_FAILED for w in self.warnings)
-
-
-class Fetcher(Protocol):
-    engine: str
-
-    def fetch(self, url: str) -> FetchResult:
-        ...
+_content_type_for_source_type = content_type_for_source_type
+_looks_like_pdf_url = looks_like_pdf_url
+_source_type_for_fixture_path = source_type_for_fixture_path
+_source_type_for_url_or_content = source_type_for_url_or_content
 
 
 class FixtureFetcher:
@@ -431,42 +413,6 @@ def _decode_bytes(raw: bytes) -> str:
         except UnicodeDecodeError:
             continue
     return raw.decode("utf-8", errors="replace")
-
-
-def _source_type_for_url_or_content(url: str, content_type: str) -> SourceType:
-    lower_content = content_type.lower()
-    if lower_content == "application/pdf" or urlparse(url).path.lower().endswith(".pdf"):
-        return SourceType.PDF
-    if lower_content in {"text/html", "application/xhtml+xml"}:
-        return SourceType.HTML
-    if lower_content in {"application/json", "application/ld+json"} or urlparse(url).path.lower().endswith(".json"):
-        return SourceType.JSON
-    return SourceType.OTHER
-
-
-def _looks_like_pdf_url(url: str) -> bool:
-    return urlparse(url).path.lower().endswith(".pdf")
-
-
-def _source_type_for_fixture_path(path: Path) -> SourceType:
-    suffix = path.suffix.lower()
-    if suffix == ".pdf":
-        return SourceType.PDF
-    if suffix == ".json":
-        return SourceType.JSON
-    if suffix in {".html", ".htm"}:
-        return SourceType.HTML
-    return SourceType.OTHER
-
-
-def _content_type_for_source_type(source_type: SourceType) -> str:
-    if source_type == SourceType.PDF:
-        return "application/pdf"
-    if source_type == SourceType.JSON:
-        return "application/json"
-    if source_type == SourceType.HTML:
-        return "text/html"
-    return "application/octet-stream"
 
 
 def _extract_links_for_source(text: str, base_url: str, source_type: SourceType) -> list[str]:

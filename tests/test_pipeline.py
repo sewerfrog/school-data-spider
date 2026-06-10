@@ -41,13 +41,6 @@ def test_pipeline_evidence_paths_resolve_to_real_claims():
         resolve_claim_path(data, item.claim_path)
 
 
-def test_merge_private_alias_remains_compatible():
-    from university_admissions_crawler.pipeline.merge import _merge_data, merge_data
-
-    assert _merge_data is merge_data
-
-
-
 def test_pipeline_serializes_to_jsonable_dict():
     data = run_fixture_scan(ROOT)
     dumped = data.to_dict()

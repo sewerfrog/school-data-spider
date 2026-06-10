@@ -21,7 +21,7 @@
 - 证据与校验：记录 source、snippet、claim path、hash、warnings，并校验 non-unknown claim 是否有 evidence。
 - 报告输出：生成 Markdown evidence report。
 - 增量 diff：传入 previous result 时记录 source hash 和字段变化。
-- 测试：`.venv314` 环境下当前 pytest 结果为 `79 passed`；saved-source 迁移相关局部测试为 `20 passed`。
+- 测试：`.venv314` 环境下当前 pytest 结果为 `85 passed`；saved-source 迁移相关局部测试为 `20 passed`。
 
 ## 3. 未完成或实验性功能
 
@@ -85,7 +85,9 @@ python3 -m compileall university_admissions_crawler tests
 - `university_admissions_crawler/cli.py`：CLI 参数解析、单次 fixture/live 扫描、调用 pipeline output writer 写结果；batch 扫描已委托给 pipeline 层。
 - `university_admissions_crawler/config.py`：关键词和 `CrawlConfig`；当前使用较少。
 - `university_admissions_crawler/config_loader.py`：batch JSON 配置读取。
-- `university_admissions_crawler/crawler/`：fetcher、HTML/JSON 文本化与链接 helper、discovery、URL filter、招生上下文 gate、sitemap parser。
+- `university_admissions_crawler/crawler/`：fetcher、fetch result 类型、source type/content type helper、HTML/JSON 文本化与链接 helper、discovery、URL filter、招生上下文 gate、sitemap parser。
+- `university_admissions_crawler/crawler/types.py`：`FetchResult` 和 `Fetcher` protocol；`crawler.fetcher` 仍 re-export 旧导入路径。
+- `university_admissions_crawler/crawler/source_types.py`：URL/content-type/fixture path 到 `SourceType` 的判断 helper，以及 `SourceType` 到 content type 的映射 helper；`crawler.fetcher` 仍保留原 private helper 兼容名。
 - `university_admissions_crawler/crawler/html_text.py`：HTML 主内容提取、噪音移除、table 转文本、tag stripping helper。
 - `university_admissions_crawler/crawler/json_content.py`：JSON 文本格式化、JSON link 提取、保序去重 helper；提供 public helper 名称，并保留 underscored 兼容别名。
 - `university_admissions_crawler/crawler/optional_stubs.py`：crawl4ai 和 ScrapeGraphAI warning-only fetcher stub；`fetcher.py` 继续 re-export 原类名。
@@ -93,11 +95,12 @@ python3 -m compileall university_admissions_crawler tests
 - `university_admissions_crawler/extractor/`：schema、HTML/API/PDF/LLM 抽取和标准化解析。
 - `university_admissions_crawler/evidence/`：source/evidence helper、hash、source 文件写入、previous result 加载。
 - `university_admissions_crawler/pipeline/`：扫描主流程、batch orchestration、batch 结果合并、结果写出 helper、diff、coverage/source strategy diagnostics。
-- `university_admissions_crawler/pipeline/batch.py`：`--config` 批量扫描 orchestration；负责读取配置、按 university id 调用写出 helper、调用 `run_scan()`。
+- `university_admissions_crawler/pipeline/batch.py`：`--config` 批量扫描 orchestration；负责读取配置、计算 batch scan limits、按 university id 调用写出 helper、调用 `run_scan()`。
 - `university_admissions_crawler/pipeline/merge.py`：批量多 seed 扫描结果合并；负责合并 requirement/programme/evidence claim path。
 - `university_admissions_crawler/pipeline/output_writer.py`：写出 `result.json` 和 `report.md` 的小 helper；当前 CLI 单次扫描和 batch config 路径都已复用。
 - `university_admissions_crawler/reports/`：Markdown 报告渲染。
 - `tests/`：pytest 测试与 fixture 站点。
+- `tests/test_compatibility_boundaries.py`：兼容别名和半使用接口的边界测试；用于防止低风险清理时误删仍需保留的入口。
 - `configs/`：示例大学批量配置。
 - `outputs/`：generated-only 输出目录；当前测试 fixture 已迁到 `tests/fixtures/saved_sources/`，测试不应再依赖这里。
 - `outputs/nus-live-programmes/`：旧 NUS 一次性产物，包含 `result.json`、reports、`programmes.csv` 和 source index；作为参考样例保留，是否迁到 docs unclear。
@@ -108,6 +111,7 @@ python3 -m compileall university_admissions_crawler tests
 
 - `cli.main()`：命令行入口。
 - `pipeline.batch._run_batch()` / `_run_university_config()`：batch config 扫描入口和单个大学配置扫描。
+- `pipeline.batch._scan_limits_for_config()`：集中计算 batch config 的 `max_pages` / `max_depth`，保留 university config 覆盖 CLI/smoke 默认值的现有行为。
 - `pipeline.merge.merge_data()`：合并多个 `AdmissionsData`，并重新指向合并后的 evidence claim path；`_merge_data` 仍作为兼容别名保留。
 - `pipeline.output_writer.write_result_files()`：创建输出目录并写出 `result.json` 与 `report.md`，返回两个输出路径。
 - `run_fixture_scan()` / `run_scan()`：fixture 和通用扫描主入口。
@@ -130,14 +134,16 @@ python3 -m compileall university_admissions_crawler tests
 ## 7. 已知问题
 
 - `cli.py` 职责已减轻：merge、batch runner 和结果写出 helper 已拆到 pipeline 层；但 CLI 仍同时负责参数解析、单次扫描和部分 URL/domain helper。
-- `pipeline/batch.py` 当前仍依赖 `argparse.Namespace` 和 `parser.error()`，并保留 `print()` 输出进度。文件写入细节已拆到 `pipeline/output_writer.py`，但 pipeline 层和 CLI 层边界仍不够干净。
+- `pipeline/batch.py` 当前仍依赖 `argparse.Namespace` 和 `parser.error()`，并保留 `print()` 输出进度。文件写入细节已拆到 `pipeline/output_writer.py`，scan limit 计算已抽到 `_scan_limits_for_config()`，但 pipeline 层和 CLI 层边界仍不够干净。
 - `pipeline/output_writer.py` 当前已被 CLI 单次扫描和 batch config 路径复用。风险是未来修改该 helper 会同时影响两条输出路径，因此需要继续保留 CLI/report 测试覆盖。
 - `pipeline/merge.py` 已提供公开 `merge_data()`，并通过测试明确 `_merge_data` 兼容别名仍等同于 `merge_data`。后续需要决定是否长期保留该别名，或在确认没有外部依赖后删除。
 - `cli.py` 和 `pipeline/batch.py` 之间仍有相似 URL/domain helper 逻辑；为避免扩大行为变更，本轮未抽公共 helper。
 - `pipeline/run_university_scan.py` 职责偏重：调度、分类分流、抽取、PDF、补抽取、diff 混在一起。
-- `crawler/fetcher.py` 文件仍偏大：fixture/live/browser fetcher 和 PDF HTTP fallback 仍在同一文件；HTML 文本化 helper 已拆到 `crawler/html_text.py`，JSON link/text helper 已拆到 `crawler/json_content.py`，optional stubs 已拆到 `crawler/optional_stubs.py`。
+- `crawler/fetcher.py` 文件仍偏大：fixture/live/browser fetcher 和 PDF HTTP fallback 仍在同一文件；HTML 文本化 helper 已拆到 `crawler/html_text.py`，JSON link/text helper 已拆到 `crawler/json_content.py`，optional stubs 已拆到 `crawler/optional_stubs.py`，fetch result 类型已拆到 `crawler/types.py`，source/content-type 判断已拆到 `crawler/source_types.py`。
 - `crawler/json_content.py` 当前同时提供 public helper 和 underscored 兼容别名，API 面比之前更宽。后续如果决定只保留 public 名称，需要单独确认没有外部 private import。
-- `crawler/optional_stubs.py` 为避免与 `fetcher.py` 循环导入，使用函数内延迟导入 `FetchResult` 和 `_fixed_retrieved_at()`。可工作但不是最终理想边界；如果后续把 fetch result 类型移到独立模块，可再收紧。
+- `crawler/optional_stubs.py` 已直接依赖 `crawler.types.FetchResult`，减少了对 `fetcher.py` 的循环导入风险；但仍延迟导入 `_fixed_retrieved_at()`，因为固定 fixture 时间 helper 还在 `fetcher.py`。
+- `crawler/types.py` 和 `crawler/source_types.py` 拆出后，`crawler.fetcher` 仍保留 `FetchResult` / `Fetcher` 和 `_source_type_*` / `_content_type_*` private helper 兼容出口。后续如果要删除这些兼容名，需要单独确认外部调用风险。
+- `tests/test_compatibility_boundaries.py` 新增后，兼容别名和半使用接口被测试固定；这会提高后续删除相关入口的显式成本，但能避免误删。
 - 抽取质量主要取决于 regex 和文本上下文 gate，对真实复杂官网不稳定。
 - live PDF 默认策略已明确：未启用 `--enable-pdf` 时，非 fixture PDF 只产生 `OPTIONAL_DEPENDENCY_MISSING` warning，不产生基于 fixture parser 的 evidence。风险是如果外部调用曾依赖旧的隐含 fixture parser 行为，会看到输出减少；当前测试已覆盖新策略。
 - `outputs/` 已不应承担当期测试 fixture；如果后续需要保留样例，应迁到 `docs/examples/` 或记录清单。
@@ -164,15 +170,17 @@ python3 -m compileall university_admissions_crawler tests
 14. 已让 `cli.py` 单次扫描复用 `pipeline.output_writer.write_result_files()`，输出文件名和 `print()` 文案保持不变。当前验证：`tests/test_report_cli.py` 为 `8 passed`，完整 pytest 为 `79 passed`。
 15. 已从 `crawler/fetcher.py` 拆出 optional warning-only stubs 到 `crawler/optional_stubs.py`，并从 `fetcher.py` 继续 re-export `Crawl4AIFetcherStub` / `ScrapeGraphFetcherStub`。当前验证：`tests/test_fetcher.py tests/test_report_cli.py` 为 `21 passed`，完整 pytest 为 `79 passed`。
 16. 已把 `crawler/json_content.py` 的 helper 改为 public 名称，并保留 underscored 兼容别名；`fetcher.py` 改用 public helper，同时保留模块层 private 名称兼容。当前验证：`tests/test_fetcher.py tests/test_pipeline.py` 为 `34 passed`，完整 pytest 为 `79 passed`。
+17. 已新增 `tests/test_compatibility_boundaries.py`，集中覆盖 `_merge_data`、JSON underscored alias、`CrawlConfig` / `smoke_config()`、`parse_sitemap_urls()`、`source_hashes()`、`_looks_like_false_english_requirement()` 等兼容/半使用接口。当前验证：完整 pytest 为 `85 passed`。
+18. 已从 `crawler/fetcher.py` 拆出 `FetchResult` / `Fetcher` 到 `crawler/types.py`，并保留 `crawler.fetcher` re-export 兼容路径。当前验证：相关测试为 `48 passed`，完整 pytest 为 `85 passed`。
+19. 已从 `crawler/fetcher.py` 拆出 source type/content type helper 到 `crawler/source_types.py`，并保留 `crawler.fetcher` private helper 兼容名。当前验证同上。
+20. 已在 `pipeline/batch.py` 抽出 `_scan_limits_for_config()`，只集中 batch `max_pages` / `max_depth` 计算，未改变 `parser.error()` 或 `print()` 行为。当前验证同上。
 
 建议的后续顺序：
 
-1. 继续拆 `crawler/fetcher.py`，但只做一类边界：优先考虑 PDF HTTP fallback 或 source type/content type helper，暂不同时拆 fixture/live/browser 类。风险：MEDIUM。
-2. 考虑把 `FetchResult` / `Fetcher` 类型移到独立模块，减少 `optional_stubs.py` 的延迟导入和后续 adapter 循环导入风险；这会影响多个 import，需单独测试。风险：MEDIUM。
-3. 继续收敛 pipeline 边界：`pipeline/batch.py` 仍依赖 `argparse.Namespace`、`parser.error()` 和 `print()`；如需拆，应先抽 options/diagnostic 小 helper，并用 `tests/test_report_cli.py` 覆盖。风险：MEDIUM。
-4. 处理 `pipeline/merge.py` 的兼容别名：短期继续保留 `_merge_data`；如果决定删除，先 `rg` 确认仓库和外部调用风险，并单独提交。风险：SAFE 到 MEDIUM。
-5. 决定 `crawler/json_content.py` underscored 兼容别名是否长期保留；如要删除，先 `rg` 全仓库并单独提交。风险：SAFE 到 MEDIUM。
-6. 处理未使用或半使用接口：`CrawlConfig` / `smoke_config()`、`parse_sitemap_urls()`、`source_hashes()`、`_looks_like_false_english_requirement()`。先加说明或测试，再决定删除。风险：SAFE 到 MEDIUM。
-7. 对未填充 schema 字段做兼容性决策：`international_requirements`、`standardized_tests`、`selection_tests_or_interviews` 应标为 experimental、补 pipeline 行为，或在兼容计划后移除。风险：MEDIUM 到 HIGH。
-8. 评估 `outputs/nus-live-programmes/` 和 `outputs/batch*/` 中仍有价值的样例是否迁到 `docs/examples/` 或保留清单。任何移动或删除都需要人工确认。风险：MEDIUM。
-9. 不要一次性重写 extractor，也不要随便引入新依赖；先用 fixture-backed tests 支撑小步重构，再针对复杂 table、PDF、programme 抽取补专项能力。风险：HIGH。
+1. 继续拆 `crawler/fetcher.py`，但只做一类边界：优先考虑 PDF HTTP fallback 或 fixed/retrieved-at time helper，暂不同时拆 fixture/live/browser 类。风险：MEDIUM。
+2. 继续收敛 pipeline 边界：`pipeline/batch.py` 仍依赖 `argparse.Namespace`、`parser.error()` 和 `print()`；如需拆，应先抽 options/diagnostic 小 helper，并用 `tests/test_report_cli.py` 覆盖。风险：MEDIUM。
+3. 处理兼容出口：`crawler.fetcher.FetchResult` / `Fetcher` re-export、`crawler.fetcher._source_type_*`、`crawler.json_content._*`、`pipeline.merge._merge_data`。短期继续保留；如要删除，先 `rg` 全仓库并单独提交。风险：SAFE 到 MEDIUM。
+4. 处理未使用或半使用接口：`CrawlConfig` / `smoke_config()`、`parse_sitemap_urls()`、`source_hashes()`、`_looks_like_false_english_requirement()` 当前已有边界测试。下一步应先决定是否进入真实调用路径，而不是直接删除。风险：SAFE 到 MEDIUM。
+5. 对未填充 schema 字段做兼容性决策：`international_requirements`、`standardized_tests`、`selection_tests_or_interviews` 应标为 experimental、补 pipeline 行为，或在兼容计划后移除。风险：MEDIUM 到 HIGH。
+6. 评估 `outputs/nus-live-programmes/` 和 `outputs/batch*/` 中仍有价值的样例是否迁到 `docs/examples/` 或保留清单。任何移动或删除都需要人工确认。风险：MEDIUM。
+7. 不要一次性重写 extractor，也不要随便引入新依赖；先用 fixture-backed tests 支撑小步重构，再针对复杂 table、PDF、programme 抽取补专项能力。风险：HIGH。

@@ -57,6 +57,7 @@ def dedupe_preserve_order(values: list[str]) -> list[str]:
     return out
 
 
+# Compatibility aliases for callers that imported the previous private helpers.
 _json_to_text = json_to_text
 _extract_json_links = extract_json_links
 _walk_json_values = walk_json_values
