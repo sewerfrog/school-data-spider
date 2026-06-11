@@ -130,6 +130,13 @@ def test_pipeline_attaches_core_coverage_and_source_strategy():
     assert coverage["found_count"] > 0
     assert "coverage_ratio" in coverage
     assert data.run.config["source_strategy_summary"]["html_page"] >= 1
+    assert data.run.config["relevance_strategy"] == "rule_based"
+    strategy_entries = data.run.config["source_strategy"]
+    admissions_entry = next(item for item in strategy_entries if item["url"] == "https://fixture.test/admissions/index.html")
+    assert isinstance(admissions_entry["discovery_score"], int)
+    assert admissions_entry["relevance_strategy"] == "rule_based"
+    assert "positive_keyword:admission" in admissions_entry["discovery_signals"]
+    assert "path_relevance_hint:/admission" in admissions_entry["discovery_signals"]
 
 
 def test_realistic_fixture_extracts_specific_core_fields_without_nav_noise():

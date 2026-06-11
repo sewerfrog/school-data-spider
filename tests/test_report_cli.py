@@ -53,7 +53,52 @@ def test_cli_fixture_smoke_writes_json_and_markdown():
         assert data["evidence"]
         assert data["warnings"]
         assert data["discovered_categories"]
+        assert "keyword_plan" not in data["run"]["config"]
         assert "Evidence appendix" in report.read_text()
+
+
+def test_cli_fixture_records_explicit_keyword_query_plan():
+    with TemporaryDirectory() as tmp:
+        code = main([str(ROOT), "--fixture", "--keyword-query", "undergraduate admissions IELTS fees", "--output-dir", tmp])
+        assert code == 0
+        data = json.loads((Path(tmp) / "result.json").read_text())
+        keyword_plan = data["run"]["config"]["keyword_plan"]
+        assert keyword_plan["query"] == "undergraduate admissions IELTS fees"
+        assert keyword_plan["source"] == "user"
+        assert keyword_plan["positive_keywords"] == ["undergraduate", "admissions", "ielts", "fees"]
+        assert "/admissions" in keyword_plan["url_hints"]
+        assert "/fees" in keyword_plan["url_hints"]
+        assert data["run"]["config"]["relevance_strategy"] == "rule_based"
+
+
+def test_cli_fixture_bm25_like_relevance_strategy_is_opt_in():
+    with TemporaryDirectory() as tmp:
+        code = main(
+            [
+                str(ROOT),
+                "--fixture",
+                "--keyword-query",
+                "fees tuition international",
+                "--relevance-strategy",
+                "bm25-like",
+                "--output-dir",
+                tmp,
+            ]
+        )
+        assert code == 0
+        data = json.loads((Path(tmp) / "result.json").read_text())
+        assert data["run"]["config"]["relevance_strategy"] == "bm25_like"
+        assert any(item["relevance_strategy"] == "bm25_like" for item in data["run"]["config"]["source_strategy"])
+
+
+def test_cli_bm25_like_relevance_strategy_requires_keyword_query():
+    with redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+        try:
+            main([str(ROOT), "--fixture", "--relevance-strategy", "bm25-like"])
+        except SystemExit as exc:
+            assert exc.code != 0
+        else:
+            raise AssertionError("bm25-like relevance strategy should require --keyword-query")
 
 
 def test_write_result_files_writes_json_and_markdown():

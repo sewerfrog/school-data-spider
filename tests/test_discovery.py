@@ -3,7 +3,7 @@ from pathlib import Path
 from university_admissions_crawler.crawler.discovery import DiscoveryConfig, discover, normalize_url
 from university_admissions_crawler.crawler.fetcher import FixtureFetcher
 from university_admissions_crawler.crawler.filters import score_url
-from university_admissions_crawler.crawler.relevance import RuleBasedRelevanceStrategy
+from university_admissions_crawler.crawler.relevance import BM25LikeRelevanceStrategy, RuleBasedRelevanceStrategy, keyword_plan_from_query, relevance_diagnostics
 
 
 ROOT = Path("tests/fixtures/mini_university_site")
@@ -51,3 +51,16 @@ def test_explicit_default_relevance_strategy_preserves_discovery_results():
         explicit_pages[0].result.title,
         explicit_pages[0].result.markdown or explicit_pages[0].result.text,
     )
+
+
+def test_bm25_like_relevance_strategy_is_opt_in_and_uses_keyword_plan():
+    keyword_plan = keyword_plan_from_query("fees tuition international")
+    strategy = BM25LikeRelevanceStrategy(keyword_plan)
+    baseline_score = score_url("https://fixture.test/fees.html", "Tuition Fees", "Tuition fees for international undergraduate students.")
+    opt_in_score = strategy.score("https://fixture.test/fees.html", "Tuition Fees", "Tuition fees for international undergraduate students.")
+    diagnostics = relevance_diagnostics(strategy, "https://fixture.test/fees.html", "Tuition Fees", "Tuition fees for international undergraduate students.", score=opt_in_score)
+
+    assert opt_in_score > baseline_score
+    assert diagnostics.strategy == "bm25_like"
+    assert "keyword_plan_positive:fees" in diagnostics.signals
+    assert "keyword_plan_url_hint:/fees" in diagnostics.signals

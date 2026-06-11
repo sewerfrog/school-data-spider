@@ -15,6 +15,7 @@ from university_admissions_crawler.crawler.admissions_context import (
 )
 from university_admissions_crawler.crawler.discovery import DiscoveryConfig, discover
 from university_admissions_crawler.crawler.fetcher import Fetcher, FixtureFetcher
+from university_admissions_crawler.crawler.relevance import DEFAULT_RELEVANCE_STRATEGY, KeywordPlan, RelevanceStrategy, relevance_diagnostics
 from university_admissions_crawler.evidence.store import write_source_record
 from university_admissions_crawler.evidence.provenance import evidence_from_source
 from university_admissions_crawler.extractor.api_extractor import extract_api_claims
@@ -61,12 +62,21 @@ def run_fixture_scan(
     previous_result: dict[str, Any] | None = None,
     allowed_hosts: set[str] | None = None,
     allowed_domains: set[str] | None = None,
+    keyword_plan: KeywordPlan | None = None,
+    relevance_strategy: RelevanceStrategy | None = None,
     source_output_dir: str | Path | None = None,
 ) -> AdmissionsData:
     return run_scan(
         seed_url,
         FixtureFetcher(root, base_url=seed_url),
-        DiscoveryConfig(max_pages=max_pages, max_depth=max_depth, allowed_hosts=allowed_hosts or set(), allowed_domains=allowed_domains or set()),
+        DiscoveryConfig(
+            max_pages=max_pages,
+            max_depth=max_depth,
+            allowed_hosts=allowed_hosts or set(),
+            allowed_domains=allowed_domains or set(),
+            keyword_plan=keyword_plan,
+            relevance_strategy=relevance_strategy or DEFAULT_RELEVANCE_STRATEGY,
+        ),
         previous_result=previous_result,
         source_output_dir=source_output_dir,
     )
@@ -81,11 +91,23 @@ def run_scan(
     pdf_extractor: PDFExtractor | None = None,
     source_output_dir: str | Path | None = None,
 ) -> AdmissionsData:
-    pages = discover(seed_url, fetcher, config)
+    discovery_config = config or DiscoveryConfig()
+    pages = discover(seed_url, fetcher, discovery_config)
     data = AdmissionsData(
         institution=Institution(homepage_url=seed_url),
-        run=RunMetadata(input_url=seed_url, config={"max_pages": (config.max_pages if config else 20), "max_depth": (config.max_depth if config else 3), "allowed_hosts": sorted(config.allowed_hosts) if config else [], "allowed_domains": sorted(config.allowed_domains) if config else []}),
+        run=RunMetadata(
+            input_url=seed_url,
+            config={
+                "max_pages": discovery_config.max_pages,
+                "max_depth": discovery_config.max_depth,
+                "allowed_hosts": sorted(discovery_config.allowed_hosts),
+                "allowed_domains": sorted(discovery_config.allowed_domains),
+                "relevance_strategy": getattr(discovery_config.relevance_strategy, "name", type(discovery_config.relevance_strategy).__name__),
+            },
+        ),
     )
+    if discovery_config.keyword_plan is not None:
+        data.run.config["keyword_plan"] = discovery_config.keyword_plan.to_dict()
     pdf_extractor = pdf_extractor or _default_pdf_extractor(fetcher)
 
     for page in pages:
@@ -111,7 +133,8 @@ def run_scan(
             data.fees.extend(fees)
             data.admissions.required_documents.extend(documents)
             data.evidence.extend(api_evidence)
-        text = result.markdown or result.text
+        discovery_text = result.markdown or result.text
+        text = discovery_text
         pdf_pages = []
         if result.source.source_type == SourceType.PDF:
             try:
@@ -133,6 +156,13 @@ def run_scan(
                 text = pdf_result.text if pdf_result.pages else ""
 
         classification = classify_page(result.final_url, result.title, text)
+        discovery_diagnostics = relevance_diagnostics(
+            discovery_config.relevance_strategy,
+            result.final_url,
+            result.title,
+            discovery_text,
+            score=page.score,
+        )
         data.discovered_categories.append(
             PageClassificationRecord(
                 source_url=result.final_url,
@@ -148,6 +178,9 @@ def run_scan(
                 "source_type": str(result.source.source_type),
                 "category": str(classification.category),
                 "strategy": source_strategy_for(result.source.source_type, result.final_url, result.title, text, classification.category),
+                "discovery_score": discovery_diagnostics.score,
+                "discovery_signals": list(discovery_diagnostics.signals),
+                "relevance_strategy": discovery_diagnostics.strategy,
             }
         )
 

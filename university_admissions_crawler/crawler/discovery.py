@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 
 from university_admissions_crawler.crawler.fetcher import FetchResult, Fetcher
 from university_admissions_crawler.crawler.filters import DomainPolicy, canonicalize_url
-from university_admissions_crawler.crawler.relevance import DEFAULT_RELEVANCE_STRATEGY, RelevanceStrategy
+from university_admissions_crawler.crawler.relevance import DEFAULT_RELEVANCE_STRATEGY, KeywordPlan, RelevanceStrategy
 from university_admissions_crawler.extractor.schema import WarningCode, WarningRecord
 
 
@@ -21,6 +21,7 @@ class DiscoveryConfig:
     allow_official_subdomains: bool = True
     retries: int = 1
     relevance_strategy: RelevanceStrategy = DEFAULT_RELEVANCE_STRATEGY
+    keyword_plan: KeywordPlan | None = None
 
 
 @dataclass(slots=True)

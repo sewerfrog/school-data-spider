@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 
 from university_admissions_crawler.crawler.discovery import DiscoveryConfig
 from university_admissions_crawler.crawler.fetcher import LiveHTTPFetcher, PlaywrightBrowserFetcher
+from university_admissions_crawler.crawler.relevance import BM25LikeRelevanceStrategy, DEFAULT_RELEVANCE_STRATEGY, keyword_plan_from_query
 from university_admissions_crawler.evidence.store import load_previous_result
 from university_admissions_crawler.extractor.pdf_extractor import PypdfPDFExtractor
 from university_admissions_crawler.pipeline.batch import _run_batch
@@ -33,6 +34,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--smoke", action="store_true", help="Use conservative smoke caps unless explicit max values are supplied")
     parser.add_argument("--enable-llm", action="store_true", help="Guarded future LLM mode; unsupported in this offline MVP")
     parser.add_argument("--llm-provider", choices=["mock", "openai", "anthropic", "gemini"], help="Reserved provider selector for future guarded LLM mode")
+    parser.add_argument("--keyword-query", help="Optional user keyword query recorded as a reviewable keyword plan; does not change crawl behavior yet")
+    parser.add_argument("--relevance-strategy", default="rule-based", choices=["rule-based", "bm25-like"], help="Opt-in discovery relevance strategy; default preserves existing rule-based scoring")
     parser.add_argument("--enable-browser", action="store_true", help="Use Playwright browser-backed live crawling for JavaScript-rendered pages")
     parser.add_argument("--enable-pdf", action="store_true", help="Use optional pypdf parser for live PDF sources")
     parser.add_argument("--browser-wait-until", default="networkidle", choices=["commit", "domcontentloaded", "load", "networkidle"], help="Playwright page.goto wait condition")
@@ -66,6 +69,10 @@ def main(argv: list[str] | None = None) -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
     previous_result = load_previous_result(args.previous_result)
     source_output_dir = output_dir / "sources"
+    keyword_plan = keyword_plan_from_query(args.keyword_query) if args.keyword_query else None
+    if args.relevance_strategy == "bm25-like" and keyword_plan is None:
+        parser.error("--relevance-strategy bm25-like requires --keyword-query.")
+    relevance_strategy = BM25LikeRelevanceStrategy(keyword_plan) if args.relevance_strategy == "bm25-like" and keyword_plan is not None else DEFAULT_RELEVANCE_STRATEGY
     if args.fixture:
         data = run_fixture_scan(
             args.input,
@@ -75,6 +82,8 @@ def main(argv: list[str] | None = None) -> int:
             previous_result=previous_result,
             allowed_hosts=set(args.allowed_host),
             allowed_domains=set(args.allowed_domain),
+            keyword_plan=keyword_plan,
+            relevance_strategy=relevance_strategy,
             source_output_dir=source_output_dir,
         )
     else:
@@ -97,6 +106,8 @@ def main(argv: list[str] | None = None) -> int:
                 max_depth=max_depth,
                 allowed_hosts=set(args.allowed_host),
                 allowed_domains=_allowed_domains_for(seed_url, args.allowed_domain, args.auto),
+                keyword_plan=keyword_plan,
+                relevance_strategy=relevance_strategy,
             ),
             previous_result=previous_result,
             pdf_extractor=PypdfPDFExtractor() if args.enable_pdf else None,

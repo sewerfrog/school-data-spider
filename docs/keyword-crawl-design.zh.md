@@ -2,7 +2,7 @@
 
 ## 目标
 
-本文档记录将模型辅助关键词爬取逐步迁移到 `school-data-spider` 的设计边界。当前阶段只定义方案，不改变现有爬虫行为。
+本文档记录将模型辅助关键词爬取逐步迁移到 `school-data-spider` 的设计边界。当前分支已按渐进式方案完成 Step 0 到 Step 4：默认爬虫行为保持不变，关键词计划和 BM25-like scorer 均为显式 opt-in。
 
 项目现状是 evidence-first 的确定性招生信息爬虫：从 seed URL 出发，有限发现页面，抓取 source，规则分类页面，规则抽取字段，最后做 evidence 校验和报告输出。后续引入模型时，模型应先用于“帮助发现更相关的候选 URL / 页面”，而不是直接生成招生事实。
 
@@ -137,6 +137,14 @@
 
 风险：中。启用后会改变抓取顺序，应保持 opt-in。
 
+当前实现状态：
+
+- 已新增 `BM25LikeRelevanceStrategy`，以现有 `score_url()` 为基线，再叠加 keyword plan 的正向关键词、负向关键词和 URL hint 命中分。
+- 已新增 CLI 参数 `--relevance-strategy rule-based|bm25-like`，默认值为 `rule-based`。
+- `bm25-like` 必须和 `--keyword-query` 一起使用；否则 CLI 报错退出，避免无关键词计划时改变 discovery 行为。
+- 该 scorer 仍受 `max_pages`、`max_depth`、domain policy 和 `should_follow()` 阈值约束。
+- 当前没有引入模型、网络依赖或第三方检索库。
+
 ### Step 5：增加模型关键词扩展
 
 模型只根据用户目标生成 Keyword Plan。模型输出必须做 JSON schema 校验，失败则回退到规则关键词。
@@ -149,6 +157,127 @@
 
 风险：中到高。不能让模型分类直接触发字段抽取，除非后续单独批准。
 
+## 当前实现复盘
+
+本轮修改覆盖 Step 2 到 Step 4，累计修改范围如下：
+
+- `university_admissions_crawler/crawler/relevance.py`
+- `university_admissions_crawler/crawler/discovery.py`
+- `university_admissions_crawler/pipeline/run_university_scan.py`
+- `university_admissions_crawler/cli.py`
+- `tests/test_discovery.py`
+- `tests/test_pipeline.py`
+- `tests/test_report_cli.py`
+
+### 已落地能力
+
+1. 发现诊断
+
+   `run.config["source_strategy"]` 中每个已处理 source 现在会记录：
+
+   - `discovery_score`
+   - `discovery_signals`
+   - `relevance_strategy`
+
+   这些字段只用于诊断，不参与字段抽取、页面分类或招生事实写入。
+
+2. 用户关键词计划
+
+   CLI 增加 `--keyword-query`。传入后会生成可审查的 `KeywordPlan`，并写入 `run.config["keyword_plan"]`：
+
+   - `query`
+   - `positive_keywords`
+   - `negative_keywords`
+   - `url_hints`
+   - `source`
+   - `warnings`
+
+   默认不传 `--keyword-query` 时，不输出 `keyword_plan`，也不改变 scorer。
+
+3. 非模型 BM25-like scorer
+
+   CLI 增加 `--relevance-strategy`：
+
+   - 默认 `rule-based`：继续使用既有规则评分。
+   - 显式 `bm25-like`：使用 keyword plan 的 token/url hint 命中分辅助排序。
+
+   `bm25-like` 需要 `--keyword-query`，否则直接报错。
+
+### 行为边界
+
+- 默认 CLI 参数、fixture scan、live HTTP scan 仍使用 `rule_based`。
+- `--keyword-query` 单独使用只记录计划，不改变 discovery 排序。
+- 只有同时传入 `--keyword-query` 和 `--relevance-strategy bm25-like` 时，候选链接排序和 follow 判断才会使用新 scorer。
+- 新增诊断字段会改变输出 JSON 的形状，但不改变招生事实字段的含义。
+- 当前没有删除、移动文件，也没有改变 batch config 输入格式。
+
+### 验证结果
+
+Step 4 完成后已运行：
+
+```bash
+.venv314/bin/python -m pytest -q tests/test_discovery.py tests/test_report_cli.py tests/test_pipeline.py
+.venv314/bin/python -m compileall -q university_admissions_crawler tests
+git diff --check
+.venv314/bin/python -m pytest -q
+```
+
+结果：`90 passed`。
+
+## 风险和后续待改点
+
+### 已发现风险
+
+1. `run.config` 输出结构变宽
+
+   Step 2 增加了 source-level discovery 诊断字段，Step 3 增加了可选 `keyword_plan`，Step 4 增加了 strategy 名称。下游如果对 JSON schema 做严格字段校验，需要同步接受这些诊断字段。
+
+2. `bm25-like` 会改变抓取顺序
+
+   该行为是预期能力，但会影响 `max_pages` 较小时最终抓到的页面集合。因此必须继续保持 opt-in，不应让 `--keyword-query` 自动切换 scorer。
+
+3. 当前 keyword plan 解析较简单
+
+   `keyword_plan_from_query()` 目前只是按空白、逗号、分号、竖线和斜线拆词，并做简单 URL hint 映射。它适合作为可审查结构，不适合作为最终语义理解方案。
+
+4. BM25-like 不是完整 BM25
+
+   当前实现更接近 deterministic token overlap 加权，而不是带文档频率、长度归一化和语料统计的完整 BM25。命名中的 `Like` 必须保留，避免误解为成熟检索算法。
+
+5. `should_follow()` 的文本上下文有限
+
+   discovery 在判断是否 follow 某个 link 时，通常只有 URL 或链接文本，没有完整目标页正文。因此 keyword plan 对 follow 阶段的帮助主要来自 URL 和 link text，而不是目标页内容。
+
+6. batch config 尚未支持 keyword plan
+
+   Step 3 按低风险原则只接入 CLI，没有扩展 `config_loader.py` 和 batch JSON schema。批量任务如需关键词计划，应单独做一个小步骤，并补 batch 测试。
+
+7. 诊断信号和评分规则存在重复描述
+
+   `RuleBasedRelevanceStrategy` 的 `diagnose()` 需要和 `score_url()` 的规则保持同步。后续如果修改 `score_url()`，需要同步检查 `_rule_based_signals()`，否则诊断可能和实际分数不一致。
+
+### 建议后续修改
+
+1. 为 keyword plan 增加独立单元测试
+
+   当前测试主要通过 CLI 和 discovery 覆盖。后续可以新增 `tests/test_relevance.py`，单独测试 `keyword_plan_from_query()`、URL hint 映射和 negative keyword。
+
+2. 为 batch config 增加 opt-in keyword plan
+
+   建议字段为 `keyword_query` 和 `relevance_strategy`。默认不启用，且 `bm25-like` 仍要求存在 `keyword_query`。
+
+3. 在报告中展示 keyword plan 摘要
+
+   目前 keyword plan 只在 `result.json` 中。后续可在 Markdown report 的 diagnostics 区域展示，但不应进入 admissions facts。
+
+4. 抽出更清晰的 strategy factory
+
+   CLI 当前直接组装 strategy。若 batch 也支持 strategy，可以新增一个小函数统一校验 `keyword_query` 和 `relevance_strategy`，避免 CLI/batch 重复实现。
+
+5. Step 5 前先定义模型输出 schema
+
+   模型只生成 `KeywordPlan`，需要明确 JSON schema、长度限制、超时、fallback、warnings 和 provider 诊断字段。不要让模型直接影响 `AdmissionsData`。
+
 ## 不建议做的事
 
 - 不要一次性替换 `discover()`。
@@ -158,19 +287,11 @@
 - 不要把 optional dependency 变成核心依赖。
 - 不要删除当前半使用接口，例如 `CrawlConfig`、`parse_sitemap_urls()` 或 optional stubs，除非单独确认。
 
-## 后续首次实现建议
+## 下一步建议
 
-如果开始 Step 1，建议只修改：
+如果继续 Step 5，不建议直接接入真实模型调用。更低风险的顺序是：
 
-- `university_admissions_crawler/crawler/relevance.py`
-- `university_admissions_crawler/crawler/discovery.py`
-- `tests/test_relevance.py` 或 `tests/test_discovery.py`
-
-不建议第一步修改：
-
-- `cli.py`
-- `pipeline/run_university_scan.py`
-- `extractor/llm_provider.py`
-- `pyproject.toml`
-
-这样可以先建立扩展点，同时最大限度降低行为变化风险。
+1. 先补 `KeywordPlan` 的 schema 校验和独立测试。
+2. 再补 strategy factory，统一 CLI 和未来 batch 的参数校验。
+3. 然后接入 mock LLM provider，只输出 `KeywordPlan`，并记录 provider、耗时、fallback 和 warnings。
+4. 最后再考虑真实 provider，且必须保持显式 opt-in。
