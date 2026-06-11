@@ -8,8 +8,9 @@ from urllib.parse import urlparse
 
 from university_admissions_crawler.crawler.discovery import DiscoveryConfig
 from university_admissions_crawler.crawler.fetcher import LiveHTTPFetcher, PlaywrightBrowserFetcher
-from university_admissions_crawler.crawler.relevance import BM25LikeRelevanceStrategy, DEFAULT_RELEVANCE_STRATEGY, keyword_plan_from_query
+from university_admissions_crawler.crawler.relevance import build_relevance_strategy
 from university_admissions_crawler.evidence.store import load_previous_result
+from university_admissions_crawler.extractor.llm_provider import MockKeywordPlanProvider, generate_keyword_plan_with_fallback
 from university_admissions_crawler.extractor.pdf_extractor import PypdfPDFExtractor
 from university_admissions_crawler.pipeline.batch import _run_batch
 from university_admissions_crawler.pipeline.diagnostics import inferred_allowed_domain
@@ -49,8 +50,12 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    if args.enable_llm or args.llm_provider:
-        parser.error("LLM providers are guarded optional future capabilities and are not implemented in this offline MVP.")
+    if args.llm_provider and not args.enable_llm:
+        parser.error("--llm-provider requires --enable-llm.")
+    if args.enable_llm and args.llm_provider != "mock":
+        parser.error("Only --llm-provider mock is supported for guarded keyword-plan generation.")
+    if args.enable_llm and not args.keyword_query:
+        parser.error("--enable-llm requires --keyword-query so generated plans remain reviewable.")
     if args.enable_scrapegraph:
         parser.error("ScrapeGraphAI mode is guarded and not implemented in this offline MVP.")
     if args.config:
@@ -69,10 +74,20 @@ def main(argv: list[str] | None = None) -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
     previous_result = load_previous_result(args.previous_result)
     source_output_dir = output_dir / "sources"
-    keyword_plan = keyword_plan_from_query(args.keyword_query) if args.keyword_query else None
-    if args.relevance_strategy == "bm25-like" and keyword_plan is None:
-        parser.error("--relevance-strategy bm25-like requires --keyword-query.")
-    relevance_strategy = BM25LikeRelevanceStrategy(keyword_plan) if args.relevance_strategy == "bm25-like" and keyword_plan is not None else DEFAULT_RELEVANCE_STRATEGY
+    llm_keyword_plan_diagnostics = None
+    keyword_plan_override = None
+    if args.enable_llm:
+        llm_result = generate_keyword_plan_with_fallback(args.keyword_query, MockKeywordPlanProvider())
+        keyword_plan_override = llm_result.keyword_plan
+        llm_keyword_plan_diagnostics = llm_result.diagnostics
+    try:
+        keyword_plan, relevance_strategy = build_relevance_strategy(
+            relevance_strategy=args.relevance_strategy,
+            keyword_query=args.keyword_query,
+            keyword_plan=keyword_plan_override,
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
     if args.fixture:
         data = run_fixture_scan(
             args.input,
@@ -86,6 +101,8 @@ def main(argv: list[str] | None = None) -> int:
             relevance_strategy=relevance_strategy,
             source_output_dir=source_output_dir,
         )
+        if llm_keyword_plan_diagnostics is not None:
+            data.run.config["llm_keyword_plan"] = llm_keyword_plan_diagnostics
     else:
         seed_url = _require_live_url(parser, args.input)
         fetcher = (
@@ -113,6 +130,8 @@ def main(argv: list[str] | None = None) -> int:
             pdf_extractor=PypdfPDFExtractor() if args.enable_pdf else None,
             source_output_dir=source_output_dir,
         )
+        if llm_keyword_plan_diagnostics is not None:
+            data.run.config["llm_keyword_plan"] = llm_keyword_plan_diagnostics
     result_path, report_path = write_result_files(data, output_dir)
     print(f"Wrote {result_path}")
     print(f"Wrote {report_path}")

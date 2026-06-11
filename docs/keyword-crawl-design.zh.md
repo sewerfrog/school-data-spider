@@ -2,7 +2,7 @@
 
 ## 目标
 
-本文档记录将模型辅助关键词爬取逐步迁移到 `school-data-spider` 的设计边界。当前分支已按渐进式方案完成 Step 0 到 Step 4：默认爬虫行为保持不变，关键词计划和 BM25-like scorer 均为显式 opt-in。
+本文档记录将模型辅助关键词爬取逐步迁移到 `school-data-spider` 的设计边界。当前分支已按渐进式方案完成 Step 0 到 Step 5 的低风险部分：默认爬虫行为保持不变，关键词计划、BM25-like scorer 和 mock LLM keyword plan 均为显式 opt-in。
 
 项目现状是 evidence-first 的确定性招生信息爬虫：从 seed URL 出发，有限发现页面，抓取 source，规则分类页面，规则抽取字段，最后做 evidence 校验和报告输出。后续引入模型时，模型应先用于“帮助发现更相关的候选 URL / 页面”，而不是直接生成招生事实。
 
@@ -151,6 +151,15 @@
 
 风险：中到高。涉及凭据、超时、费用、错误处理和可复现性。必须保持 opt-in，并且核心测试不能依赖网络或真实模型。
 
+当前前置状态：
+
+- 已定义 `KEYWORD_PLAN_OUTPUT_SCHEMA`，用于约束未来模型输出的字段、长度、数组大小和 source 枚举。
+- 已新增 `keyword_plan_from_payload()`，用于把结构化 payload 转成 `KeywordPlan`，并拒绝额外字段、超长字段和错误类型。
+- 已接入 `MockKeywordPlanProvider`，用于验证模型关键词计划链路，不访问真实模型 API。
+- CLI 仅允许 `--enable-llm --llm-provider mock --keyword-query ...` 生成 reviewable `KeywordPlan`。
+- 真实 provider 仍处于 guarded 状态；`openai`、`anthropic`、`gemini` 等不会被调用。
+- 已在 `run.config["llm_keyword_plan"]` 记录 provider、schema、fallback、elapsed_ms、warnings 和错误诊断。
+
 ### Step 6：低置信度页面分类辅助
 
 仅当规则分类低置信度时，模型可给出候选分类和理由。初期只记录到 diagnostics，不覆盖现有 `PageCategory`。
@@ -159,15 +168,21 @@
 
 ## 当前实现复盘
 
-本轮修改覆盖 Step 2 到 Step 4，累计修改范围如下：
+当前分支累计修改覆盖 Step 2 到 Step 5 的低风险部分，涉及如下文件：
 
 - `university_admissions_crawler/crawler/relevance.py`
 - `university_admissions_crawler/crawler/discovery.py`
 - `university_admissions_crawler/pipeline/run_university_scan.py`
 - `university_admissions_crawler/cli.py`
+- `university_admissions_crawler/config_loader.py`
+- `university_admissions_crawler/pipeline/batch.py`
+- `university_admissions_crawler/reports/render_report.py`
+- `university_admissions_crawler/extractor/llm_provider.py`
 - `tests/test_discovery.py`
 - `tests/test_pipeline.py`
 - `tests/test_report_cli.py`
+- `tests/test_relevance.py`
+- `docs/keyword-crawl-design.zh.md`
 
 ### 已落地能力
 
@@ -203,34 +218,68 @@
 
    `bm25-like` 需要 `--keyword-query`，否则直接报错。
 
+4. batch config opt-in keyword plan
+
+   batch config 现在可以可选配置：
+
+   - `keyword_query`
+   - `relevance_strategy`
+
+   默认不配置时仍使用 `rule_based`。配置 `bm25-like` 时仍要求存在 `keyword_query`。
+
+5. strategy factory
+
+   已新增统一的 strategy 构造入口：
+
+   - `build_relevance_strategy()`
+   - `keyword_plan_from_payload()`
+   - `KEYWORD_PLAN_OUTPUT_SCHEMA`
+
+   CLI 和 batch 共用同一套 keyword query / strategy 校验逻辑，避免两边分叉。
+
+6. Markdown report diagnostics
+
+   报告现在会在 facts 之前展示诊断型 keyword 信息：
+
+   - `Keyword Plan`
+   - `LLM Keyword Plan Diagnostics`
+
+   这些内容只属于运行诊断，不进入 admissions facts。
+
+7. mock LLM keyword plan
+
+   已在 `llm_provider.py` 中新增 `MockKeywordPlanProvider` 和 `generate_keyword_plan_with_fallback()`。该链路只输出 `KeywordPlan`，并记录 `run.config["llm_keyword_plan"]` 诊断。当前不会调用真实模型 API。
+
 ### 行为边界
 
 - 默认 CLI 参数、fixture scan、live HTTP scan 仍使用 `rule_based`。
 - `--keyword-query` 单独使用只记录计划，不改变 discovery 排序。
 - 只有同时传入 `--keyword-query` 和 `--relevance-strategy bm25-like` 时，候选链接排序和 follow 判断才会使用新 scorer。
+- 只有同时传入 `--enable-llm --llm-provider mock --keyword-query ...` 时，才会走 mock LLM keyword plan 生成链路。
+- `openai`、`anthropic`、`gemini` 等真实 provider 仍被 CLI 拒绝，不会调用网络模型。
 - 新增诊断字段会改变输出 JSON 的形状，但不改变招生事实字段的含义。
-- 当前没有删除、移动文件，也没有改变 batch config 输入格式。
+- 当前没有删除、移动文件；batch config 只增加可选字段。
 
 ### 验证结果
 
-Step 4 完成后已运行：
+Step 5 低风险部分完成后已运行：
 
 ```bash
-.venv314/bin/python -m pytest -q tests/test_discovery.py tests/test_report_cli.py tests/test_pipeline.py
+.venv314/bin/python -m pytest -q tests/test_relevance.py tests/test_report_cli.py tests/test_pdf_llm_incremental.py
 .venv314/bin/python -m compileall -q university_admissions_crawler tests
-git diff --check
 .venv314/bin/python -m pytest -q
+git diff --check
 ```
 
-结果：`90 passed`。
+结果：`101 passed`。
 
 ## 风险和后续待改点
 
 ### 已发现风险
 
-1. `run.config` 输出结构变宽
+1. `run.config` 输出结构继续变宽
 
-   Step 2 增加了 source-level discovery 诊断字段，Step 3 增加了可选 `keyword_plan`，Step 4 增加了 strategy 名称。下游如果对 JSON schema 做严格字段校验，需要同步接受这些诊断字段。
+   Step 2 增加了 source-level discovery 诊断字段，Step 3 增加了可选 `keyword_plan`，Step 4 增加了 strategy 名称，Step 5 增加了可选 `llm_keyword_plan`。下游如果对 JSON schema 做严格字段校验，需要同步接受这些诊断字段。
 
 2. `bm25-like` 会改变抓取顺序
 
@@ -248,35 +297,81 @@ git diff --check
 
    discovery 在判断是否 follow 某个 link 时，通常只有 URL 或链接文本，没有完整目标页正文。因此 keyword plan 对 follow 阶段的帮助主要来自 URL 和 link text，而不是目标页内容。
 
-6. batch config 尚未支持 keyword plan
+6. batch config 已支持 keyword plan，但仍需谨慎使用
 
-   Step 3 按低风险原则只接入 CLI，没有扩展 `config_loader.py` 和 batch JSON schema。批量任务如需关键词计划，应单独做一个小步骤，并补 batch 测试。
+   batch config 现在可以配置 `keyword_query` 和 `relevance_strategy`。默认仍不启用；`bm25-like` 仍要求存在 `keyword_query`。风险点在于批量任务如果开启 `bm25-like`，不同学校的 `max_pages` 较小时页面集合可能发生变化。
 
 7. 诊断信号和评分规则存在重复描述
 
    `RuleBasedRelevanceStrategy` 的 `diagnose()` 需要和 `score_url()` 的规则保持同步。后续如果修改 `score_url()`，需要同步检查 `_rule_based_signals()`，否则诊断可能和实际分数不一致。
 
-### 建议后续修改
+8. mock LLM 不代表真实模型能力
+
+   `MockKeywordPlanProvider` 只验证结构化链路和 fallback，不验证真实 prompt、模型稳定性、token 成本、速率限制或网络错误。不能把当前 mock 测试结果解读为真实 provider 可用。
+
+9. LLM fallback 当前只回退到规则 query 解析
+
+   `generate_keyword_plan_with_fallback()` 在 provider 出错或 payload 校验失败时，会回退到 `keyword_plan_from_query()`。这能保证流程不中断，但不会产生更强的语义理解能力。
+
+10. report 中的 keyword plan 是诊断，不是事实
+
+   Markdown report 已展示 keyword plan 和 LLM keyword diagnostics。使用者需要明确这些字段只是爬取策略解释，不能作为招生要求、费用或申请事实。
+
+11. batch 多 seed 合并时 run.config 仍以合并目标为主
+
+   batch 多 seed 会合并 `AdmissionsData`。当前 keyword plan 是 university-level 配置，适合共享到每个 seed；如果未来每个 seed 需要不同 keyword plan，需要另行设计 per-seed diagnostics。
+
+### 已处理的后续修改
 
 1. 为 keyword plan 增加独立单元测试
 
-   当前测试主要通过 CLI 和 discovery 覆盖。后续可以新增 `tests/test_relevance.py`，单独测试 `keyword_plan_from_query()`、URL hint 映射和 negative keyword。
+   已新增 `tests/test_relevance.py`，单独测试 `keyword_plan_from_query()`、URL hint 映射、negative keyword、schema payload 校验和 strategy factory。
 
 2. 为 batch config 增加 opt-in keyword plan
 
-   建议字段为 `keyword_query` 和 `relevance_strategy`。默认不启用，且 `bm25-like` 仍要求存在 `keyword_query`。
+   已在 batch config 中增加可选 `keyword_query` 和 `relevance_strategy`。默认不启用，且 `bm25-like` 仍要求存在 `keyword_query`。
 
 3. 在报告中展示 keyword plan 摘要
 
-   目前 keyword plan 只在 `result.json` 中。后续可在 Markdown report 的 diagnostics 区域展示，但不应进入 admissions facts。
+   已在 Markdown report 的 diagnostics 区域增加 `Keyword Plan` 摘要，并保持在 `Facts` 之前，不进入 admissions facts。
 
 4. 抽出更清晰的 strategy factory
 
-   CLI 当前直接组装 strategy。若 batch 也支持 strategy，可以新增一个小函数统一校验 `keyword_query` 和 `relevance_strategy`，避免 CLI/batch 重复实现。
+   已新增 `build_relevance_strategy()`，CLI 和 batch 共用同一套 `keyword_query` / `relevance_strategy` 校验与 strategy 构造逻辑。
 
 5. Step 5 前先定义模型输出 schema
 
-   模型只生成 `KeywordPlan`，需要明确 JSON schema、长度限制、超时、fallback、warnings 和 provider 诊断字段。不要让模型直接影响 `AdmissionsData`。
+   已定义 `KEYWORD_PLAN_OUTPUT_SCHEMA` 和 `keyword_plan_from_payload()`，并接入 mock provider 验证 schema/fallback 链路。尚未处理真实模型 provider 的凭据、超时、费用和 token 诊断。
+
+6. Step 5 mock LLM keyword plan
+
+   已新增 `MockKeywordPlanProvider` 和 `generate_keyword_plan_with_fallback()`。CLI 仅允许 `--enable-llm --llm-provider mock --keyword-query ...`，真实 provider 仍保持 guarded。
+
+### 仍待处理
+
+1. 真实模型 provider 仍未接入
+
+   当前只接入 mock provider。下一步如要接真实 provider，需要单独确认凭据、超时、费用、网络访问和 fallback 策略。
+
+2. provider 诊断字段仍需扩展
+
+   当前已记录 provider、schema、elapsed_ms、fallback、warnings 和错误信息。真实 provider 接入时仍需补模型名、token、成本和超时原因。
+
+3. batch 文档示例还未补充
+
+   当前设计文档描述了字段，但 README 或示例 config 尚未补充 batch keyword 配置样例。
+
+4. 真实 provider 接入策略未确定
+
+   需要先确定 provider 抽象、API key 读取方式、超时、重试、费用预算、日志脱敏和测试替身。不能直接把真实 provider 接到默认 CLI。
+
+5. prompt 和 schema 版本管理未设计
+
+   真实模型生成 `KeywordPlan` 时，需要记录 prompt/schema 版本，否则后续难以复现计划来源。
+
+6. LLM keyword plan 与 `bm25-like` 的组合策略需要人工评估
+
+   当前允许 mock LLM plan 作为 `bm25-like` 的输入。真实模型接入后，需要用固定 fixture 和少量真实站点评估排序变化，避免模型扩展词让 crawler 偏离本科招生页面。
 
 ## 不建议做的事
 
@@ -295,3 +390,5 @@ git diff --check
 2. 再补 strategy factory，统一 CLI 和未来 batch 的参数校验。
 3. 然后接入 mock LLM provider，只输出 `KeywordPlan`，并记录 provider、耗时、fallback 和 warnings。
 4. 最后再考虑真实 provider，且必须保持显式 opt-in。
+
+上述第 1、2、3 项已经完成；下一步如果继续推进，应单独设计真实 provider 的凭据、超时、成本、prompt/schema 版本和错误处理，不应直接把真实模型接入默认流程。

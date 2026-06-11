@@ -21,6 +21,8 @@ def render_markdown_report(data: AdmissionsData) -> str:
     lines.append("- Admissions verdict: not provided; this report is evidence only.")
     lines.append("")
     _coverage(lines, data)
+    _keyword_plan(lines, data)
+    _llm_keyword_plan(lines, data)
     _source_strategy(lines, data)
 
     lines.append("## Discovered categories")
@@ -97,6 +99,41 @@ def _coverage(lines: list[str], data: AdmissionsData) -> None:
     else:
         lines.append("- Missing: none")
     lines.append("- Note: coverage reports field completeness; overall confidence reports evidence quality for extracted claims.")
+    lines.append("")
+
+
+def _keyword_plan(lines: list[str], data: AdmissionsData) -> None:
+    keyword_plan = data.run.config.get("keyword_plan")
+    if not isinstance(keyword_plan, dict):
+        return
+    lines.append("## Keyword Plan")
+    lines.append("")
+    lines.append(f"- Source: `{keyword_plan.get('source', 'unknown')}`")
+    lines.append(f"- Query: {keyword_plan.get('query', '')}")
+    positives = keyword_plan.get("positive_keywords") or []
+    if positives:
+        lines.append(f"- Positive keywords: {', '.join(str(item) for item in positives)}")
+    url_hints = keyword_plan.get("url_hints") or []
+    if url_hints:
+        lines.append(f"- URL hints: {', '.join(str(item) for item in url_hints)}")
+    warnings = keyword_plan.get("warnings") or []
+    if warnings:
+        lines.append(f"- Warnings: {', '.join(str(item) for item in warnings)}")
+    lines.append("")
+
+
+def _llm_keyword_plan(lines: list[str], data: AdmissionsData) -> None:
+    diagnostics = data.run.config.get("llm_keyword_plan")
+    if not isinstance(diagnostics, dict):
+        return
+    lines.append("## LLM Keyword Plan Diagnostics")
+    lines.append("")
+    lines.append(f"- Provider: `{diagnostics.get('provider', 'unknown')}`")
+    lines.append(f"- Fallback: {diagnostics.get('fallback', False)}")
+    lines.append(f"- Elapsed ms: {diagnostics.get('elapsed_ms', 0)}")
+    warnings = diagnostics.get("warnings") or []
+    if warnings:
+        lines.append(f"- Warnings: {', '.join(str(item) for item in warnings)}")
     lines.append("")
 
 

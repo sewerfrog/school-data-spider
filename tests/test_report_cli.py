@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from university_admissions_crawler.cli import main
 from university_admissions_crawler.crawler.fetcher import FetchResult
+from university_admissions_crawler.crawler.relevance import keyword_plan_from_query
 from university_admissions_crawler.evidence.provenance import source_from_text
 from university_admissions_crawler.extractor.schema import SourceType
 from university_admissions_crawler.pipeline.output_writer import write_result_files
@@ -35,6 +36,15 @@ def test_markdown_report_marks_parsed_clean_candidates():
     assert "parse `parsed`" in report
     assert '"amount": 45000' in report
     assert '"test_name": "IELTS"' in report
+
+
+def test_markdown_report_shows_keyword_plan_only_as_diagnostics():
+    data = run_fixture_scan(ROOT, keyword_plan=keyword_plan_from_query("fees tuition"))
+    report = render_markdown_report(data)
+
+    assert "## Keyword Plan" in report
+    assert "- Query: fees tuition" in report
+    assert report.index("## Keyword Plan") < report.index("## Facts")
 
 
 def test_cli_fixture_smoke_writes_json_and_markdown():
@@ -69,6 +79,30 @@ def test_cli_fixture_records_explicit_keyword_query_plan():
         assert "/admissions" in keyword_plan["url_hints"]
         assert "/fees" in keyword_plan["url_hints"]
         assert data["run"]["config"]["relevance_strategy"] == "rule_based"
+
+
+def test_cli_fixture_mock_llm_generates_reviewable_keyword_plan():
+    with TemporaryDirectory() as tmp:
+        code = main(
+            [
+                str(ROOT),
+                "--fixture",
+                "--keyword-query",
+                "undergraduate admissions IELTS fees",
+                "--enable-llm",
+                "--llm-provider",
+                "mock",
+                "--output-dir",
+                tmp,
+            ]
+        )
+        assert code == 0
+        data = json.loads((Path(tmp) / "result.json").read_text())
+        report = (Path(tmp) / "report.md").read_text()
+        assert data["run"]["config"]["keyword_plan"]["source"] == "llm"
+        assert data["run"]["config"]["llm_keyword_plan"]["provider"] == "mock"
+        assert data["run"]["config"]["llm_keyword_plan"]["fallback"] is False
+        assert "## LLM Keyword Plan Diagnostics" in report
 
 
 def test_cli_fixture_bm25_like_relevance_strategy_is_opt_in():
@@ -126,6 +160,14 @@ def test_cli_smoke_flag_caps_depth_and_provider_flags_are_guarded():
             assert exc.code != 0
         else:
             raise AssertionError("guarded LLM flag should exit non-zero")
+
+    with redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+        try:
+            main([str(ROOT), "--fixture", "--keyword-query", "fees", "--enable-llm", "--llm-provider", "openai"])
+        except SystemExit as exc:
+            assert exc.code != 0
+        else:
+            raise AssertionError("real LLM providers should remain guarded")
 
 
 def test_cli_live_http_writes_json_and_markdown_from_local_server():
@@ -204,6 +246,62 @@ def test_cli_config_batch_writes_per_university_outputs():
         data = json.loads(result.read_text())
         assert data["institution"]["name"]["value"] == "Example University"
         assert data["run"]["config"]["university_id"] == "example-u"
+
+
+def test_cli_config_batch_accepts_opt_in_keyword_plan_and_relevance_strategy():
+    with TemporaryDirectory() as config_tmp, TemporaryDirectory() as out_tmp:
+        config_path = Path(config_tmp) / "universities.json"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "universities": [
+                        {
+                            "id": "example-u",
+                            "name": "Example University",
+                            "seed_urls": ["https://example.edu/"],
+                            "allowed_domains": ["example.edu"],
+                            "max_pages": 2,
+                            "max_depth": 1,
+                            "mode": "live-http",
+                            "keyword_query": "fees tuition international",
+                            "relevance_strategy": "bm25-like",
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        with patch("university_admissions_crawler.cli.LiveHTTPFetcher", _FakeLiveHTTPFetcher):
+            code = main(["--config", str(config_path), "--output-dir", out_tmp])
+        assert code == 0
+        data = json.loads((Path(out_tmp) / "example-u" / "result.json").read_text())
+        report = (Path(out_tmp) / "example-u" / "report.md").read_text()
+        assert data["run"]["config"]["keyword_plan"]["query"] == "fees tuition international"
+        assert data["run"]["config"]["relevance_strategy"] == "bm25_like"
+        assert "## Keyword Plan" in report
+
+
+def test_cli_config_batch_bm25_like_requires_keyword_query():
+    with TemporaryDirectory() as config_tmp, TemporaryDirectory() as out_tmp:
+        config_path = Path(config_tmp) / "universities.json"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "id": "example-u",
+                    "name": "Example University",
+                    "seed_urls": ["https://example.edu/"],
+                    "relevance_strategy": "bm25-like",
+                }
+            ),
+            encoding="utf-8",
+        )
+        with redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+            try:
+                main(["--config", str(config_path), "--output-dir", out_tmp])
+            except SystemExit as exc:
+                assert exc.code != 0
+            else:
+                raise AssertionError("batch bm25-like relevance strategy should require keyword_query")
 
 
 class _FakeLiveHTTPFetcher:

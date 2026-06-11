@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 from university_admissions_crawler.config_loader import UniversityConfig, load_university_configs
 from university_admissions_crawler.crawler.discovery import DiscoveryConfig
 from university_admissions_crawler.crawler.fetcher import LiveHTTPFetcher, PlaywrightBrowserFetcher
+from university_admissions_crawler.crawler.relevance import build_relevance_strategy
 from university_admissions_crawler.extractor.pdf_extractor import PypdfPDFExtractor
 from university_admissions_crawler.extractor.schema import AdmissionsData, Institution, RunMetadata, attach_validation_warnings
 from university_admissions_crawler.pipeline.diagnostics import inferred_allowed_domain
@@ -24,7 +25,10 @@ def _run_batch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int
     output_root = Path(args.output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
     for university in configs:
-        data = _run_university_config(args, university)
+        try:
+            data = _run_university_config(args, university)
+        except ValueError as exc:
+            parser.error(str(exc))
         if university.name and data.institution.name.is_unknownish:
             data.institution.name.value = university.name
         out_dir = output_root / university.id
@@ -37,6 +41,10 @@ def _run_batch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int
 def _run_university_config(args: argparse.Namespace, university: UniversityConfig) -> AdmissionsData:
     combined: AdmissionsData | None = None
     max_pages, max_depth = _scan_limits_for_config(args, university)
+    keyword_plan, relevance_strategy = build_relevance_strategy(
+        relevance_strategy=university.relevance_strategy,
+        keyword_query=university.keyword_query,
+    )
     for seed_url in university.seed_urls:
         fetcher = _fetcher_for_mode(
             university.mode,
@@ -53,6 +61,8 @@ def _run_university_config(args: argparse.Namespace, university: UniversityConfi
                 max_depth=max_depth,
                 allowed_hosts=set(args.allowed_host) | set(university.allowed_hosts),
                 allowed_domains=set(args.allowed_domain) | set(university.allowed_domains) | _allowed_domains_for(seed_url, [], True),
+                keyword_plan=keyword_plan,
+                relevance_strategy=relevance_strategy,
             ),
             pdf_extractor=PypdfPDFExtractor() if args.enable_pdf else None,
             source_output_dir=Path(args.output_dir) / university.id / "sources",

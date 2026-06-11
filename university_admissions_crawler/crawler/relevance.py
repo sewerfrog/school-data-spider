@@ -12,6 +12,31 @@ from university_admissions_crawler.crawler.admissions_context import NON_ADMISSI
 from university_admissions_crawler.crawler.filters import DomainPolicy, is_pdf_url, score_url, should_follow_url
 
 
+MAX_KEYWORD_QUERY_LENGTH = 500
+MAX_KEYWORD_ITEMS = 50
+MAX_KEYWORD_LENGTH = 80
+KEYWORD_PLAN_SOURCES = {"default", "user", "llm"}
+RELEVANCE_STRATEGY_ALIASES = {
+    "rule-based": "rule-based",
+    "rule_based": "rule-based",
+    "bm25-like": "bm25-like",
+    "bm25_like": "bm25-like",
+}
+
+KEYWORD_PLAN_OUTPUT_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "required": ["query", "positive_keywords", "negative_keywords", "url_hints", "source", "warnings"],
+    "properties": {
+        "query": {"type": "string", "maxLength": MAX_KEYWORD_QUERY_LENGTH},
+        "positive_keywords": {"type": "array", "items": {"type": "string", "maxLength": MAX_KEYWORD_LENGTH}, "maxItems": MAX_KEYWORD_ITEMS},
+        "negative_keywords": {"type": "array", "items": {"type": "string", "maxLength": MAX_KEYWORD_LENGTH}, "maxItems": MAX_KEYWORD_ITEMS},
+        "url_hints": {"type": "array", "items": {"type": "string", "maxLength": MAX_KEYWORD_LENGTH}, "maxItems": MAX_KEYWORD_ITEMS},
+        "source": {"type": "string", "enum": sorted(KEYWORD_PLAN_SOURCES)},
+        "warnings": {"type": "array", "items": {"type": "string", "maxLength": MAX_KEYWORD_LENGTH}, "maxItems": MAX_KEYWORD_ITEMS},
+    },
+    "additionalProperties": False,
+}
+
 PATH_RELEVANCE_HINTS: tuple[str, ...] = (
     "/admission",
     "/undergraduate",
@@ -100,7 +125,11 @@ class RelevanceDiagnostics:
 def keyword_plan_from_query(query: str, *, source: str = "user") -> KeywordPlan:
     """Convert a user keyword query into a deterministic, reviewable plan."""
 
-    normalized_query = query.strip()
+    if not isinstance(query, str):
+        raise ValueError("Keyword query must be a string.")
+    if source not in KEYWORD_PLAN_SOURCES:
+        raise ValueError(f"Unsupported keyword plan source: {source}")
+    normalized_query = _bounded_text(query.strip(), field="query", max_length=MAX_KEYWORD_QUERY_LENGTH)
     positive_keywords = tuple(_dedupe([token.lower() for token in KEYWORD_QUERY_SPLIT_RE.split(normalized_query) if token.strip()]))
     warnings = () if positive_keywords else ("empty_keyword_query",)
     return KeywordPlan(
@@ -110,6 +139,49 @@ def keyword_plan_from_query(query: str, *, source: str = "user") -> KeywordPlan:
         source=source,
         warnings=warnings,
     )
+
+
+def keyword_plan_from_payload(payload: dict[str, object], *, source: str | None = None) -> KeywordPlan:
+    """Validate a structured keyword plan payload before it reaches a scorer."""
+
+    allowed_keys = {"query", "positive_keywords", "negative_keywords", "url_hints", "source", "warnings"}
+    extra_keys = set(payload) - allowed_keys
+    if extra_keys:
+        raise ValueError(f"Unsupported keyword plan fields: {', '.join(sorted(extra_keys))}")
+    missing_keys = allowed_keys - set(payload)
+    if missing_keys:
+        raise ValueError(f"Keyword plan missing required fields: {', '.join(sorted(missing_keys))}")
+    plan_source = source or _required_text(payload.get("source"), field="source")
+    if plan_source not in KEYWORD_PLAN_SOURCES:
+        raise ValueError(f"Unsupported keyword plan source: {plan_source}")
+    return KeywordPlan(
+        query=_bounded_text(_required_text(payload.get("query"), field="query"), field="query", max_length=MAX_KEYWORD_QUERY_LENGTH),
+        positive_keywords=tuple(_bounded_text_list(payload.get("positive_keywords", []), field="positive_keywords")),
+        negative_keywords=tuple(_bounded_text_list(payload.get("negative_keywords", []), field="negative_keywords")),
+        url_hints=tuple(_bounded_text_list(payload.get("url_hints", []), field="url_hints")),
+        source=plan_source,
+        warnings=tuple(_bounded_text_list(payload.get("warnings", []), field="warnings")),
+    )
+
+
+def build_relevance_strategy(
+    *,
+    relevance_strategy: str = "rule-based",
+    keyword_query: str | None = None,
+    keyword_plan: KeywordPlan | None = None,
+    source: str = "user",
+) -> tuple[KeywordPlan | None, RelevanceStrategy]:
+    """Build a validated relevance strategy while preserving rule-based defaults."""
+
+    normalized_strategy = _normalize_strategy_name(relevance_strategy)
+    plan = keyword_plan or (keyword_plan_from_query(keyword_query, source=source) if keyword_query else None)
+    if normalized_strategy == "rule-based":
+        return plan, DEFAULT_RELEVANCE_STRATEGY
+    if normalized_strategy == "bm25-like":
+        if plan is None:
+            raise ValueError("bm25-like relevance strategy requires a keyword query or keyword plan.")
+        return plan, BM25LikeRelevanceStrategy(plan)
+    raise ValueError(f"Unsupported relevance strategy: {relevance_strategy}")
 
 
 class RelevanceStrategy(Protocol):
@@ -239,6 +311,43 @@ def _url_hints_for_keywords(keywords: tuple[str, ...]) -> list[str]:
 def _keyword_matches(keyword: str, tokens: set[str]) -> bool:
     keyword_tokens = TEXT_TOKEN_RE.findall(keyword.lower())
     return bool(keyword_tokens) and all(token in tokens for token in keyword_tokens)
+
+
+def _normalize_strategy_name(value: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError("Relevance strategy must be a string.")
+    normalized = RELEVANCE_STRATEGY_ALIASES.get(value)
+    if normalized is None:
+        raise ValueError(f"Unsupported relevance strategy: {value}")
+    return normalized
+
+
+def _required_text(value: object, *, field: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"Keyword plan field {field} must be a string.")
+    return value
+
+
+def _bounded_text(value: str, *, field: str, max_length: int) -> str:
+    stripped = value.strip()
+    if len(stripped) > max_length:
+        raise ValueError(f"Keyword plan field {field} exceeds {max_length} characters.")
+    return stripped
+
+
+def _bounded_text_list(value: object, *, field: str) -> list[str]:
+    if not isinstance(value, list | tuple):
+        raise ValueError(f"Keyword plan field {field} must be a list of strings.")
+    if len(value) > MAX_KEYWORD_ITEMS:
+        raise ValueError(f"Keyword plan field {field} exceeds {MAX_KEYWORD_ITEMS} items.")
+    out: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            raise ValueError(f"Keyword plan field {field} must contain only strings.")
+        bounded = _bounded_text(item, field=field, max_length=MAX_KEYWORD_LENGTH)
+        if bounded:
+            out.append(bounded.lower() if field.endswith("keywords") else bounded)
+    return _dedupe(out)
 
 
 def _dedupe(values: list[str]) -> list[str]:
