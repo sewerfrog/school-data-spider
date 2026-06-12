@@ -166,6 +166,65 @@
 
 风险：中到高。不能让模型分类直接触发字段抽取，除非后续单独批准。
 
+### Step 6 输出复盘和下一步计划
+
+对 `outputs/hku-llm-keyword-test` 和 `outputs/hku-live-step6` 的 HKU 结果做对比后，当前判断是：Step 6 本身还没有优化最终招生事实数据。
+
+对比结果：
+
+- `hku-llm-keyword-test` 抓到 8 个 source，`hku-live-step6` 抓到 40 个 source。
+- 两次输出的 evidence item 都是 6 条。
+- 两次 coverage 都是 4/9，缺失字段相同：`undergraduate_application_entry`、`application_periods`、`english_requirements`、`accepted_qualifications`、`required_documents`。
+- 两次最终 facts 相同：programmes、fees、scholarships、contacts 没有新增有效字段。
+- `hku-live-step6` 多抓到的 source 主要是更多本科项目页、JUPAS 页面、PDF、CSS、favicon 和多语言页面；其中不少没有转化成 evidence。
+- `hku-live-step6` 的 warnings 更多，新增了 live PDF 未启用 parser、application portal / challenge 诊断以及非事实资源相关噪音。
+- 两次 `result.json` 都没有 `run.config["classification_assist"]`，说明该 HKU 输出里 Step 6 分类辅助没有实际参与，或者没有触发低置信度分类辅助条件。
+
+原因判断：
+
+- Step 6 当前设计是 safety-first diagnostics：模型候选分类只能记录，不能覆盖规则 `PageCategory`，也不能直接触发字段抽取。因此它本来就不会直接改变最终 admissions facts。
+- `hku-live-step6` 的 source 增量主要来自运行参数扩大，例如 `max_pages=40`、`max_depth=3`，不是分类辅助带来的字段质量提升。
+- 当前 HKU 结果的主要瓶颈不在低置信度分类，而在 source 过滤和 extractor 转化能力：抓到了更多页面，但核心缺失字段仍没有被抽成 evidence-backed facts。
+- 现有规则分类仍会把部分 PDF、CSS、favicon、privacy/legal 页面打成 admissions 相关页面，说明 discovery / source filtering 和分类噪音控制还需要加强。
+
+基于这个复盘，Step 6 后续不应马上升级为“模型覆盖分类”。更稳妥的路线是把它作为失败定位工具，用 diagnostics 反向改进规则分类、source 过滤和字段抽取。
+
+新的优化计划：
+
+1. 让 Step 6 diagnostics 在 live 结果中可见
+
+   - 重新跑 HKU，并显式开启 `--enable-llm --llm-provider mock --enable-classification-assist`。
+   - 确认 `run.config["classification_assist"]` 是否出现，以及哪些 URL 被判为低置信度。
+   - 在 Markdown report 的 diagnostics 区域增加 classification assist 摘要，但继续保持在 facts 之前，不进入 admissions facts。
+   - 评估当前低置信度阈值是否过窄；如果 HKU 低质量 source 多数是 score=2，需要单独讨论是否把 score=2 纳入 diagnostics，而不是直接改变抽取行为。
+
+2. 用 classification assist 诊断改进规则分类
+
+   - 汇总规则分类和辅助候选分类不一致的页面，人工审查后再修改规则。
+   - 优先处理 CSS、favicon、privacy PDF、GDPR PDF 等明显非招生事实资源，避免被分类为 `undergraduate_admissions`。
+   - 对 `contact-us`、JUPAS、overview、international qualifications 等 HKU 页面补更细的分类信号。
+   - 保留 “assistant candidate applied=false” 的边界，直到有单独评估证明覆盖规则分类不会扩大误抽取风险。
+
+3. 提升 source filtering 和 discovery 噪音控制
+
+   - 在 discovery 或 fetch 后过滤 `.css`、`.ico`、隐私政策、GDPR notice、cookie/legal 页面等低价值 source。
+   - 对 PDF URL 做更细的 admissions / privacy / score-calculator / expected-score 分类，不把所有 admissions 域名下 PDF 都当作可抽取事实来源。
+   - 对多语言重复页面和同一 programme listing 的重复入口做 canonical 或去重策略。
+   - 继续保留 domain policy、`max_pages`、`max_depth` 和 opt-in scorer 边界。
+
+4. 把“抓到更多页面”转化成“更高 coverage”
+
+   - 增加 per-source extraction diagnostics：页面分类后尝试了哪些 extractor、为什么没有抽出字段。
+   - 对 HKU 缺失字段建立专项抽取任务：application periods、English requirements、accepted qualifications、required documents、undergraduate application entry。
+   - 针对 `international-qualifications`、`apply/overview`、JUPAS 页面和相关 PDF 分别分析原文结构，再补 fixture-backed extractor 测试。
+   - 对 live PDF 结果单独评估 `--enable-pdf`，确认 JUPAS PDF 是否能补申请时间、资格或材料要求。
+
+5. 建立固定评估集
+
+   - 固定 HKU、NTU、PolyU 的 saved-source 或 live rerun 样例，记录每次变更前后的 source 数、无效 source 比例、evidence 数、coverage、warnings 和字段准确性。
+   - 不再用 source 数量作为主要成功指标；主要看 core field coverage、evidence 质量和 warning 噪音是否改善。
+   - 对 keyword plan、BM25-like、classification assist 分别做 ablation 对比，避免把参数扩大带来的抓取数量变化误判为模型辅助效果。
+
 ## 当前实现复盘
 
 当前分支累计修改覆盖 Step 2 到 Step 5 的低风险部分，涉及如下文件：
