@@ -10,6 +10,7 @@ from university_admissions_crawler.config_loader import UniversityConfig, load_u
 from university_admissions_crawler.crawler.discovery import DiscoveryConfig
 from university_admissions_crawler.crawler.fetcher import LiveHTTPFetcher, PlaywrightBrowserFetcher
 from university_admissions_crawler.crawler.relevance import build_relevance_strategy
+from university_admissions_crawler.extractor.llm_provider import MockClassificationAssistProvider
 from university_admissions_crawler.extractor.pdf_extractor import PypdfPDFExtractor
 from university_admissions_crawler.extractor.schema import AdmissionsData, Institution, RunMetadata, attach_validation_warnings
 from university_admissions_crawler.pipeline.diagnostics import inferred_allowed_domain
@@ -66,6 +67,7 @@ def _run_university_config(args: argparse.Namespace, university: UniversityConfi
             ),
             pdf_extractor=PypdfPDFExtractor() if args.enable_pdf else None,
             source_output_dir=Path(args.output_dir) / university.id / "sources",
+            classification_assist_provider=MockClassificationAssistProvider() if args.enable_classification_assist else None,
         )
         combined = data if combined is None else merge_data(combined, data)
     if combined is None:

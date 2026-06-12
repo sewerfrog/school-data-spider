@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from university_admissions_crawler.classifier.page_classifier import classify_page
+from university_admissions_crawler.classifier.page_classifier import classify_page, is_low_confidence_classification
 from university_admissions_crawler.crawler.admissions_context import (
     has_admissions_contact_context,
     has_english_requirement_context,
@@ -33,6 +33,7 @@ from university_admissions_crawler.extractor.html_extractor import (
     extract_scholarship,
     extract_visa,
 )
+from university_admissions_crawler.extractor.llm_provider import ClassificationAssistProvider, generate_classification_assist_diagnostic
 from university_admissions_crawler.extractor.normalizer import add_warning
 from university_admissions_crawler.extractor.pdf_extractor import FixturePDFExtractor, MissingPDFExtractor, PDFExtractor
 from university_admissions_crawler.pipeline.diagnostics import attach_run_diagnostics, source_strategy_for
@@ -65,6 +66,7 @@ def run_fixture_scan(
     keyword_plan: KeywordPlan | None = None,
     relevance_strategy: RelevanceStrategy | None = None,
     source_output_dir: str | Path | None = None,
+    classification_assist_provider: ClassificationAssistProvider | None = None,
 ) -> AdmissionsData:
     return run_scan(
         seed_url,
@@ -79,6 +81,7 @@ def run_fixture_scan(
         ),
         previous_result=previous_result,
         source_output_dir=source_output_dir,
+        classification_assist_provider=classification_assist_provider,
     )
 
 
@@ -90,6 +93,7 @@ def run_scan(
     previous_result: dict[str, Any] | None = None,
     pdf_extractor: PDFExtractor | None = None,
     source_output_dir: str | Path | None = None,
+    classification_assist_provider: ClassificationAssistProvider | None = None,
 ) -> AdmissionsData:
     discovery_config = config or DiscoveryConfig()
     pages = discover(seed_url, fetcher, discovery_config)
@@ -156,6 +160,17 @@ def run_scan(
                 text = pdf_result.text if pdf_result.pages else ""
 
         classification = classify_page(result.final_url, result.title, text)
+        if classification_assist_provider is not None and is_low_confidence_classification(classification):
+            data.run.config.setdefault("classification_assist", []).append(
+                generate_classification_assist_diagnostic(
+                    url=result.final_url,
+                    title=result.title,
+                    text=text,
+                    rule_category=classification.category,
+                    rule_score=classification.score,
+                    provider=classification_assist_provider,
+                )
+            )
         discovery_diagnostics = relevance_diagnostics(
             discovery_config.relevance_strategy,
             result.final_url,

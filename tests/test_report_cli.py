@@ -105,6 +105,37 @@ def test_cli_fixture_mock_llm_generates_reviewable_keyword_plan():
         assert "## LLM Keyword Plan Diagnostics" in report
 
 
+def test_cli_fixture_mock_classification_assist_records_diagnostics_only():
+    with TemporaryDirectory() as tmp:
+        code = main(
+            [
+                str(ROOT),
+                "--fixture",
+                "--seed-url",
+                "https://fixture.test/blog.html",
+                "--max-pages",
+                "1",
+                "--max-depth",
+                "0",
+                "--enable-llm",
+                "--llm-provider",
+                "mock",
+                "--enable-classification-assist",
+                "--output-dir",
+                tmp,
+            ]
+        )
+        assert code == 0
+        data = json.loads((Path(tmp) / "result.json").read_text())
+        report = (Path(tmp) / "report.md").read_text()
+        diagnostics = data["run"]["config"]["classification_assist"]
+        assert diagnostics[0]["rule_category"] == "undergraduate_admissions"
+        assert diagnostics[0]["candidate"]["category"] == "undergraduate_admissions"
+        assert diagnostics[0]["applied"] is False
+        assert data["discovered_categories"][0]["category"] == "undergraduate_admissions"
+        assert "Classification Assist" not in report
+
+
 def test_cli_fixture_bm25_like_relevance_strategy_is_opt_in():
     with TemporaryDirectory() as tmp:
         code = main(
@@ -160,6 +191,14 @@ def test_cli_smoke_flag_caps_depth_and_provider_flags_are_guarded():
             assert exc.code != 0
         else:
             raise AssertionError("guarded LLM flag should exit non-zero")
+
+    with redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+        try:
+            main([str(ROOT), "--fixture", "--enable-classification-assist"])
+        except SystemExit as exc:
+            assert exc.code != 0
+        else:
+            raise AssertionError("classification assist should require guarded LLM opt-in")
 
     with redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
         try:

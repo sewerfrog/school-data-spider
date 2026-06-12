@@ -8,7 +8,15 @@ from university_admissions_crawler.crawler.relevance import (
     keyword_plan_from_payload,
     keyword_plan_from_query,
 )
-from university_admissions_crawler.extractor.llm_provider import MockKeywordPlanProvider, generate_keyword_plan_with_fallback
+from university_admissions_crawler.extractor.llm_provider import (
+    CLASSIFICATION_ASSIST_OUTPUT_SCHEMA,
+    MockClassificationAssistProvider,
+    MockKeywordPlanProvider,
+    classification_assist_from_payload,
+    generate_classification_assist_diagnostic,
+    generate_keyword_plan_with_fallback,
+)
+from university_admissions_crawler.extractor.schema import PageCategory
 
 
 def test_keyword_plan_from_query_normalizes_tokens_and_url_hints():
@@ -98,3 +106,33 @@ def test_keyword_plan_provider_falls_back_to_user_query_on_invalid_payload():
     assert result.keyword_plan.source == "user"
     assert result.diagnostics["fallback"] is True
     assert "llm_keyword_plan_fallback" in result.keyword_plan.warnings
+
+
+def test_classification_assist_payload_is_schema_bounded_and_diagnostic_only():
+    payload = {
+        "category": "fees",
+        "reason": "The page mentions tuition and annual fee amounts.",
+        "confidence": "low",
+        "signals": ["tuition", "fees"],
+    }
+    assist = classification_assist_from_payload(payload)
+
+    assert CLASSIFICATION_ASSIST_OUTPUT_SCHEMA["required"] == ["category", "reason", "confidence", "signals"]
+    assert assist.category == PageCategory.FEES
+    assert assist.to_dict()["category"] == "fees"
+
+    diagnostics = generate_classification_assist_diagnostic(
+        url="https://example.edu/ambiguous",
+        title="Student information",
+        text="Tuition information for undergraduate applicants.",
+        rule_category=PageCategory.UNDERGRADUATE_ADMISSIONS,
+        rule_score=1,
+        provider=MockClassificationAssistProvider(payload),
+    )
+    assert diagnostics["fallback"] is False
+    assert diagnostics["rule_category"] == "undergraduate_admissions"
+    assert diagnostics["candidate"]["category"] == "fees"
+    assert diagnostics["applied"] is False
+
+    with pytest.raises(ValueError, match="Unsupported classification assist fields"):
+        classification_assist_from_payload({**payload, "extra": True})

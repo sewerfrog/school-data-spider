@@ -4,6 +4,7 @@ from university_admissions_crawler.crawler.admissions_context import has_admissi
 from university_admissions_crawler.crawler.discovery import DiscoveryConfig
 from university_admissions_crawler.crawler.fetcher import FetchResult, FixtureFetcher
 from university_admissions_crawler.extractor.schema import WarningCode
+from university_admissions_crawler.extractor.llm_provider import MockClassificationAssistProvider
 from university_admissions_crawler.extractor.html_extractor import extract_contact, extract_english_requirement, extract_fee
 from university_admissions_crawler.evidence.provenance import source_from_text
 from university_admissions_crawler.extractor.schema import SourceType
@@ -137,6 +138,31 @@ def test_pipeline_attaches_core_coverage_and_source_strategy():
     assert admissions_entry["relevance_strategy"] == "rule_based"
     assert "positive_keyword:admission" in admissions_entry["discovery_signals"]
     assert "path_relevance_hint:/admission" in admissions_entry["discovery_signals"]
+
+
+def test_classification_assist_records_low_confidence_diagnostics_without_changing_rule_category():
+    data = run_fixture_scan(
+        ROOT,
+        seed_url="https://fixture.test/blog.html",
+        max_pages=1,
+        max_depth=0,
+        classification_assist_provider=MockClassificationAssistProvider(
+            {
+                "category": "irrelevant",
+                "reason": "Mock assist treats the student blog as not admissions facts.",
+                "confidence": "low",
+                "signals": ["blog"],
+            }
+        ),
+    )
+
+    assert data.discovered_categories[0].category == "undergraduate_admissions"
+    diagnostics = data.run.config["classification_assist"]
+    assert diagnostics[0]["rule_category"] == "undergraduate_admissions"
+    assert diagnostics[0]["rule_score"] == 1
+    assert diagnostics[0]["candidate"]["category"] == "irrelevant"
+    assert diagnostics[0]["applied"] is False
+    assert not data.admissions.application_periods
 
 
 def test_realistic_fixture_extracts_specific_core_fields_without_nav_noise():
