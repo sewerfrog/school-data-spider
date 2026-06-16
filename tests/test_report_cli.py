@@ -23,11 +23,24 @@ def test_markdown_report_contains_evidence_and_no_verdict():
     report = render_markdown_report(data)
     assert "Evidence appendix" in report
     assert "Warnings / Manual check" in report
+    assert "## Extraction Diagnostics" in report
+    assert "`application_periods`" in report
+    assert report.index("## Extraction Diagnostics") < report.index("## Facts")
     assert "Discovered categories" in report
     assert "application_deadlines" in report
     assert "Required documents include transcripts and passport copy" in report
     assert "Admissions verdict: not provided" in report
     assert "you can" not in report.lower()
+
+
+def test_markdown_report_shows_missing_reasons_before_facts_when_fields_are_missing():
+    data = run_fixture_scan(ROOT, seed_url="https://fixture.test/realistic-admissions.html", max_pages=1, max_depth=0)
+    report = render_markdown_report(data)
+
+    assert "## Missing Reasons" in report
+    assert report.index("## Missing Reasons") < report.index("## Facts")
+    assert "`accepted_qualifications`" in report
+    assert "they do not prove the official site lacks the field" in report
 
 
 def test_markdown_report_marks_parsed_clean_candidates():
@@ -63,6 +76,8 @@ def test_cli_fixture_smoke_writes_json_and_markdown():
         assert data["evidence"]
         assert data["warnings"]
         assert data["discovered_categories"]
+        assert data["run"]["config"]["extraction_diagnostics_summary"]["attempts_count"] > 0
+        assert set(data["run"]["config"]["missing_reasons"]) == set(data["run"]["config"]["coverage"]["missing"])
         assert "keyword_plan" not in data["run"]["config"]
         assert "Evidence appendix" in report.read_text()
 
@@ -129,11 +144,53 @@ def test_cli_fixture_mock_classification_assist_records_diagnostics_only():
         data = json.loads((Path(tmp) / "result.json").read_text())
         report = (Path(tmp) / "report.md").read_text()
         diagnostics = data["run"]["config"]["classification_assist"]
+        summary = data["run"]["config"]["classification_assist_summary"]
         assert diagnostics[0]["rule_category"] == "undergraduate_admissions"
         assert diagnostics[0]["candidate"]["category"] == "undergraduate_admissions"
         assert diagnostics[0]["applied"] is False
+        assert summary["entries_count"] == 1
+        assert summary["applied_count"] == 0
+        assert summary["disagreement_count"] == 0
         assert data["discovered_categories"][0]["category"] == "undergraduate_admissions"
-        assert "Classification Assist" not in report
+        assert "## Classification Assist Diagnostics" in report
+        assert "- Entries: 1" in report
+        assert "- Applied entries: 0" in report
+        assert "- Rule/candidate disagreements: 0" in report
+        assert "classification assist is diagnostics-only and does not change facts" in report
+        assert "candidate `undergraduate_admissions`" in report
+
+
+def test_cli_fixture_classification_assist_records_zero_trigger_summary():
+    with TemporaryDirectory() as tmp:
+        code = main(
+            [
+                str(ROOT),
+                "--fixture",
+                "--seed-url",
+                "https://fixture.test/admissions/index.html",
+                "--max-pages",
+                "1",
+                "--max-depth",
+                "0",
+                "--enable-llm",
+                "--llm-provider",
+                "mock",
+                "--enable-classification-assist",
+                "--output-dir",
+                tmp,
+            ]
+        )
+        assert code == 0
+        data = json.loads((Path(tmp) / "result.json").read_text())
+        report = (Path(tmp) / "report.md").read_text()
+
+        assert data["run"]["config"]["classification_assist"] == []
+        summary = data["run"]["config"]["classification_assist_summary"]
+        assert summary["entries_count"] == 0
+        assert summary["fallback_count"] == 0
+        assert summary["applied_count"] == 0
+        assert summary["disagreement_count"] == 0
+        assert "## Classification Assist Diagnostics" not in report
 
 
 def test_cli_fixture_bm25_like_relevance_strategy_is_opt_in():

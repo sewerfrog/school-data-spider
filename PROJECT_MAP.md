@@ -21,11 +21,14 @@
 - 证据与校验：记录 source、snippet、claim path、hash、warnings，并校验 non-unknown claim 是否有 evidence。
 - 报告输出：生成 Markdown evidence report。
 - 增量 diff：传入 previous result 时记录 source hash 和字段变化。
-- 测试：`.venv314` 环境下当前 pytest 结果为 `85 passed`；saved-source 迁移相关局部测试为 `20 passed`。
+- source filtering：抓取前过滤明显静态资源和 privacy/GDPR/cookie/terms 类低价值文档，并用 admissions prospectus、entry requirements、tuition fees、programme requirements PDF 反例保护误删边界。
+- diagnostics：`classification_assist_summary`、`extraction_diagnostics_summary` 和 `missing_reasons` 已写入 `run.config`，报告会在 facts 前展示相关诊断；这些内容不改变事实字段。
+- saved-source 回归：NTU undergraduate tuition fee 页面已能通过 fee context gate，并在没有具体金额时抽取官网 fee table/reference raw candidate，`parse_status` 保持 `raw_needs_manual_review`。
+- 测试：`.venv314` 环境下当前完整 pytest 结果为 `112 passed`；本轮 diagnostics/source-filtering/report 目标测试组为 `57 passed`。
 
 ## 3. 未完成或实验性功能
 
-- LLM：CLI 有 `--enable-llm` / `--llm-provider`，但当前直接报错；代码里只有 provider protocol、mock 和 evidence-gated candidate 校验。
+- LLM：`--enable-llm --llm-provider mock` 当前只支持 mock keyword plan 和 mock classification assist 诊断链路；hosted providers 仍 fail closed。LLM candidate facts 仍只能走 evidence-gated 校验 helper，不是 pipeline 默认事实来源。
 - ScrapeGraphAI：CLI 有 `--enable-scrapegraph`，但当前直接报错；`ScrapeGraphFetcherStub` 只是 warning stub。
 - crawl4ai：`Crawl4AIFetcherStub` 只是 warning stub，没有真实 adapter。
 - Sitemap：`parse_sitemap_urls()` 存在，但当前 discovery 主流程未使用。用途 unclear。
@@ -127,7 +130,7 @@ python3 -m compileall university_admissions_crawler tests
 - `parse_english_tests()` / `parse_money_candidates()` / `parse_application_dates()`：轻量结构化解析。
 - `FixturePDFExtractor` / `MissingPDFExtractor` / `PypdfPDFExtractor`：fixture PDF、未启用 PDF parser 的 warning guard、可选真实 PDF 文本解析。
 - `validate_llm_candidates()`：只接受能匹配已有 evidence 的 LLM 候选。
-- `attach_run_diagnostics()`：写入 coverage 和 source strategy。
+- `attach_run_diagnostics()`：写入 coverage、source strategy、classification assist summary、extraction diagnostics summary 和 missing reasons。
 - `attach_validation_warnings()` / `normalize_admissions_data()`：证据、冲突、过期、非官方来源等 warning policy。
 - `render_markdown_report()`：生成 Markdown 报告。
 
@@ -139,6 +142,10 @@ python3 -m compileall university_admissions_crawler tests
 - `pipeline/merge.py` 已提供公开 `merge_data()`，并通过测试明确 `_merge_data` 兼容别名仍等同于 `merge_data`。后续需要决定是否长期保留该别名，或在确认没有外部依赖后删除。
 - `cli.py` 和 `pipeline/batch.py` 之间仍有相似 URL/domain helper 逻辑；为避免扩大行为变更，本轮未抽公共 helper。
 - `pipeline/run_university_scan.py` 职责偏重：调度、分类分流、抽取、PDF、补抽取、diff 混在一起。
+- `pipeline/run_university_scan.py` 新增 diagnostics 插桩后可读性继续下降；当前已用 `_ExtractionDiagnosticsRecorder` 收敛重复记录，但后续不应继续把更多诊断逻辑塞进主循环。
+- `missing_reasons` 是当前抓取和 extractor 尝试的诊断，不是官网字段缺失证明；当同一字段存在多种失败路径时，字段级归因优先级仍可优化。
+- source filtering 对 HKU 类站点有降噪收益，但低价值文档过滤仍有少量误删风险；招生 prospectus / entry requirements / tuition fees / programme requirements PDF 反例测试需要继续保留。
+- NTU undergraduate fees 当前只能抽到官网 fee table/reference raw candidate，不是结构化金额。若要拿到具体金额，需要后续解析或抓取实际 fee table 内容。
 - `crawler/fetcher.py` 文件仍偏大：fixture/live/browser fetcher 和 PDF HTTP fallback 仍在同一文件；HTML 文本化 helper 已拆到 `crawler/html_text.py`，JSON link/text helper 已拆到 `crawler/json_content.py`，optional stubs 已拆到 `crawler/optional_stubs.py`，fetch result 类型已拆到 `crawler/types.py`，source/content-type 判断已拆到 `crawler/source_types.py`。
 - `crawler/json_content.py` 当前同时提供 public helper 和 underscored 兼容别名，API 面比之前更宽。后续如果决定只保留 public 名称，需要单独确认没有外部 private import。
 - `crawler/optional_stubs.py` 已直接依赖 `crawler.types.FetchResult`，减少了对 `fetcher.py` 的循环导入风险；但仍延迟导入 `_fixed_retrieved_at()`，因为固定 fixture 时间 helper 还在 `fetcher.py`。
@@ -170,10 +177,12 @@ python3 -m compileall university_admissions_crawler tests
 14. 已让 `cli.py` 单次扫描复用 `pipeline.output_writer.write_result_files()`，输出文件名和 `print()` 文案保持不变。当前验证：`tests/test_report_cli.py` 为 `8 passed`，完整 pytest 为 `79 passed`。
 15. 已从 `crawler/fetcher.py` 拆出 optional warning-only stubs 到 `crawler/optional_stubs.py`，并从 `fetcher.py` 继续 re-export `Crawl4AIFetcherStub` / `ScrapeGraphFetcherStub`。当前验证：`tests/test_fetcher.py tests/test_report_cli.py` 为 `21 passed`，完整 pytest 为 `79 passed`。
 16. 已把 `crawler/json_content.py` 的 helper 改为 public 名称，并保留 underscored 兼容别名；`fetcher.py` 改用 public helper，同时保留模块层 private 名称兼容。当前验证：`tests/test_fetcher.py tests/test_pipeline.py` 为 `34 passed`，完整 pytest 为 `79 passed`。
-17. 已新增 `tests/test_compatibility_boundaries.py`，集中覆盖 `_merge_data`、JSON underscored alias、`CrawlConfig` / `smoke_config()`、`parse_sitemap_urls()`、`source_hashes()`、`_looks_like_false_english_requirement()` 等兼容/半使用接口。当前验证：完整 pytest 为 `85 passed`。
-18. 已从 `crawler/fetcher.py` 拆出 `FetchResult` / `Fetcher` 到 `crawler/types.py`，并保留 `crawler.fetcher` re-export 兼容路径。当前验证：相关测试为 `48 passed`，完整 pytest 为 `85 passed`。
+17. 已新增 `tests/test_compatibility_boundaries.py`，集中覆盖 `_merge_data`、JSON underscored alias、`CrawlConfig` / `smoke_config()`、`parse_sitemap_urls()`、`source_hashes()`、`_looks_like_false_english_requirement()` 等兼容/半使用接口。当前最新完整验证见第 2 节。
+18. 已从 `crawler/fetcher.py` 拆出 `FetchResult` / `Fetcher` 到 `crawler/types.py`，并保留 `crawler.fetcher` re-export 兼容路径。当前最新完整验证见第 2 节。
 19. 已从 `crawler/fetcher.py` 拆出 source type/content type helper 到 `crawler/source_types.py`，并保留 `crawler.fetcher` private helper 兼容名。当前验证同上。
 20. 已在 `pipeline/batch.py` 抽出 `_scan_limits_for_config()`，只集中 batch `max_pages` / `max_depth` 计算，未改变 `parser.error()` 或 `print()` 行为。当前验证同上。
+21. 已补 Step 6 diagnostics/source filtering 能力：classification assist 零触发 summary、source-level extraction diagnostics、field-level missing reasons、低价值 source 过滤边界测试。当前最新完整验证见第 2 节。
+22. 已修 NTU undergraduate tuition fee saved-source 路径：先固化 context gate 回归，再修 fee context gate，最后补窄范围 fee-table/reference fallback。当前最新完整验证见第 2 节。
 
 建议的后续顺序：
 
@@ -183,4 +192,6 @@ python3 -m compileall university_admissions_crawler tests
 4. 处理未使用或半使用接口：`CrawlConfig` / `smoke_config()`、`parse_sitemap_urls()`、`source_hashes()`、`_looks_like_false_english_requirement()` 当前已有边界测试。下一步应先决定是否进入真实调用路径，而不是直接删除。风险：SAFE 到 MEDIUM。
 5. 对未填充 schema 字段做兼容性决策：`international_requirements`、`standardized_tests`、`selection_tests_or_interviews` 应标为 experimental、补 pipeline 行为，或在兼容计划后移除。风险：MEDIUM 到 HIGH。
 6. 评估 `outputs/nus-live-programmes/` 和 `outputs/batch*/` 中仍有价值的样例是否迁到 `docs/examples/` 或保留清单。任何移动或删除都需要人工确认。风险：MEDIUM。
-7. 不要一次性重写 extractor，也不要随便引入新依赖；先用 fixture-backed tests 支撑小步重构，再针对复杂 table、PDF、programme 抽取补专项能力。风险：HIGH。
+7. 优化 `missing_reasons` 字段级归因优先级，使同一字段多个 source 失败路径时优先展示最接近真实瓶颈的结果。风险：SAFE 到 MEDIUM。
+8. 继续完善 NTU fees：当前只确认官方 fee table/reference，后续若要结构化金额，需要先拿到真实 table 内容并加 fixture-backed extractor 测试。风险：MEDIUM。
+9. 不要一次性重写 extractor，也不要随便引入新依赖；先用 fixture-backed tests 支撑小步重构，再针对复杂 table、PDF、programme 抽取补专项能力。风险：HIGH。

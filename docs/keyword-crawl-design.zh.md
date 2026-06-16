@@ -96,358 +96,412 @@
 
 无论使用哪种策略，都不能突破 domain policy 和页面数量限制。
 
-## 渐进式迁移步骤
+## 渐进式迁移步骤与当前状态
 
-### Step 0：设计文档
+### Step 0 到 Step 3：已完成
 
-只新增本文档，不改运行时代码。
+已完成设计文档、默认 relevance strategy 接口、发现诊断和用户关键词计划。当前行为边界：
 
-验收标准：
+- 默认 crawler 仍使用规则评分和 bounded discovery。
+- `--keyword-query` 单独使用时只记录 `run.config["keyword_plan"]`，不改变抓取顺序。
+- source-level discovery 诊断只写入 `run.config["source_strategy"]`，不参与招生事实写入。
 
-- 没有源码行为变更。
-- `git diff` 只包含文档新增。
+### Step 4：BM25-like scorer 已完成，保持 opt-in
 
-### Step 1：抽出默认相关性接口
+已新增 `BM25LikeRelevanceStrategy` 和 `--relevance-strategy bm25-like`。该策略以现有 `score_url()` 为基线，再叠加 keyword plan 的关键词和 URL hint 命中分。
 
-新增 `crawler/relevance.py`，把当前 `score_url()` 包成默认 strategy。
+行为边界：
 
-预期改动：
+- `bm25-like` 必须和 `--keyword-query` 一起使用。
+- 它仍受 `max_pages`、`max_depth`、domain policy 和 follow 阈值约束。
+- 它会改变候选 URL 排序，因此不能成为默认策略。
 
-- 新增相关性 dataclass / protocol。
-- `discover()` 仍默认使用现有评分逻辑。
-- 添加测试证明默认 discovery 输出不变。
+### Step 5：mock LLM keyword plan 已完成，真实 provider 仍 guarded
 
-风险：低。目标是结构调整，不改变行为。
+已完成模型关键词计划的低风险链路：
 
-### Step 2：增加发现诊断
+- `KEYWORD_PLAN_OUTPUT_SCHEMA`
+- `keyword_plan_from_payload()`
+- `MockKeywordPlanProvider`
+- `generate_keyword_plan_with_fallback()`
+- `run.config["llm_keyword_plan"]`
 
-在 `run.config` 中记录每个 source 的 discovery score、匹配信号和 strategy 名称。
+当前只允许 `--enable-llm --llm-provider mock --keyword-query ...`。真实 provider 仍不能调用；接入前必须单独设计凭据、超时、费用、prompt/schema 版本、日志脱敏和 fallback。
 
-风险：低到中。输出 JSON 会新增诊断字段，但招生事实不变。
+### Step 6：低置信度分类辅助已进入 diagnostics-only 阶段
 
-### Step 3：支持用户关键词计划
+Step 6 的设计边界保持不变：模型候选分类只能记录为 diagnostics，不覆盖规则 `PageCategory`，不直接触发字段抽取，也不写入招生 facts。
 
-增加可选 CLI / config 输入，例如 `--keyword-query` 或 batch config 字段。默认不启用。
+当前已落地或正在保留的方向：
 
-风险：中。需要明确 batch 配置、报告输出和测试。
+- `classification_assist_summary`：即使 assist 启用了但 0 触发，也能在 `run.config` 中看到状态。
+- source filtering：过滤静态资源和明显低价值 privacy/GDPR/cookie 类 PDF，减少 HKU 等 live 结果中的噪音。
+- `extraction_diagnostics_summary`：记录每个 source 里 extractor 的尝试、跳过和失败原因。
+- Markdown report 在 facts 前展示 diagnostics，不把诊断内容混进 facts。
 
-### Step 4：增加非模型 BM25-like scorer
+这批改动提升的是可诊断性，不是字段覆盖率本身。coverage 仍取决于 source selection、context gate 和具体 extractor 能力。
 
-先实现本地、确定性的 BM25-like 或 token overlap scorer，用标题、URL、链接文本、页面片段排序候选。
+## Step 6 复盘：收益与限制
 
-风险：中。启用后会改变抓取顺序，应保持 opt-in。
+### 已确认收益
 
-当前实现状态：
+- `classification_assist_summary` 解决了旧输出中 `classification_assist` 不出现时无法区分“未启用、未触发、出错”的问题。
+- HKU source filtering 有明确收益：低价值 `other` source 减少，GDPR privacy PDF 被移除，coverage 未下降。
+- `extraction_diagnostics_summary` 能区分 `no_match`、`context_gate_failed`、`existing_value`、`undergraduate_context_gate_failed` 等路径。
+- 报告新增 diagnostics 且位于 facts 前，符合 evidence-first 方向。
 
-- 已新增 `BM25LikeRelevanceStrategy`，以现有 `score_url()` 为基线，再叠加 keyword plan 的正向关键词、负向关键词和 URL hint 命中分。
-- 已新增 CLI 参数 `--relevance-strategy rule-based|bm25-like`，默认值为 `rule-based`。
-- `bm25-like` 必须和 `--keyword-query` 一起使用；否则 CLI 报错退出，避免无关键词计划时改变 discovery 行为。
-- 该 scorer 仍受 `max_pages`、`max_depth`、domain policy 和 `should_follow()` 阈值约束。
-- 当前没有引入模型、网络依赖或第三方检索库。
+### 仍有限制
 
-### Step 5：增加模型关键词扩展
+- `run_university_scan.py` 的插桩已经明显变重。短期可接受，但下一步不能继续把更多诊断逻辑硬塞进主循环。
+- 当前 diagnostics 不能证明“官网没有提供”。它只能说明“当前抓到的 source 中，现有 extractor 没抽出来或被 gate 跳过”。
+- source filtering 仍有误删风险。静态资源过滤风险低；privacy/GDPR PDF 过滤合理；但未来若学校把招生条款 PDF 命名为 `terms-and-conditions.pdf`，可能被误过滤。
+- NTU fees 隔离检查修正了原判断：saved undergraduate fee 页面抓到了，分类为 `fees`，但当前先被 `has_undergraduate_fee_context(...)` 拦住，pipeline 记录为 `context_gate_failed`，还没有真正走到 `extract_fee`。
 
-模型只根据用户目标生成 Keyword Plan。模型输出必须做 JSON schema 校验，失败则回退到规则关键词。
+### 对整体目标的判断
 
-风险：中到高。涉及凭据、超时、费用、错误处理和可复现性。必须保持 opt-in，并且核心测试不能依赖网络或真实模型。
+这批改动值得保留，但应准确描述为“排查能力提升”，不是“数据覆盖率提升”。
 
-当前前置状态：
+系统从“只告诉你缺字段”进化到“告诉你缺字段可能卡在哪一步”。这会降低后续 HKU、NTU、PolyU 真实站点优化成本，但还没有解决字段抽取能力本身。
 
-- 已定义 `KEYWORD_PLAN_OUTPUT_SCHEMA`，用于约束未来模型输出的字段、长度、数组大小和 source 枚举。
-- 已新增 `keyword_plan_from_payload()`，用于把结构化 payload 转成 `KeywordPlan`，并拒绝额外字段、超长字段和错误类型。
-- 已接入 `MockKeywordPlanProvider`，用于验证模型关键词计划链路，不访问真实模型 API。
-- CLI 仅允许 `--enable-llm --llm-provider mock --keyword-query ...` 生成 reviewable `KeywordPlan`。
-- 真实 provider 仍处于 guarded 状态；`openai`、`anthropic`、`gemini` 等不会被调用。
-- 已在 `run.config["llm_keyword_plan"]` 记录 provider、schema、fallback、elapsed_ms、warnings 和错误诊断。
+## 已执行进度复盘
 
-### Step 6：低置信度页面分类辅助
+### Step A：冻结并验证当前 diagnostics/source filtering 改动，已完成
 
-仅当规则分类低置信度时，模型可给出候选分类和理由。初期只记录到 diagnostics，不覆盖现有 `PageCategory`。
+修改文件：无。
 
-风险：中到高。不能让模型分类直接触发字段抽取，除非后续单独批准。
+结果：旧 Codex 已完成的 diagnostics/source filtering 改动可以保留，基线测试通过。
 
-### Step 6 输出复盘和下一步计划
+已验证：
 
-对 `outputs/hku-llm-keyword-test` 和 `outputs/hku-live-step6` 的 HKU 结果做对比后，当前判断是：Step 6 本身还没有优化最终招生事实数据。
+```bash
+git diff --check
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_filters.py tests/test_discovery.py tests/test_pipeline.py tests/test_report_cli.py
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m university_admissions_crawler.cli tests/fixtures/mini_university_site --fixture --output-dir /tmp/uac-current-diagnostics --max-pages 20 --max-depth 3
+```
 
-对比结果：
+验证结果：
 
-- `hku-llm-keyword-test` 抓到 8 个 source，`hku-live-step6` 抓到 40 个 source。
-- 两次输出的 evidence item 都是 6 条。
-- 两次 coverage 都是 4/9，缺失字段相同：`undergraduate_application_entry`、`application_periods`、`english_requirements`、`accepted_qualifications`、`required_documents`。
-- 两次最终 facts 相同：programmes、fees、scholarships、contacts 没有新增有效字段。
-- `hku-live-step6` 多抓到的 source 主要是更多本科项目页、JUPAS 页面、PDF、CSS、favicon 和多语言页面；其中不少没有转化成 evidence。
-- `hku-live-step6` 的 warnings 更多，新增了 live PDF 未启用 parser、application portal / challenge 诊断以及非事实资源相关噪音。
-- 两次 `result.json` 都没有 `run.config["classification_assist"]`，说明该 HKU 输出里 Step 6 分类辅助没有实际参与，或者没有触发低置信度分类辅助条件。
+- 目标测试组：52 passed。
+- 完整测试：107 passed。
+- fixture smoke 写出 `/tmp/uac-current-diagnostics/result.json` 和 `/tmp/uac-current-diagnostics/report.md`。
 
-原因判断：
+### Step B：补 source filtering 的边界测试，已完成
 
-- Step 6 当前设计是 safety-first diagnostics：模型候选分类只能记录，不能覆盖规则 `PageCategory`，也不能直接触发字段抽取。因此它本来就不会直接改变最终 admissions facts。
-- `hku-live-step6` 的 source 增量主要来自运行参数扩大，例如 `max_pages=40`、`max_depth=3`，不是分类辅助带来的字段质量提升。
-- 当前 HKU 结果的主要瓶颈不在低置信度分类，而在 source 过滤和 extractor 转化能力：抓到了更多页面，但核心缺失字段仍没有被抽成 evidence-backed facts。
-- 现有规则分类仍会把部分 PDF、CSS、favicon、privacy/legal 页面打成 admissions 相关页面，说明 discovery / source filtering 和分类噪音控制还需要加强。
+修改文件：
 
-基于这个复盘，Step 6 后续不应马上升级为“模型覆盖分类”。更稳妥的路线是把它作为失败定位工具，用 diagnostics 反向改进规则分类、source 过滤和字段抽取。
-
-新的优化计划：
-
-1. 让 Step 6 diagnostics 在 live 结果中可见
-
-   - 重新跑 HKU，并显式开启 `--enable-llm --llm-provider mock --enable-classification-assist`。
-   - 确认 `run.config["classification_assist"]` 是否出现，以及哪些 URL 被判为低置信度。
-   - 在 Markdown report 的 diagnostics 区域增加 classification assist 摘要，但继续保持在 facts 之前，不进入 admissions facts。
-   - 评估当前低置信度阈值是否过窄；如果 HKU 低质量 source 多数是 score=2，需要单独讨论是否把 score=2 纳入 diagnostics，而不是直接改变抽取行为。
-
-2. 用 classification assist 诊断改进规则分类
-
-   - 汇总规则分类和辅助候选分类不一致的页面，人工审查后再修改规则。
-   - 优先处理 CSS、favicon、privacy PDF、GDPR PDF 等明显非招生事实资源，避免被分类为 `undergraduate_admissions`。
-   - 对 `contact-us`、JUPAS、overview、international qualifications 等 HKU 页面补更细的分类信号。
-   - 保留 “assistant candidate applied=false” 的边界，直到有单独评估证明覆盖规则分类不会扩大误抽取风险。
-
-3. 提升 source filtering 和 discovery 噪音控制
-
-   - 在 discovery 或 fetch 后过滤 `.css`、`.ico`、隐私政策、GDPR notice、cookie/legal 页面等低价值 source。
-   - 对 PDF URL 做更细的 admissions / privacy / score-calculator / expected-score 分类，不把所有 admissions 域名下 PDF 都当作可抽取事实来源。
-   - 对多语言重复页面和同一 programme listing 的重复入口做 canonical 或去重策略。
-   - 继续保留 domain policy、`max_pages`、`max_depth` 和 opt-in scorer 边界。
-
-4. 把“抓到更多页面”转化成“更高 coverage”
-
-   - 增加 per-source extraction diagnostics：页面分类后尝试了哪些 extractor、为什么没有抽出字段。
-   - 对 HKU 缺失字段建立专项抽取任务：application periods、English requirements、accepted qualifications、required documents、undergraduate application entry。
-   - 针对 `international-qualifications`、`apply/overview`、JUPAS 页面和相关 PDF 分别分析原文结构，再补 fixture-backed extractor 测试。
-   - 对 live PDF 结果单独评估 `--enable-pdf`，确认 JUPAS PDF 是否能补申请时间、资格或材料要求。
-
-5. 建立固定评估集
-
-   - 固定 HKU、NTU、PolyU 的 saved-source 或 live rerun 样例，记录每次变更前后的 source 数、无效 source 比例、evidence 数、coverage、warnings 和字段准确性。
-   - 不再用 source 数量作为主要成功指标；主要看 core field coverage、evidence 质量和 warning 噪音是否改善。
-   - 对 keyword plan、BM25-like、classification assist 分别做 ablation 对比，避免把参数扩大带来的抓取数量变化误判为模型辅助效果。
-
-## 当前实现复盘
-
-当前分支累计修改覆盖 Step 2 到 Step 5 的低风险部分，涉及如下文件：
-
-- `university_admissions_crawler/crawler/relevance.py`
-- `university_admissions_crawler/crawler/discovery.py`
-- `university_admissions_crawler/pipeline/run_university_scan.py`
-- `university_admissions_crawler/cli.py`
-- `university_admissions_crawler/config_loader.py`
-- `university_admissions_crawler/pipeline/batch.py`
-- `university_admissions_crawler/reports/render_report.py`
-- `university_admissions_crawler/extractor/llm_provider.py`
+- `tests/test_filters.py`
 - `tests/test_discovery.py`
+
+结果：保留静态资源和 privacy/GDPR/cookie/terms 类低价值 PDF 过滤，同时用招生 PDF 反例保护误删边界。
+
+新增边界：
+
+- `privacy-notice-applicants.pdf`、`GDPR Privacy Notice Applicants.pdf`、`cookie-policy.pdf`、`terms-of-use.pdf`、`Personal Information Collection Statement.pdf` 不 follow。
+- `2026-undergraduate-admissions-prospectus.pdf`、`international-entry-requirements.pdf`、`undergraduate-tuition-fees.pdf`、`programme-requirements.pdf` 继续允许。
+- discovery 层确认招生 PDF 可以进入抓取结果。
+
+已验证：
+
+```bash
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_filters.py tests/test_discovery.py
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_filters.py tests/test_discovery.py tests/test_pipeline.py tests/test_report_cli.py
+git diff --check
+```
+
+验证结果：
+
+- source filtering 相关测试：17 passed。
+- 目标测试组：55 passed。
+
+### Step C：收敛 extraction diagnostics 的重复记录，已完成
+
+修改文件：
+
+- `university_admissions_crawler/pipeline/run_university_scan.py`
+- `tests/test_pipeline.py`
+
+结果：新增薄的 `_ExtractionDiagnosticsRecorder`，把主流程和 `_extract_core_supplements()` 中分散的 attempt 记录收敛到一个入口。`_record_extraction_attempt(...)` 仍是底层 dict 写入函数。
+
+边界：
+
+- 未拆整个 `run_scan()`。
+- 未改变 extractor 调用顺序。
+- 未改变 facts/evidence 写入逻辑。
+- 未改变 diagnostics JSON 字段结构。
+
+已验证：
+
+```bash
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_pipeline.py tests/test_report_cli.py
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_filters.py tests/test_discovery.py tests/test_pipeline.py tests/test_report_cli.py
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider
+git diff --check
+```
+
+验证结果：
+
+- pipeline/report 相关测试：38 passed。
+- 目标测试组：55 passed。
+- 完整测试：110 passed。
+
+### Step D：新增字段级 missing reasons，已完成
+
+修改文件：
+
+- `university_admissions_crawler/pipeline/diagnostics.py`
+- `university_admissions_crawler/reports/render_report.py`
 - `tests/test_pipeline.py`
 - `tests/test_report_cli.py`
-- `tests/test_relevance.py`
+
+结果：在 `run.config` 顶层新增 `missing_reasons`，不改变 `coverage` 原结构。reason 从现有 `coverage.missing`、`extraction_diagnostics`、`source_strategy` 推导，不新增抓取、不新增 extractor、不改 facts/evidence。
+
+第一版 reason：
+
+- `not_attempted`
+- `attempted_no_match`
+- `context_gate_failed`
+- `undergraduate_context_gate_failed`
+- `application_portal_unreachable`
+- `manual_check_required`
+
+输出形状：
+
+```json
+{
+  "fees": {
+    "reason": "context_gate_failed",
+    "attempts": 2,
+    "attempted_extractors": ["extract_fee"],
+    "source_urls": ["https://example.edu/fees"],
+    "note": "Captured sources did not pass the field-specific context gate."
+  }
+}
+```
+
+报告行为：
+
+- `## Missing Reasons` 位于 facts 前。
+- 只在存在缺失字段时展示，不输出空章节。
+- 明确说明 missing reasons 描述的是当前 crawl/extractor 状态，不证明官网没有提供字段。
+
+已验证：
+
+```bash
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_pipeline.py tests/test_report_cli.py
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m university_admissions_crawler.cli tests/fixtures/mini_university_site --fixture --output-dir /tmp/uac-missing-reasons --max-pages 20 --max-depth 3
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_filters.py tests/test_discovery.py tests/test_pipeline.py tests/test_report_cli.py
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider
+git diff --check
+```
+
+验证结果：
+
+- pipeline/report 相关测试：39 passed。
+- 目标测试组：56 passed。
+- 完整测试：111 passed。
+- fixture smoke 写出 `/tmp/uac-missing-reasons/result.json` 和 `/tmp/uac-missing-reasons/report.md`。
+
+### Step E：隔离检查 NTU fees，已完成
+
+修改文件：无。
+
+检查对象：
+
+- undergrad fee source：`tests/fixtures/saved_sources/ntu/980551993bc03f86.txt`
+- graduate fee source：`tests/fixtures/saved_sources/ntu/359466af0e460cb9.txt`
+
+实际发现：
+
+- NTU undergraduate fee 页 URL 是 `https://www.ntu.edu.sg/admissions/undergraduate/financial-matters/tuition-fees`。
+- `classify_page(...)` 结果为 `fees`，score 为 6。
+- `has_undergraduate_admissions_context(...)` 为 true。
+- `has_undergraduate_fee_context(...)` 为 false。
+- `extract_fee(...)` 直接调用当前也返回 no record，但 pipeline 中真正记录的是 `skipped/context_gate_failed`，因为 fee context gate 先拦截了 extractor。
+- graduate tuition source 仍被正确排除：classification 为 `irrelevant`，undergraduate context 为 false，fee context 为 false。
+
+最小 saved-source pipeline 结果：
+
+```text
+fees_count: 0
+coverage_missing_contains_fees: True
+missing_reasons_fees.reason: context_gate_failed
+```
+
+结论：原计划中“NTU fees 优先修 `extract_fee no_match`”需要调整。下一步应先修 NTU fee context gate，再判断是否还需要改 `extract_fee`。
+
+## 调整后计划的执行结果
+
+### Step F1：固化 NTU fee context gate 回归样例，已完成
+
+修改文件：
+
+- `tests/test_pipeline.py`
+
+结果：把 Step E 的隔离结论固化为 fixture-backed 测试，避免后续修源码时丢失边界。
+
+测试覆盖：
+
+- NTU undergraduate fee source 分类为 `fees`。
+- `has_undergraduate_admissions_context(...)` 为 true。
+- F1 时 `has_undergraduate_fee_context(...)` 仍为 false。
+- 最小 saved-source pipeline 在修复前的失败路径是 `missing_reasons["fees"]["reason"] == "context_gate_failed"`。
+- pipeline diagnostics 中 `extract_fee` 为 `skipped/context_gate_failed`。
+
+已验证：
+
+```bash
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_pipeline.py
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_filters.py tests/test_discovery.py tests/test_pipeline.py tests/test_report_cli.py
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider
+git diff --check
+```
+
+验证结果：
+
+- pipeline 测试：22 passed。
+- 目标测试组：57 passed。
+- 完整测试：112 passed。
+
+### Step F2：修 NTU undergraduate fee context gate，已完成
+
+修改文件：
+
+- `university_admissions_crawler/crawler/admissions_context.py`
+- `tests/test_pipeline.py`
+
+结果：明确的 NTU undergraduate tuition fees 页面已经通过 `has_undergraduate_fee_context(...)`。负向保护仍保留在 URL/title/path 层，避免正文导航里的 `Postgraduate` 等词误杀 undergraduate fee 页面。
+
+保留的负向边界：
+
+- graduate / postgraduate。
+- hall fee / hall admission。
+- residential life。
+- current-students。
+- `/sao/`。
+- PhD fellowship。
+
+执行边界：
+
+- 未改 `extract_fee(...)`。
+- 不改 discovery、source filtering、report rendering。
+- F2 后，NTU source 已进入 `extract_fee`，但 extractor 返回 `no_match`，因此需要 F3。
+
+已验证：
+
+```bash
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_pipeline.py
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_filters.py tests/test_discovery.py tests/test_pipeline.py tests/test_report_cli.py
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider
+git diff --check
+```
+
+验证结果：
+
+- pipeline 测试：22 passed。
+- 目标测试组：57 passed。
+- 完整测试：112 passed。
+
+### Step F3：修 NTU fee extractor 的最小能力，已完成
+
+修改文件：
+
+- `university_admissions_crawler/extractor/html_extractor.py`
+- `tests/test_pipeline.py`
+
+结果：针对 NTU undergraduate tuition fee saved source 增加窄范围的 fee-table reference fallback。
+
+重要边界：
+
+- 当前 saved text 没有直接暴露 `S$`、`SGD` 或具体金额，所以 extractor 不生成金额。
+- 输出的是官网 fee table/reference raw candidate。
+- `parsed` 保持 `[]`。
+- `parse_status` 为 `raw_needs_manual_review`。
+- pipeline 中 NTU undergrad fee source 现在能生成 `fees` 记录，不再是 `no_match`。
+- PolyU hall fees、PolyU PhD fellowship、NTU graduate tuition 仍不会被误抽为 undergraduate fees。
+
+直接检查结果：
+
+```text
+record: True
+value: Tuition Fees For Semester 1 and 2 Accepted programme offer in 2026. Tuition fees payable for AY2026-27. Tuition Fees payable per academic unit For Semester 1,2&nbsp;and Special Term Tuition fees and MOE Subsidy for part-time undergraduates programme
+parse_status: raw_needs_manual_review
+parsed: []
+evidence_count: 1
+```
+
+执行边界：
+
+- 不重写 `extract_fee(...)`。
+- 不放宽到会误抽 postgraduate、hall、current-students fee 的规则。
+- 保留现有 context gate。
+- 不把 raw candidate 当作已结构化金额。
+
+已验证：
+
+```bash
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_pipeline.py
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_filters.py tests/test_discovery.py tests/test_pipeline.py tests/test_report_cli.py
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider
+git diff --check
+```
+
+验证结果：
+
+- pipeline 测试：22 passed。
+- 目标测试组：57 passed。
+- 完整测试：112 passed。
+
+## 剩余问题与下一步
+
+### 当前剩余问题
+
+- NTU fees 现在只是“官网 fee table/reference 被找到”，不是金额结构化解析完成。要拿到具体金额，需要后续抓到或解析 NTU 实际 table 内容。
+- `missing_reasons` 的字段级归因优先级仍可优化：当多个 source 对同一字段有不同失败原因时，应优先展示最接近真实瓶颈的 source-level 结果，例如 extracted > attempted_no_match > context_gate_failed > not_attempted。
+- 项目级文档已同步本轮完整改动。
+
+### Step G：最后同步项目文档，已完成
+
+修改文件：
+
+- `README.md`
+- `PROJECT_MAP.md`
+- `VERSION_NOTES.zh.md`
 - `docs/keyword-crawl-design.zh.md`
 
-### 已落地能力
+结果：项目入口文档已同步当前真实状态，不再沿用旧测试数量或旧诊断描述。
 
-1. 发现诊断
+已同步内容：
 
-   `run.config["source_strategy"]` 中每个已处理 source 现在会记录：
+- classification assist summary 可区分 0 触发。
+- extraction diagnostics / missing reasons 是诊断，不是招生事实。
+- source filtering 的收益和误删边界。
+- NTU fees 已修复为 fixture-backed raw fee table/reference fallback，但不是金额结构化解析。
+- pytest 数量更新为当前完整验证 `112 passed`，目标测试组 `57 passed`。
 
-   - `discovery_score`
-   - `discovery_signals`
-   - `relevance_strategy`
+验证方式：
 
-   这些字段只用于诊断，不参与字段抽取、页面分类或招生事实写入。
+```bash
+git diff --check -- README.md PROJECT_MAP.md VERSION_NOTES.zh.md docs/keyword-crawl-design.zh.md
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider
+```
 
-2. 用户关键词计划
-
-   CLI 增加 `--keyword-query`。传入后会生成可审查的 `KeywordPlan`，并写入 `run.config["keyword_plan"]`：
-
-   - `query`
-   - `positive_keywords`
-   - `negative_keywords`
-   - `url_hints`
-   - `source`
-   - `warnings`
-
-   默认不传 `--keyword-query` 时，不输出 `keyword_plan`，也不改变 scorer。
-
-3. 非模型 BM25-like scorer
-
-   CLI 增加 `--relevance-strategy`：
-
-   - 默认 `rule-based`：继续使用既有规则评分。
-   - 显式 `bm25-like`：使用 keyword plan 的 token/url hint 命中分辅助排序。
-
-   `bm25-like` 需要 `--keyword-query`，否则直接报错。
-
-4. batch config opt-in keyword plan
-
-   batch config 现在可以可选配置：
-
-   - `keyword_query`
-   - `relevance_strategy`
-
-   默认不配置时仍使用 `rule_based`。配置 `bm25-like` 时仍要求存在 `keyword_query`。
-
-5. strategy factory
-
-   已新增统一的 strategy 构造入口：
-
-   - `build_relevance_strategy()`
-   - `keyword_plan_from_payload()`
-   - `KEYWORD_PLAN_OUTPUT_SCHEMA`
-
-   CLI 和 batch 共用同一套 keyword query / strategy 校验逻辑，避免两边分叉。
-
-6. Markdown report diagnostics
-
-   报告现在会在 facts 之前展示诊断型 keyword 信息：
-
-   - `Keyword Plan`
-   - `LLM Keyword Plan Diagnostics`
-
-   这些内容只属于运行诊断，不进入 admissions facts。
-
-7. mock LLM keyword plan
-
-   已在 `llm_provider.py` 中新增 `MockKeywordPlanProvider` 和 `generate_keyword_plan_with_fallback()`。该链路只输出 `KeywordPlan`，并记录 `run.config["llm_keyword_plan"]` 诊断。当前不会调用真实模型 API。
-
-### 行为边界
+## 当前行为边界
 
 - 默认 CLI 参数、fixture scan、live HTTP scan 仍使用 `rule_based`。
 - `--keyword-query` 单独使用只记录计划，不改变 discovery 排序。
 - 只有同时传入 `--keyword-query` 和 `--relevance-strategy bm25-like` 时，候选链接排序和 follow 判断才会使用新 scorer。
-- 只有同时传入 `--enable-llm --llm-provider mock --keyword-query ...` 时，才会走 mock LLM keyword plan 生成链路。
-- `openai`、`anthropic`、`gemini` 等真实 provider 仍被 CLI 拒绝，不会调用网络模型。
-- 新增诊断字段会改变输出 JSON 的形状，但不改变招生事实字段的含义。
-- 当前没有删除、移动文件；batch config 只增加可选字段。
-
-### 验证结果
-
-Step 5 低风险部分完成后已运行：
-
-```bash
-.venv314/bin/python -m pytest -q tests/test_relevance.py tests/test_report_cli.py tests/test_pdf_llm_incremental.py
-.venv314/bin/python -m compileall -q university_admissions_crawler tests
-.venv314/bin/python -m pytest -q
-git diff --check
-```
-
-结果：`101 passed`。
-
-## 风险和后续待改点
-
-### 已发现风险
-
-1. `run.config` 输出结构继续变宽
-
-   Step 2 增加了 source-level discovery 诊断字段，Step 3 增加了可选 `keyword_plan`，Step 4 增加了 strategy 名称，Step 5 增加了可选 `llm_keyword_plan`。下游如果对 JSON schema 做严格字段校验，需要同步接受这些诊断字段。
-
-2. `bm25-like` 会改变抓取顺序
-
-   该行为是预期能力，但会影响 `max_pages` 较小时最终抓到的页面集合。因此必须继续保持 opt-in，不应让 `--keyword-query` 自动切换 scorer。
-
-3. 当前 keyword plan 解析较简单
-
-   `keyword_plan_from_query()` 目前只是按空白、逗号、分号、竖线和斜线拆词，并做简单 URL hint 映射。它适合作为可审查结构，不适合作为最终语义理解方案。
-
-4. BM25-like 不是完整 BM25
-
-   当前实现更接近 deterministic token overlap 加权，而不是带文档频率、长度归一化和语料统计的完整 BM25。命名中的 `Like` 必须保留，避免误解为成熟检索算法。
-
-5. `should_follow()` 的文本上下文有限
-
-   discovery 在判断是否 follow 某个 link 时，通常只有 URL 或链接文本，没有完整目标页正文。因此 keyword plan 对 follow 阶段的帮助主要来自 URL 和 link text，而不是目标页内容。
-
-6. batch config 已支持 keyword plan，但仍需谨慎使用
-
-   batch config 现在可以配置 `keyword_query` 和 `relevance_strategy`。默认仍不启用；`bm25-like` 仍要求存在 `keyword_query`。风险点在于批量任务如果开启 `bm25-like`，不同学校的 `max_pages` 较小时页面集合可能发生变化。
-
-7. 诊断信号和评分规则存在重复描述
-
-   `RuleBasedRelevanceStrategy` 的 `diagnose()` 需要和 `score_url()` 的规则保持同步。后续如果修改 `score_url()`，需要同步检查 `_rule_based_signals()`，否则诊断可能和实际分数不一致。
-
-8. mock LLM 不代表真实模型能力
-
-   `MockKeywordPlanProvider` 只验证结构化链路和 fallback，不验证真实 prompt、模型稳定性、token 成本、速率限制或网络错误。不能把当前 mock 测试结果解读为真实 provider 可用。
-
-9. LLM fallback 当前只回退到规则 query 解析
-
-   `generate_keyword_plan_with_fallback()` 在 provider 出错或 payload 校验失败时，会回退到 `keyword_plan_from_query()`。这能保证流程不中断，但不会产生更强的语义理解能力。
-
-10. report 中的 keyword plan 是诊断，不是事实
-
-   Markdown report 已展示 keyword plan 和 LLM keyword diagnostics。使用者需要明确这些字段只是爬取策略解释，不能作为招生要求、费用或申请事实。
-
-11. batch 多 seed 合并时 run.config 仍以合并目标为主
-
-   batch 多 seed 会合并 `AdmissionsData`。当前 keyword plan 是 university-level 配置，适合共享到每个 seed；如果未来每个 seed 需要不同 keyword plan，需要另行设计 per-seed diagnostics。
-
-### 已处理的后续修改
-
-1. 为 keyword plan 增加独立单元测试
-
-   已新增 `tests/test_relevance.py`，单独测试 `keyword_plan_from_query()`、URL hint 映射、negative keyword、schema payload 校验和 strategy factory。
-
-2. 为 batch config 增加 opt-in keyword plan
-
-   已在 batch config 中增加可选 `keyword_query` 和 `relevance_strategy`。默认不启用，且 `bm25-like` 仍要求存在 `keyword_query`。
-
-3. 在报告中展示 keyword plan 摘要
-
-   已在 Markdown report 的 diagnostics 区域增加 `Keyword Plan` 摘要，并保持在 `Facts` 之前，不进入 admissions facts。
-
-4. 抽出更清晰的 strategy factory
-
-   已新增 `build_relevance_strategy()`，CLI 和 batch 共用同一套 `keyword_query` / `relevance_strategy` 校验与 strategy 构造逻辑。
-
-5. Step 5 前先定义模型输出 schema
-
-   已定义 `KEYWORD_PLAN_OUTPUT_SCHEMA` 和 `keyword_plan_from_payload()`，并接入 mock provider 验证 schema/fallback 链路。尚未处理真实模型 provider 的凭据、超时、费用和 token 诊断。
-
-6. Step 5 mock LLM keyword plan
-
-   已新增 `MockKeywordPlanProvider` 和 `generate_keyword_plan_with_fallback()`。CLI 仅允许 `--enable-llm --llm-provider mock --keyword-query ...`，真实 provider 仍保持 guarded。
-
-### 仍待处理
-
-1. 真实模型 provider 仍未接入
-
-   当前只接入 mock provider。下一步如要接真实 provider，需要单独确认凭据、超时、费用、网络访问和 fallback 策略。
-
-2. provider 诊断字段仍需扩展
-
-   当前已记录 provider、schema、elapsed_ms、fallback、warnings 和错误信息。真实 provider 接入时仍需补模型名、token、成本和超时原因。
-
-3. batch 文档示例还未补充
-
-   当前设计文档描述了字段，但 README 或示例 config 尚未补充 batch keyword 配置样例。
-
-4. 真实 provider 接入策略未确定
-
-   需要先确定 provider 抽象、API key 读取方式、超时、重试、费用预算、日志脱敏和测试替身。不能直接把真实 provider 接到默认 CLI。
-
-5. prompt 和 schema 版本管理未设计
-
-   真实模型生成 `KeywordPlan` 时，需要记录 prompt/schema 版本，否则后续难以复现计划来源。
-
-6. LLM keyword plan 与 `bm25-like` 的组合策略需要人工评估
-
-   当前允许 mock LLM plan 作为 `bm25-like` 的输入。真实模型接入后，需要用固定 fixture 和少量真实站点评估排序变化，避免模型扩展词让 crawler 偏离本科招生页面。
+- 只有 `--enable-llm --llm-provider mock` 的 guarded 路径可用；真实 provider 仍不可调用。
+- classification assist 只记录候选分类，`applied` 必须保持 `false`，不能直接触发字段抽取。
+- diagnostics 可以变宽，但不能混入 `AdmissionsData` facts。
 
 ## 不建议做的事
 
-- 不要一次性替换 `discover()`。
+- 不要一次性替换 `discover()` 或重写 `run_scan()`。
 - 不要把 ScrapeGraphAI 或 Crawl4AI 的代码复制进项目。
 - 不要把 LLM 输出直接写入 `AdmissionsData`。
 - 不要为了关键词爬取绕过当前官方域名限制。
 - 不要把 optional dependency 变成核心依赖。
+- 不要继续把大量诊断逻辑塞进 `run_university_scan.py` 主循环。
+- 不要在 missing reasons 里声称“官网没有提供”，除非后续建立了字段级 absence evidence。
 - 不要删除当前半使用接口，例如 `CrawlConfig`、`parse_sitemap_urls()` 或 optional stubs，除非单独确认。
-
-## 下一步建议
-
-如果继续 Step 5，不建议直接接入真实模型调用。更低风险的顺序是：
-
-1. 先补 `KeywordPlan` 的 schema 校验和独立测试。
-2. 再补 strategy factory，统一 CLI 和未来 batch 的参数校验。
-3. 然后接入 mock LLM provider，只输出 `KeywordPlan`，并记录 provider、耗时、fallback 和 warnings。
-4. 最后再考虑真实 provider，且必须保持显式 opt-in。
-
-上述第 1、2、3 项已经完成；下一步如果继续推进，应单独设计真实 provider 的凭据、超时、成本、prompt/schema 版本和错误处理，不应直接把真实模型接入默认流程。

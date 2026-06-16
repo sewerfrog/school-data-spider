@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 
 from university_admissions_crawler.config import NEGATIVE_KEYWORDS, POSITIVE_KEYWORDS
 from university_admissions_crawler.crawler.admissions_context import NON_ADMISSIONS_PATH_HINTS, UNDERGRAD_ADMISSIONS_PATH_HINTS
-from university_admissions_crawler.crawler.filters import DomainPolicy, is_pdf_url, score_url, should_follow_url
+from university_admissions_crawler.crawler.filters import DomainPolicy, is_low_value_source_url, is_pdf_url, score_url, should_follow_url
 
 
 MAX_KEYWORD_QUERY_LENGTH = 500
@@ -227,6 +227,8 @@ class BM25LikeRelevanceStrategy:
 
     def should_follow(self, url: str, policy: DomainPolicy) -> bool:
         if not policy.is_allowed(url):
+            return False
+        if is_low_value_source_url(url):
             return False
         return self.score(url) >= -2
 

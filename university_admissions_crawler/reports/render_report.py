@@ -23,7 +23,10 @@ def render_markdown_report(data: AdmissionsData) -> str:
     _coverage(lines, data)
     _keyword_plan(lines, data)
     _llm_keyword_plan(lines, data)
+    _classification_assist(lines, data)
     _source_strategy(lines, data)
+    _extraction_diagnostics(lines, data)
+    _missing_reasons(lines, data)
 
     lines.append("## Discovered categories")
     lines.append("")
@@ -137,6 +140,62 @@ def _llm_keyword_plan(lines: list[str], data: AdmissionsData) -> None:
     lines.append("")
 
 
+def _classification_assist(lines: list[str], data: AdmissionsData) -> None:
+    diagnostics = data.run.config.get("classification_assist")
+    if not isinstance(diagnostics, list) or not diagnostics:
+        return
+    entries = [item for item in diagnostics if isinstance(item, dict)]
+    if not entries:
+        return
+
+    providers = sorted({str(item.get("provider", "unknown")) for item in entries})
+    summary = data.run.config.get("classification_assist_summary")
+    if not isinstance(summary, dict):
+        summary = {}
+    fallback_count = summary.get("fallback_count")
+    if not isinstance(fallback_count, int):
+        fallback_count = sum(1 for item in entries if item.get("fallback") is True)
+    applied_count = summary.get("applied_count")
+    if not isinstance(applied_count, int):
+        applied_count = sum(1 for item in entries if item.get("applied") is True)
+    disagreement_count = summary.get("disagreement_count")
+
+    lines.append("## Classification Assist Diagnostics")
+    lines.append("")
+    lines.append(f"- Entries: {len(entries)}")
+    lines.append(f"- Providers: {', '.join(f'`{provider}`' for provider in providers)}")
+    lines.append(f"- Fallback entries: {fallback_count}")
+    lines.append(f"- Applied entries: {applied_count}")
+    if isinstance(disagreement_count, int):
+        lines.append(f"- Rule/candidate disagreements: {disagreement_count}")
+    lines.append("- Note: classification assist is diagnostics-only and does not change facts.")
+    lines.append("")
+    for entry in entries[:20]:
+        candidate = entry.get("candidate")
+        candidate_category = "none"
+        candidate_confidence = "unknown"
+        candidate_signals = []
+        if isinstance(candidate, dict):
+            candidate_category = str(candidate.get("category", "unknown"))
+            candidate_confidence = str(candidate.get("confidence", "unknown"))
+            raw_signals = candidate.get("signals") or []
+            if isinstance(raw_signals, list):
+                candidate_signals = [str(signal) for signal in raw_signals]
+        lines.append(
+            f"- {entry.get('url', 'unknown')}: rule `{entry.get('rule_category', 'unknown')}` score {entry.get('rule_score', 'unknown')} "
+            f"-> candidate `{candidate_category}` confidence `{candidate_confidence}`, applied {entry.get('applied', False)}"
+        )
+        if candidate_signals:
+            lines.append(f"  - candidate signals: {', '.join(candidate_signals)}")
+        if entry.get("fallback") is True:
+            error = entry.get("error")
+            error_type = entry.get("error_type", "unknown")
+            lines.append(f"  - fallback: {error_type}{': ' + str(error) if error else ''}")
+    if len(entries) > 20:
+        lines.append(f"- Omitted entries: {len(entries) - 20}")
+    lines.append("")
+
+
 def _source_strategy(lines: list[str], data: AdmissionsData) -> None:
     summary = data.run.config.get("source_strategy_summary")
     if not isinstance(summary, dict) or not summary:
@@ -145,6 +204,56 @@ def _source_strategy(lines: list[str], data: AdmissionsData) -> None:
     lines.append("")
     for label, count in summary.items():
         lines.append(f"- `{label}`: {count}")
+    lines.append("")
+
+
+def _extraction_diagnostics(lines: list[str], data: AdmissionsData) -> None:
+    summary = data.run.config.get("extraction_diagnostics_summary")
+    if not isinstance(summary, dict) or not summary:
+        return
+    lines.append("## Extraction Diagnostics")
+    lines.append("")
+    lines.append(f"- Sources diagnosed: {summary.get('sources_count', 0)}")
+    lines.append(f"- Sources with extractions: {summary.get('sources_with_extractions', 0)}")
+    lines.append(f"- Extractor attempts: {summary.get('attempts_count', 0)}")
+    status_counts = summary.get("status_counts")
+    if isinstance(status_counts, dict) and status_counts:
+        lines.append(f"- Status counts: {_format_counts(status_counts)}")
+    reason_counts = summary.get("reason_counts")
+    if isinstance(reason_counts, dict) and reason_counts:
+        lines.append(f"- Reason counts: {_format_counts(reason_counts)}")
+    field_status_counts = summary.get("field_status_counts")
+    if isinstance(field_status_counts, dict) and field_status_counts:
+        lines.append("- Field outcomes:")
+        for field, counts in field_status_counts.items():
+            if isinstance(counts, dict):
+                lines.append(f"  - `{field}`: {_format_counts(counts)}")
+    lines.append("- Note: extraction diagnostics are observational and do not change facts.")
+    lines.append("")
+
+
+def _missing_reasons(lines: list[str], data: AdmissionsData) -> None:
+    missing_reasons = data.run.config.get("missing_reasons")
+    if not isinstance(missing_reasons, dict) or not missing_reasons:
+        return
+    lines.append("## Missing Reasons")
+    lines.append("")
+    for field, details in missing_reasons.items():
+        if not isinstance(details, dict):
+            continue
+        reason = details.get("reason", "manual_check_required")
+        attempts = details.get("attempts", 0)
+        lines.append(f"- `{field}`: `{reason}` after {attempts} attempt(s)")
+        extractors = details.get("attempted_extractors") or []
+        if isinstance(extractors, list) and extractors:
+            lines.append(f"  - attempted extractors: {', '.join(f'`{extractor}`' for extractor in extractors)}")
+        source_urls = details.get("source_urls") or []
+        if isinstance(source_urls, list) and source_urls:
+            lines.append(f"  - sources: {', '.join(str(url) for url in source_urls[:5])}")
+        note = details.get("note")
+        if note:
+            lines.append(f"  - note: {note}")
+    lines.append("- Note: missing reasons describe the current crawl and extractors; they do not prove the official site lacks the field.")
     lines.append("")
 
 
@@ -182,3 +291,7 @@ def _parsed(lines: list[str], value: FieldValue, *, indent: str) -> None:
         lines.append(f"{indent}- parsed: `{rendered}`")
     elif value.raw_text and value.parse_status != "parsed":
         lines.append(f"{indent}- raw candidate only: {value.raw_text}")
+
+
+def _format_counts(counts: dict[object, object]) -> str:
+    return ", ".join(f"`{key}`: {value}" for key, value in counts.items())

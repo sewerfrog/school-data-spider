@@ -112,6 +112,8 @@ def run_scan(
     )
     if discovery_config.keyword_plan is not None:
         data.run.config["keyword_plan"] = discovery_config.keyword_plan.to_dict()
+    if classification_assist_provider is not None:
+        data.run.config["classification_assist"] = []
     pdf_extractor = pdf_extractor or _default_pdf_extractor(fetcher)
 
     for page in pages:
@@ -198,10 +200,28 @@ def run_scan(
                 "relevance_strategy": discovery_diagnostics.strategy,
             }
         )
+        extraction_attempts: list[dict[str, object]] = []
+        extraction_recorder = _ExtractionDiagnosticsRecorder(extraction_attempts)
+        data.run.config.setdefault("extraction_diagnostics", []).append(
+            {
+                "url": result.final_url,
+                "source_type": str(result.source.source_type),
+                "category": str(classification.category),
+                "attempts": extraction_attempts,
+            }
+        )
 
         if classification.category == PageCategory.UNDERGRADUATE_ADMISSIONS:
             claim_path = f"/admissions/application_periods/{len(data.admissions.application_periods)}/value"
             record, evidence = extract_deadline(text, result.source, claim_path)
+            extraction_recorder.record_record(
+                field="application_periods",
+                extractor="extract_deadline",
+                record=record,
+                evidence=evidence,
+                reason="category_route",
+                claim_path=claim_path,
+            )
             if record:
                 data.admissions.application_periods.append(record)
                 data.evidence.extend(evidence)
@@ -221,26 +241,85 @@ def run_scan(
                         confidence=Confidence.HIGH,
                         evidence=[entry_claim_path],
                     )
+                    extraction_recorder.record(
+                        field="undergraduate_application_entry",
+                        extractor="source_url_from_application_period",
+                        status="extracted",
+                        reason="category_route",
+                        claim_path=entry_claim_path,
+                        record_count=1,
+                        evidence_count=1,
+                    )
+                else:
+                    extraction_recorder.skip(
+                        field="undergraduate_application_entry",
+                        extractor="source_url_from_application_period",
+                        reason="existing_value",
+                        claim_path=entry_claim_path,
+                    )
+            else:
+                extraction_recorder.skip(
+                    field="undergraduate_application_entry",
+                    extractor="source_url_from_application_period",
+                    reason="requires_application_period",
+                    claim_path="/admissions/undergraduate_application_entry",
+                )
             doc_claim = f"/admissions/required_documents/{len(data.admissions.required_documents)}/value"
             doc_record, doc_evidence = extract_required_document(text, result.source, doc_claim)
+            extraction_recorder.record_record(
+                field="required_documents",
+                extractor="extract_required_document",
+                record=doc_record,
+                evidence=doc_evidence,
+                reason="category_route",
+                claim_path=doc_claim,
+            )
             if doc_record:
                 data.admissions.required_documents.append(doc_record)
                 data.evidence.extend(doc_evidence)
         elif classification.category == PageCategory.INTERNATIONAL_REQUIREMENTS:
             claim_path = f"/admissions/english_requirements/{len(data.admissions.english_requirements)}/value"
-            record, evidence = (extract_english_requirement(text, result.source, claim_path) if has_english_requirement_context(result.final_url, result.title, text) else (None, []))
+            has_context = has_english_requirement_context(result.final_url, result.title, text)
+            record, evidence = (extract_english_requirement(text, result.source, claim_path) if has_context else (None, []))
+            if has_context:
+                extraction_recorder.record_record(
+                    field="english_requirements",
+                    extractor="extract_english_requirement",
+                    record=record,
+                    evidence=evidence,
+                    reason="category_route",
+                    claim_path=claim_path,
+                )
+            else:
+                extraction_recorder.skip(field="english_requirements", extractor="extract_english_requirement", reason="context_gate_failed", claim_path=claim_path)
             if record:
                 data.admissions.english_requirements.append(record)
                 data.evidence.extend(evidence)
         elif classification.category == PageCategory.APPLICATION_DEADLINES:
             claim_path = f"/admissions/application_periods/{len(data.admissions.application_periods)}/value"
             record, evidence = extract_deadline(text, result.source, claim_path)
+            extraction_recorder.record_record(
+                field="application_periods",
+                extractor="extract_deadline",
+                record=record,
+                evidence=evidence,
+                reason="category_route",
+                claim_path=claim_path,
+            )
             if record:
                 data.admissions.application_periods.append(record)
                 data.evidence.extend(evidence)
         elif classification.category == PageCategory.ACCEPTED_QUALIFICATIONS:
             claim_path = f"/admissions/accepted_qualifications/{len(data.admissions.accepted_qualifications)}/value"
             record, evidence = extract_accepted_qualification(text, result.source, claim_path)
+            extraction_recorder.record_record(
+                field="accepted_qualifications",
+                extractor="extract_accepted_qualification",
+                record=record,
+                evidence=evidence,
+                reason="category_route",
+                claim_path=claim_path,
+            )
             if record:
                 data.admissions.accepted_qualifications.append(record)
                 data.evidence.extend(evidence)
@@ -248,12 +327,36 @@ def run_scan(
             programme_start = len(data.programmes)
             programme_claim = f"/programmes/{programme_start}/name"
             programme_records = extract_programmes(text, result.source, "/programmes", programme_start)
+            extraction_recorder.record_count(
+                field="programmes",
+                extractor="extract_programmes",
+                reason="category_route",
+                claim_path="/programmes",
+                record_count=len(programme_records),
+                evidence_count=sum(len(evidence) for _programme, evidence in programme_records),
+            )
             programme_name = None
             programme_evidence = []
             if not programme_records:
                 programme_name, programme_evidence = extract_programme(text, result.source, programme_claim)
+                extraction_recorder.record_record(
+                    field="programmes",
+                    extractor="extract_programme",
+                    record=programme_name,
+                    evidence=programme_evidence,
+                    reason="fallback_single_programme",
+                    claim_path=programme_claim,
+                )
             prereq_claim = f"/programmes/{programme_start}/prerequisites/0/value"
             prereq, prereq_evidence = _extract_prerequisite_with_pdf_page(text, result.source, prereq_claim, pdf_pages)
+            extraction_recorder.record_record(
+                field="programme_prerequisites",
+                extractor="extract_prerequisite",
+                record=prereq,
+                evidence=prereq_evidence,
+                reason="category_route",
+                claim_path=prereq_claim,
+            )
             if programme_records:
                 for index, (programme, evidence) in enumerate(programme_records):
                     if index == 0 and prereq:
@@ -289,21 +392,79 @@ def run_scan(
                     data.admissions.accepted_qualifications.append(prereq)
                 data.evidence.extend(prereq_evidence)
         elif classification.category == PageCategory.FEES:
+            claim_path = f"/fees/{len(data.fees)}/value"
             if has_undergraduate_fee_context(result.final_url, result.title, text):
-                _append_requirement(data.fees, data.evidence, extract_fee, text, result.source, f"/fees/{len(data.fees)}/value")
+                record_count, evidence_count = _append_requirement(data.fees, data.evidence, extract_fee, text, result.source, claim_path)
+                extraction_recorder.record_count(
+                    field="fees",
+                    extractor="extract_fee",
+                    reason="category_route",
+                    claim_path=claim_path,
+                    record_count=record_count,
+                    evidence_count=evidence_count,
+                )
+            else:
+                extraction_recorder.skip(field="fees", extractor="extract_fee", reason="context_gate_failed", claim_path=claim_path)
         elif classification.category == PageCategory.SCHOLARSHIPS:
+            claim_path = f"/scholarships/{len(data.scholarships)}/value"
             if has_undergraduate_scholarship_context(result.final_url, result.title, text):
-                _append_requirement(data.scholarships, data.evidence, extract_scholarship, text, result.source, f"/scholarships/{len(data.scholarships)}/value")
+                record_count, evidence_count = _append_requirement(data.scholarships, data.evidence, extract_scholarship, text, result.source, claim_path)
+                extraction_recorder.record_count(
+                    field="scholarships",
+                    extractor="extract_scholarship",
+                    reason="category_route",
+                    claim_path=claim_path,
+                    record_count=record_count,
+                    evidence_count=evidence_count,
+                )
+            else:
+                extraction_recorder.skip(field="scholarships", extractor="extract_scholarship", reason="context_gate_failed", claim_path=claim_path)
         elif classification.category == PageCategory.VISA:
-            _append_requirement(data.visa, data.evidence, extract_visa, text, result.source, f"/visa/{len(data.visa)}/value")
+            claim_path = f"/visa/{len(data.visa)}/value"
+            record_count, evidence_count = _append_requirement(data.visa, data.evidence, extract_visa, text, result.source, claim_path)
+            extraction_recorder.record_count(
+                field="visa",
+                extractor="extract_visa",
+                reason="category_route",
+                claim_path=claim_path,
+                record_count=record_count,
+                evidence_count=evidence_count,
+            )
         elif classification.category == PageCategory.HOUSING:
-            _append_requirement(data.housing, data.evidence, extract_housing, text, result.source, f"/housing/{len(data.housing)}/value")
+            claim_path = f"/housing/{len(data.housing)}/value"
+            record_count, evidence_count = _append_requirement(data.housing, data.evidence, extract_housing, text, result.source, claim_path)
+            extraction_recorder.record_count(
+                field="housing",
+                extractor="extract_housing",
+                reason="category_route",
+                claim_path=claim_path,
+                record_count=record_count,
+                evidence_count=evidence_count,
+            )
         elif classification.category == PageCategory.CONTACT:
+            claim_path = f"/contacts/{len(data.contacts)}/value"
             if has_admissions_contact_context(result.final_url, result.title, text):
-                _append_requirement(data.contacts, data.evidence, extract_contact, text, result.source, f"/contacts/{len(data.contacts)}/value")
+                record_count, evidence_count = _append_requirement(data.contacts, data.evidence, extract_contact, text, result.source, claim_path)
+                extraction_recorder.record_count(
+                    field="contacts",
+                    extractor="extract_contact",
+                    reason="category_route",
+                    claim_path=claim_path,
+                    record_count=record_count,
+                    evidence_count=evidence_count,
+                )
+            else:
+                extraction_recorder.skip(field="contacts", extractor="extract_contact", reason="context_gate_failed", claim_path=claim_path)
 
-        if classification.category != PageCategory.IRRELEVANT and has_undergraduate_admissions_context(result.final_url, result.title, text):
-            _extract_core_supplements(data, text, result.source)
+        if classification.category != PageCategory.IRRELEVANT:
+            if has_undergraduate_admissions_context(result.final_url, result.title, text):
+                _extract_core_supplements(data, text, result.source, extraction_recorder)
+            else:
+                extraction_recorder.skip(
+                    field="core_supplements",
+                    extractor="extract_core_supplements",
+                    reason="undergraduate_context_gate_failed",
+                )
 
     if not data.admissions.required_documents:
         data.admissions.required_documents.append(
@@ -355,11 +516,13 @@ def _field_snapshot(value: Any, prefix: str = "") -> dict[str, Any]:
     return out
 
 
-def _append_requirement(dest: list[RequirementRecord], evidence_dest, extractor, text, source, claim_path: str) -> None:
+def _append_requirement(dest: list[RequirementRecord], evidence_dest, extractor, text, source, claim_path: str) -> tuple[int, int]:
     record, evidence = extractor(text, source, claim_path)
     if record:
         dest.append(record)
         evidence_dest.extend(evidence)
+        return 1, len(evidence)
+    return 0, 0
 
 
 def _default_pdf_extractor(fetcher: Fetcher) -> PDFExtractor:
@@ -368,32 +531,155 @@ def _default_pdf_extractor(fetcher: Fetcher) -> PDFExtractor:
     return MissingPDFExtractor()
 
 
-def _extract_core_supplements(data: AdmissionsData, text: str, source) -> None:
+def _extract_core_supplements(data: AdmissionsData, text: str, source, recorder: "_ExtractionDiagnosticsRecorder") -> None:
     if not data.admissions.application_periods:
-        _append_unique_requirement(data.admissions.application_periods, data.evidence, extract_deadline, text, source, f"/admissions/application_periods/{len(data.admissions.application_periods)}/value")
-    if not data.admissions.english_requirements and has_english_requirement_context(source.source_url, source.title, text):
-        _append_unique_requirement(data.admissions.english_requirements, data.evidence, extract_english_requirement, text, source, f"/admissions/english_requirements/{len(data.admissions.english_requirements)}/value")
-    if not data.fees and has_undergraduate_fee_context(source.source_url, source.title, text):
-        _append_unique_requirement(data.fees, data.evidence, extract_fee, text, source, f"/fees/{len(data.fees)}/value")
-    if not data.scholarships and has_undergraduate_scholarship_context(source.source_url, source.title, text):
-        _append_unique_requirement(data.scholarships, data.evidence, extract_scholarship, text, source, f"/scholarships/{len(data.scholarships)}/value")
-    if not data.contacts and has_admissions_contact_context(source.source_url, source.title, text):
-        _append_unique_requirement(data.contacts, data.evidence, extract_contact, text, source, f"/contacts/{len(data.contacts)}/value")
+        claim_path = f"/admissions/application_periods/{len(data.admissions.application_periods)}/value"
+        status, record_count, evidence_count = _append_unique_requirement(data.admissions.application_periods, data.evidence, extract_deadline, text, source, claim_path)
+        recorder.record(field="application_periods", extractor="extract_deadline", status=status, reason="core_supplement", claim_path=claim_path, record_count=record_count, evidence_count=evidence_count)
+    else:
+        recorder.skip(field="application_periods", extractor="extract_deadline", reason="existing_value")
+    if not data.admissions.english_requirements:
+        claim_path = f"/admissions/english_requirements/{len(data.admissions.english_requirements)}/value"
+        if has_english_requirement_context(source.source_url, source.title, text):
+            status, record_count, evidence_count = _append_unique_requirement(data.admissions.english_requirements, data.evidence, extract_english_requirement, text, source, claim_path)
+            recorder.record(field="english_requirements", extractor="extract_english_requirement", status=status, reason="core_supplement", claim_path=claim_path, record_count=record_count, evidence_count=evidence_count)
+        else:
+            recorder.skip(field="english_requirements", extractor="extract_english_requirement", reason="context_gate_failed", claim_path=claim_path)
+    else:
+        recorder.skip(field="english_requirements", extractor="extract_english_requirement", reason="existing_value")
+    if not data.fees:
+        claim_path = f"/fees/{len(data.fees)}/value"
+        if has_undergraduate_fee_context(source.source_url, source.title, text):
+            status, record_count, evidence_count = _append_unique_requirement(data.fees, data.evidence, extract_fee, text, source, claim_path)
+            recorder.record(field="fees", extractor="extract_fee", status=status, reason="core_supplement", claim_path=claim_path, record_count=record_count, evidence_count=evidence_count)
+        else:
+            recorder.skip(field="fees", extractor="extract_fee", reason="context_gate_failed", claim_path=claim_path)
+    else:
+        recorder.skip(field="fees", extractor="extract_fee", reason="existing_value")
+    if not data.scholarships:
+        claim_path = f"/scholarships/{len(data.scholarships)}/value"
+        if has_undergraduate_scholarship_context(source.source_url, source.title, text):
+            status, record_count, evidence_count = _append_unique_requirement(data.scholarships, data.evidence, extract_scholarship, text, source, claim_path)
+            recorder.record(field="scholarships", extractor="extract_scholarship", status=status, reason="core_supplement", claim_path=claim_path, record_count=record_count, evidence_count=evidence_count)
+        else:
+            recorder.skip(field="scholarships", extractor="extract_scholarship", reason="context_gate_failed", claim_path=claim_path)
+    else:
+        recorder.skip(field="scholarships", extractor="extract_scholarship", reason="existing_value")
+    if not data.contacts:
+        claim_path = f"/contacts/{len(data.contacts)}/value"
+        if has_admissions_contact_context(source.source_url, source.title, text):
+            status, record_count, evidence_count = _append_unique_requirement(data.contacts, data.evidence, extract_contact, text, source, claim_path)
+            recorder.record(field="contacts", extractor="extract_contact", status=status, reason="core_supplement", claim_path=claim_path, record_count=record_count, evidence_count=evidence_count)
+        else:
+            recorder.skip(field="contacts", extractor="extract_contact", reason="context_gate_failed", claim_path=claim_path)
+    else:
+        recorder.skip(field="contacts", extractor="extract_contact", reason="existing_value")
     if not data.programmes:
+        programme_count = 0
+        evidence_count = 0
         for programme, evidence in extract_programmes(text, source, "/programmes", len(data.programmes)):
             data.programmes.append(programme)
             data.evidence.extend(evidence)
+            programme_count += 1
+            evidence_count += len(evidence)
+        recorder.record_count(
+            field="programmes",
+            extractor="extract_programmes",
+            reason="core_supplement",
+            claim_path="/programmes",
+            record_count=programme_count,
+            evidence_count=evidence_count,
+        )
+    else:
+        recorder.skip(field="programmes", extractor="extract_programmes", reason="existing_value")
 
 
-def _append_unique_requirement(dest: list[RequirementRecord], evidence_dest, extractor, text, source, claim_path: str) -> None:
+def _append_unique_requirement(dest: list[RequirementRecord], evidence_dest, extractor, text, source, claim_path: str) -> tuple[str, int, int]:
     record, evidence = extractor(text, source, claim_path)
     if not record:
-        return
+        return "no_match", 0, 0
     value = str(record.value.value).strip().lower()
     if any(str(existing.value.value).strip().lower() == value for existing in dest):
-        return
+        return "skipped", 0, 0
     dest.append(record)
     evidence_dest.extend(evidence)
+    return "extracted", 1, len(evidence)
+
+
+class _ExtractionDiagnosticsRecorder:
+    def __init__(self, attempts: list[dict[str, object]]) -> None:
+        self.attempts = attempts
+
+    def record(
+        self,
+        *,
+        field: str,
+        extractor: str,
+        status: str,
+        reason: str,
+        claim_path: str | None = None,
+        record_count: int = 0,
+        evidence_count: int = 0,
+    ) -> None:
+        _record_extraction_attempt(
+            self.attempts,
+            field=field,
+            extractor=extractor,
+            status=status,
+            reason=reason,
+            claim_path=claim_path,
+            record_count=record_count,
+            evidence_count=evidence_count,
+        )
+
+    def record_record(self, *, field: str, extractor: str, record, evidence, reason: str, claim_path: str) -> None:
+        self.record(
+            field=field,
+            extractor=extractor,
+            status="extracted" if record else "no_match",
+            reason=reason,
+            claim_path=claim_path,
+            record_count=1 if record else 0,
+            evidence_count=len(evidence),
+        )
+
+    def record_count(self, *, field: str, extractor: str, reason: str, claim_path: str, record_count: int, evidence_count: int) -> None:
+        self.record(
+            field=field,
+            extractor=extractor,
+            status="extracted" if record_count else "no_match",
+            reason=reason,
+            claim_path=claim_path,
+            record_count=record_count,
+            evidence_count=evidence_count,
+        )
+
+    def skip(self, *, field: str, extractor: str, reason: str, claim_path: str | None = None) -> None:
+        self.record(field=field, extractor=extractor, status="skipped", reason=reason, claim_path=claim_path)
+
+
+def _record_extraction_attempt(
+    attempts: list[dict[str, object]],
+    *,
+    field: str,
+    extractor: str,
+    status: str,
+    reason: str,
+    claim_path: str | None = None,
+    record_count: int = 0,
+    evidence_count: int = 0,
+) -> None:
+    attempt: dict[str, object] = {
+        "field": field,
+        "extractor": extractor,
+        "status": status,
+        "reason": reason,
+        "record_count": record_count,
+        "evidence_count": evidence_count,
+    }
+    if claim_path:
+        attempt["claim_path"] = claim_path
+    attempts.append(attempt)
 
 
 def _extract_prerequisite_with_pdf_page(text, source, claim_path: str, pdf_pages):

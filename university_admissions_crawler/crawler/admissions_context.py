@@ -105,9 +105,12 @@ def has_undergraduate_admissions_context(url: str, title: str | None, text: str 
 def has_undergraduate_fee_context(url: str, title: str | None, text: str) -> bool:
     if not has_undergraduate_admissions_context(url, title, text):
         return False
-    haystack = f"{url} {title or ''} {text[:1800]}".lower()
-    if any(token in haystack for token in ("hall fee", "hall fees", "phd fellowship", "graduate tuition", "postgraduate", "residential life")):
+    path = urlparse(url).path.lower()
+    title_lower = (title or "").lower()
+    url_title_path = f"{url} {title_lower} {path}"
+    if any(token in url_title_path for token in ("hall fee", "hall fees", "phd fellowship", "graduate tuition", "postgraduate", "residential life", "/graduate", "/postgraduate", "/current-students", "/sao/", "/hall-admission")):
         return False
+    haystack = f"{url} {title_lower} {text[:1800]}".lower()
     return any(token in haystack for token in ("tuition", "application fee", "fees", "fee"))
 
 

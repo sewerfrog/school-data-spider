@@ -15,9 +15,21 @@ Evidence-first MVP for extracting undergraduate admissions information from offi
 - In browser mode, obvious PDF URLs and Playwright `Download is starting` PDF navigations fall back to HTTP byte download so the source is recorded as `SourceType.PDF`.
 - Handles public JSON/API sources as first-class evidence sources.
 - Preserves HTML table text for deterministic extraction from table-heavy admissions pages.
+- Filters obvious static assets and low-value privacy/GDPR/cookie/terms-like
+  documents before follow/fetch decisions while preserving admissions
+  prospectus, requirements, fee, and programme PDFs.
 - Strips common navigation/header/footer/cookie noise before extraction and records core-field coverage diagnostics.
+- Records optional classification-assist diagnostics and a summary when guarded
+  mock classification assist is enabled; zero-trigger runs remain visible, and
+  candidates are not applied to facts.
+- Records source-level extraction diagnostics plus field-level
+  `missing_reasons` for missing core fields; these describe current
+  crawl/extractor outcomes and are not official absence evidence.
 - Adds a lightweight cleaned-candidate layer for key fields: `raw_text`, `parsed`, and `parse_status`.
 - Parses common English test scores, fee amounts, and application dates when the raw text is specific enough; otherwise the raw candidate remains visible for manual review.
+- Keeps raw fee-table/reference candidates when an official undergraduate fee
+  page exposes only table labels rather than amounts; these remain
+  `raw_needs_manual_review` and are not structured fee amounts.
 - Filters undergraduate core extraction away from common pollution pages such as postgraduate/graduate pages, hall/accommodation pages, search pages, current-students pages, privacy/contact forms, and generic marketing pages unless they have strong undergraduate admissions context.
 - Records discovery relevance diagnostics under `run.config`, including per-source discovery score, relevance signals, and strategy name.
 - Supports reviewable keyword plans for discovery diagnostics through `--keyword-query`; by default these plans do not change crawl ordering.
@@ -117,14 +129,23 @@ Saved-source regression fixtures live under `tests/fixtures/saved_sources/`.
 The `outputs/` directory is for generated run output and should not be required
 by deterministic tests.
 
-Current feature-branch validation after the keyword-plan updates:
+Current feature-branch validation after the diagnostics, source-filtering, and
+NTU fee saved-source updates:
 
 ```bash
-python -m pytest -q
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider
 python -m compileall -q university_admissions_crawler tests
 ```
 
-The latest local run passed `101` tests.
+The latest local pytest run passed `112` tests.
+
+The focused target group used during the diagnostics/source-filtering work is:
+
+```bash
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_filters.py tests/test_discovery.py tests/test_pipeline.py tests/test_report_cli.py
+```
+
+The latest target-group run passed `57` tests.
 
 ## Evidence and safety policy
 
@@ -196,24 +217,33 @@ All modes write the same output shape:
 `result.json` also includes diagnostics under `run.config`:
 
 - `coverage` — found/missing core undergraduate fields.
+- `missing_reasons` — per-missing-field diagnostic reasons derived from the
+  current crawl and extractor attempts. They do not prove the official site
+  lacks the field.
 - `source_strategy` — per-source labels such as `html_page`, `pdf_document`,
   `json_api`, `application_portal`, `blocked_or_challenge`, or `irrelevant`.
   Each entry also records `discovery_score`, `discovery_signals`, and
   `relevance_strategy`.
 - `source_strategy_summary` — counts by strategy label.
+- `extraction_diagnostics` and `extraction_diagnostics_summary` — source-level
+  extractor attempts, skips, matches, and reason counts. These diagnostics do
+  not write admissions facts.
 - `relevance_strategy` — the discovery scoring strategy used for the scan.
 - `keyword_plan` — present only when a user or mock LLM keyword plan was
   supplied.
 - `llm_keyword_plan` — present only when guarded mock LLM keyword-plan
   generation was used; records provider, schema, fallback status, elapsed time,
   warnings, and error details.
+- `classification_assist` and `classification_assist_summary` — present only
+  when guarded mock classification assist is enabled; suggestions are
+  diagnostics-only and remain unapplied.
 
 The report also marks parsed versus raw-only values. For example, parsed fee
 rows appear with structured `currency`, `amount`, `student_group`,
 `academic_year`/`cohort`, `billing_period`, `fee_type`, and `raw_text` when
-those parts can be inferred. When present, keyword plans and mock LLM keyword
-diagnostics are shown in diagnostic sections before facts; they are not
-admissions facts.
+those parts can be inferred. When present, keyword plans, mock LLM keyword
+diagnostics, classification assist, extraction diagnostics, and missing reasons
+are shown in diagnostic sections before facts; they are not admissions facts.
 
 ## Keyword-assisted discovery
 
@@ -264,6 +294,23 @@ Only `mock` is currently supported. Requests for hosted providers such as
 `openai`, `anthropic`, or `gemini` fail closed. The mock provider returns a
 schema-validated `KeywordPlan` and records `run.config.llm_keyword_plan`; it is
 not evidence extraction and does not call a network API.
+
+Guarded mock classification assist can also be enabled for low-confidence page
+classifications:
+
+```bash
+python -m university_admissions_crawler.cli tests/fixtures/mini_university_site \
+  --fixture \
+  --enable-llm \
+  --llm-provider mock \
+  --enable-classification-assist \
+  --output-dir /tmp/uac-mock-classification-assist
+```
+
+This writes `classification_assist` and `classification_assist_summary` under
+`run.config` when the mock assist path is enabled. Even when no low-confidence
+page triggers assist, the summary records a zero-trigger state. Assist
+candidates are never applied to `PageCategory`, extractor routing, or facts.
 
 Some university sites use WAF/anti-bot protection. When that happens, the
 captured source may be a challenge page rather than the admissions content; the
@@ -337,7 +384,8 @@ is required.
 The current extractors are conservative and still rule-based. For real sites,
 `overall confidence` reflects evidence/conflict status for extracted claims; it
 does not mean all admissions fields were found. Use `run.config.coverage` and
-the report's "Core Field Coverage" section to see which fields remain missing.
+the report's "Core Field Coverage" / "Missing Reasons" sections to see which
+fields remain missing and where the current crawl/extractor chain stopped.
 
 ## Current real-site caveat
 

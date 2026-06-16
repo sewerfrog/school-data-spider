@@ -1,6 +1,7 @@
 from pathlib import Path
 
-from university_admissions_crawler.crawler.admissions_context import has_admissions_contact_context, has_undergraduate_fee_context
+from university_admissions_crawler.classifier.page_classifier import classify_page
+from university_admissions_crawler.crawler.admissions_context import has_admissions_contact_context, has_undergraduate_admissions_context, has_undergraduate_fee_context
 from university_admissions_crawler.crawler.discovery import DiscoveryConfig
 from university_admissions_crawler.crawler.fetcher import FetchResult, FixtureFetcher
 from university_admissions_crawler.extractor.schema import WarningCode
@@ -128,9 +129,32 @@ def test_pipeline_uses_html_table_text_for_extraction():
 def test_pipeline_attaches_core_coverage_and_source_strategy():
     data = run_fixture_scan(ROOT, max_pages=30)
     coverage = data.run.config["coverage"]
+    extraction_summary = data.run.config["extraction_diagnostics_summary"]
+    missing_reasons = data.run.config["missing_reasons"]
     assert coverage["found_count"] > 0
     assert "coverage_ratio" in coverage
     assert data.run.config["source_strategy_summary"]["html_page"] >= 1
+    assert extraction_summary["sources_count"] == len(data.run.config["extraction_diagnostics"])
+    assert extraction_summary["attempts_count"] > 0
+    assert extraction_summary["sources_with_extractions"] > 0
+    assert "application_periods" in extraction_summary["field_status_counts"]
+    assert any(item["attempts"] for item in data.run.config["extraction_diagnostics"])
+    attempts = [attempt for item in data.run.config["extraction_diagnostics"] for attempt in item["attempts"]]
+    assert all({"field", "extractor", "status", "reason", "record_count", "evidence_count"} <= attempt.keys() for attempt in attempts)
+    assert any(attempt["field"] == "fees" and attempt["extractor"] == "extract_fee" for attempt in attempts)
+    assert set(missing_reasons) == set(coverage["missing"])
+    assert all(
+        details["reason"]
+        in {
+            "not_attempted",
+            "attempted_no_match",
+            "context_gate_failed",
+            "undergraduate_context_gate_failed",
+            "application_portal_unreachable",
+            "manual_check_required",
+        }
+        for details in missing_reasons.values()
+    )
     assert data.run.config["relevance_strategy"] == "rule_based"
     strategy_entries = data.run.config["source_strategy"]
     admissions_entry = next(item for item in strategy_entries if item["url"] == "https://fixture.test/admissions/index.html")
@@ -162,6 +186,13 @@ def test_classification_assist_records_low_confidence_diagnostics_without_changi
     assert diagnostics[0]["rule_score"] == 1
     assert diagnostics[0]["candidate"]["category"] == "irrelevant"
     assert diagnostics[0]["applied"] is False
+    summary = data.run.config["classification_assist_summary"]
+    assert summary["entries_count"] == 1
+    assert summary["fallback_count"] == 0
+    assert summary["applied_count"] == 0
+    assert summary["disagreement_count"] == 1
+    assert summary["rule_categories"] == {"undergraduate_admissions": 1}
+    assert summary["candidate_categories"] == {"irrelevant": 1}
     assert not data.admissions.application_periods
 
 
@@ -272,6 +303,43 @@ def test_saved_polyu_noise_pages_do_not_pass_core_context_gates_or_contact_extra
     record, evidence = extract_contact(contact_text, source, "/contacts/0/value")
     assert record is None
     assert evidence == []
+
+
+def test_ntu_undergraduate_tuition_saved_source_extracts_fee_table_reference():
+    fee_url = "https://www.ntu.edu.sg/admissions/undergraduate/financial-matters/tuition-fees"
+    title = "Tuition Fees | NTU Singapore"
+    text = (SAVED / "ntu/980551993bc03f86.txt").read_text(encoding="utf-8")
+
+    classification = classify_page(fee_url, title, text)
+    assert classification.category == "fees"
+    assert has_undergraduate_admissions_context(fee_url, title, text)
+    assert has_undergraduate_fee_context(fee_url, title, text)
+    record, evidence = extract_fee(text, source_from_text(source_url=fee_url, source_type=SourceType.HTML, title=title, text=text), "/fees/0/value")
+    assert record is not None
+    assert evidence
+    assert "Tuition Fees For Semester 1 and 2" in record.value.value
+    assert record.value.parsed == []
+    assert record.value.parse_status == "raw_needs_manual_review"
+
+    fetcher = _SavedSinglePageFetcher(
+        {
+            "https://fixture.test/": ("Home", f'<a href="{fee_url}">NTU undergraduate tuition fees</a>'),
+            fee_url: (title, text),
+        }
+    )
+    data = run_scan(
+        "https://fixture.test/",
+        fetcher,
+        DiscoveryConfig(max_pages=3, max_depth=1, allowed_hosts={"fixture.test"}, allowed_domains={"ntu.edu.sg"}),
+    )
+
+    assert data.fees
+    assert "fees" not in data.run.config["coverage"]["missing"]
+    fee_diagnostics = next(item for item in data.run.config["extraction_diagnostics"] if item["url"] == fee_url)
+    assert any(
+        attempt["field"] == "fees" and attempt["extractor"] == "extract_fee" and attempt["status"] == "extracted" and attempt["reason"] == "category_route"
+        for attempt in fee_diagnostics["attempts"]
+    )
 
 
 def test_pipeline_does_not_extract_polyu_hall_or_phd_fees_from_saved_sources():
