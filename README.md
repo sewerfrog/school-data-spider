@@ -34,7 +34,7 @@ Evidence-first MVP for extracting undergraduate admissions information from offi
 - Records discovery relevance diagnostics under `run.config`, including per-source discovery score, relevance signals, and strategy name.
 - Supports reviewable keyword plans for discovery diagnostics through `--keyword-query`; by default these plans do not change crawl ordering.
 - Provides an opt-in deterministic `bm25-like` relevance strategy for keyword-assisted discovery ranking. It must be explicitly selected and requires a keyword query.
-- Supports guarded mock LLM keyword-plan generation for plumbing tests only; hosted LLM providers remain disabled.
+- Supports guarded mock LLM keyword-plan generation and classification-assist diagnostics for plumbing tests only; hosted LLM providers remain disabled.
 - Guards optional live/browser/PDF/LLM/crawl4ai/ScrapeGraphAI capabilities behind interfaces; they are not required for core tests.
 - Writes `result.json` and `report.md`.
 
@@ -46,7 +46,7 @@ Optional capabilities are represented as dependency groups / guarded execution m
 
 - `browser`: Playwright browser-backed live crawling support
 - `pdf`: optional pypdf parsing support for live PDF sources
-- `llm`: guarded mock keyword-plan plumbing and future hosted LLM provider surface
+- `llm`: guarded mock keyword-plan plumbing, mock classification-assist diagnostics, and future hosted LLM provider surface
 - `crawl4ai`: future crawl4ai adapter surface, currently warning-only stub
 - `scrapegraph`: future ScrapeGraphAI adapter support
 
@@ -68,6 +68,11 @@ source .venv314/bin/activate
 python -m pip install -U pip
 python -m pip install -e '.[dev]'
 ```
+
+After editable install, the console script is also available as
+`university-admissions-crawler`; the examples below use `python -m
+university_admissions_crawler.cli` so they also work before script wrappers are
+on `PATH`.
 
 From the repository root:
 
@@ -100,7 +105,7 @@ For extracted key fields, `result.json` now keeps both the original candidate an
 
 If a field cannot be safely parsed, it is left as a raw candidate with `parse_status` such as `unparsed` or `raw_needs_manual_review`; it should not be treated as a cleaned business field.
 
-For a smaller smoke run, add `--smoke`; it caps the run at `max_pages<=20` and `max_depth<=2` even if larger values are supplied. In batch mode, a university config's own `max_pages` or `max_depth` still overrides the CLI smoke cap for that university. `--enable-scrapegraph` remains a guarded future surface and fails closed. `--enable-llm` is guarded as well: only `--llm-provider mock` is currently accepted, and it can only generate a reviewable keyword plan from `--keyword-query`.
+For a smaller smoke run, add `--smoke`; it caps the run at `max_pages<=20` and `max_depth<=2` even if larger values are supplied. In batch mode, a university config's own `max_pages` or `max_depth` still overrides the CLI smoke cap for that university. `--enable-scrapegraph` remains a guarded future surface and fails closed. `--enable-llm` is guarded as well: only `--llm-provider mock` is currently accepted. With `--keyword-query`, it can generate a reviewable keyword plan; with `--enable-classification-assist`, it records low-confidence classification diagnostics. Hosted providers remain rejected.
 
 To compare with a previous run:
 
@@ -118,8 +123,8 @@ python -m university_admissions_crawler.cli tests/fixtures/mini_university_site 
 Install `.[dev]` and run:
 
 ```bash
-python -m pytest -q
-python -m compileall -q university_admissions_crawler tests
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider
+.venv314/bin/python -m compileall -q university_admissions_crawler tests
 ```
 
 If `pytest` is not installed in the active environment, install the `dev` extra
@@ -392,7 +397,10 @@ fields remain missing and where the current crawl/extractor chain stopped.
 The saved outputs under `outputs/batch-classifier-fixed/hku`,
 `outputs/batch-classifier-fixed/ntu`, `outputs/batch/hku`,
 `outputs/batch/hku-cleaned`, `outputs/batch/ntu`, `outputs/batch/polyu`, and
-`outputs/nus-live-programmes/` are historical generated outputs. They are
-useful as references, but tests now use copied fixtures under
-`tests/fixtures/saved_sources/`. Their `result.json` / `report.md` files will
-not reflect the latest behavior until those schools are rerun.
+`outputs/nus-live-programmes/` are historical generated outputs. Current
+feature-branch diagnostic samples such as `outputs/hku-live-step6*` and
+`outputs/ntu-current-diagnostics/` are also generated run artifacts, not test
+fixtures. They are useful as references, but deterministic tests now use copied
+fixtures under `tests/fixtures/saved_sources/`. Generated `result.json` /
+`report.md` files will not reflect later code behavior until those schools are
+rerun.

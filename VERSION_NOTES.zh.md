@@ -31,6 +31,8 @@
 - NTU fees saved-source 回归：NTU undergraduate tuition fee 页面已通过 fee context gate；在当前 saved text 没有金额时，extractor 只输出官方 fee table/reference raw candidate，`parse_status` 为 `raw_needs_manual_review`，不伪造结构化金额。
 - Saved-source 回归材料：测试依赖的 HKU/NTU/PolyU saved source 已复制到 `tests/fixtures/saved_sources/`，测试不应再读取 `outputs/`。
 - `outputs/` 语义收敛：`outputs/` 保留为生成输出和历史参考样例目录，不作为当前 deterministic test fixture 来源。
+- CLI / packaging 边界：`pyproject.toml` 提供 `university-admissions-crawler` console script；文档示例继续使用 `python -m university_admissions_crawler.cli`，避免依赖 PATH 状态。
+- Guarded LLM 边界：`--enable-llm --llm-provider mock` 现在有两条 mock-only 诊断用途：带 `--keyword-query` 时生成 keyword plan；带 `--enable-classification-assist` 时记录低置信度分类辅助诊断。真实 hosted providers 仍被 CLI 拒绝。
 - 结构清理：单次扫描和 batch 扫描已共用 `pipeline/output_writer.py` 写出 `result.json` / `report.md`。
 - crawler 边界拆分：`FetchResult` / `Fetcher` 已拆到 `crawler/types.py`，source/content-type 判断已拆到 `crawler/source_types.py`，JSON helper 已拆到 `crawler/json_content.py`，optional warning-only stubs 已拆到 `crawler/optional_stubs.py`。
 - 兼容保护：旧的 `crawler.fetcher` 导入路径、JSON underscored helper、`pipeline.merge._merge_data` 等兼容入口仍保留，并由 `tests/test_compatibility_boundaries.py` 覆盖。
@@ -43,7 +45,7 @@
 - `missing_reasons` 描述的是当前抓取和 extractor 尝试结果，不能证明官网没有提供该字段；多 source 混合失败时字段级归因优先级仍可优化。
 - source filtering 有明确降噪收益，但低价值文档关键词仍可能误伤极少数招生材料，因此 admissions PDF 反例测试需要继续保留。
 - `outputs/nus-live-programmes/` 是旧的一次性 NUS 产物，不能代表当前通用 pipeline 已能稳定复现完整 NUS 专业体系。
-- 旧的 HKU/NTU/PolyU/NUS `outputs/` 结果不会因代码修复自动更新；要看到新行为需要重新跑真实学校 crawl。
+- 旧的 HKU/NTU/PolyU/NUS `outputs/` 结果不会因代码修复自动更新；`outputs/hku-live-step6*` 和 `outputs/ntu-current-diagnostics/` 这类当前分支诊断输出也只是 generated artifacts。要看到新行为需要重新跑对应学校 crawl。
 - Browser 抓取依赖本地 Playwright 和 Chromium；缺失时应返回 `optional_dependency_missing` warning。
 - WAF、portal、challenge 页面和连接关闭仍可能导致抓取失败或抓到无效内容。
 - `overall confidence` 不是覆盖率指标；字段是否完整应同时查看 coverage 和 warnings。
@@ -56,9 +58,10 @@
 
 ```bash
 env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider
+.venv314/bin/python -m compileall -q university_admissions_crawler tests
 ```
 
-结果：`112 passed`。
+结果：pytest 为 `112 passed`；compileall 通过。
 
 与本轮 diagnostics/source-filtering/report 相关的目标测试组：
 
