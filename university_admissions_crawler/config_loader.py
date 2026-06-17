@@ -18,6 +18,8 @@ class UniversityConfig:
     max_pages: int | None = None
     max_depth: int | None = None
     mode: str = "live-http"
+    keyword_query: str | None = None
+    relevance_strategy: str = "rule-based"
 
 
 def load_university_configs(path: str | Path) -> list[UniversityConfig]:
@@ -47,6 +49,8 @@ def _parse_config(item: dict[str, Any]) -> UniversityConfig:
         max_pages=item.get("max_pages"),
         max_depth=item.get("max_depth"),
         mode=item.get("mode", "live-http"),
+        keyword_query=item.get("keyword_query"),
+        relevance_strategy=item.get("relevance_strategy", "rule-based"),
     )
 
 

@@ -15,6 +15,9 @@ class Classification:
     signals: list[str] = field(default_factory=list)
 
 
+LOW_CONFIDENCE_SCORE_THRESHOLD = 1
+
+
 KEYWORDS: dict[PageCategory, tuple[str, ...]] = {
     PageCategory.UNDERGRADUATE_ADMISSIONS: ("undergraduate admissions", "admissions", "apply", "how to apply"),
     PageCategory.INTERNATIONAL_REQUIREMENTS: ("international requirements", "international applicants", "international", "requirements"),
@@ -88,6 +91,12 @@ def classify_page(url: str, title: str | None, text: str) -> Classification:
         if score > best.score:
             best = Classification(category, score, signals)
     return best
+
+
+def is_low_confidence_classification(classification: Classification, threshold: int = LOW_CONFIDENCE_SCORE_THRESHOLD) -> bool:
+    """Return whether a rule classification is weak enough for assistive diagnostics."""
+
+    return 0 <= classification.score <= threshold
 
 
 def _is_contextually_irrelevant(url: str, title: str | None, text: str) -> bool:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from urllib.parse import parse_qsl, urlencode, urldefrag, urljoin, urlparse
+from urllib.parse import parse_qsl, unquote, urlencode, urldefrag, urljoin, urlparse
 
 from university_admissions_crawler.crawler.admissions_context import NON_ADMISSIONS_PATH_HINTS, UNDERGRAD_ADMISSIONS_PATH_HINTS
 from university_admissions_crawler.config import (
@@ -11,6 +11,36 @@ from university_admissions_crawler.config import (
     POSITIVE_KEYWORDS,
     TRACKING_QUERY_NAMES,
     TRACKING_QUERY_PREFIXES,
+)
+
+
+STATIC_RESOURCE_SUFFIXES: tuple[str, ...] = (
+    ".css",
+    ".js",
+    ".mjs",
+    ".ico",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".svg",
+    ".webp",
+    ".avif",
+    ".woff",
+    ".woff2",
+    ".ttf",
+    ".eot",
+    ".map",
+)
+
+LOW_VALUE_DOCUMENT_TERMS: tuple[str, ...] = (
+    "privacy",
+    "gdpr",
+    "cookie",
+    "cookies",
+    "terms",
+    "data protection",
+    "personal information collection",
 )
 
 
@@ -102,6 +132,20 @@ def is_pdf_url(url: str) -> bool:
     return urlparse(url).path.lower().endswith(".pdf")
 
 
+def is_static_resource_url(url: str) -> bool:
+    path = unquote(urlparse(url).path).lower()
+    return path.endswith(STATIC_RESOURCE_SUFFIXES)
+
+
+def is_low_value_source_url(url: str) -> bool:
+    path = unquote(urlparse(url).path).lower()
+    if is_static_resource_url(url):
+        return True
+    if is_pdf_url(url) and any(term in path for term in LOW_VALUE_DOCUMENT_TERMS):
+        return True
+    return False
+
+
 def score_url(url: str, title: str | None = None, text: str | None = None) -> int:
     haystack = " ".join(v for v in [url, title or "", text or ""] if v).lower()
     score = sum(2 for kw in POSITIVE_KEYWORDS if kw in haystack)
@@ -117,11 +161,15 @@ def score_url(url: str, title: str | None = None, text: str | None = None) -> in
         score += 4
     if urlparse(url).path.lower().endswith(".json") or "/api/" in path:
         score += 3
+    if is_low_value_source_url(url):
+        score -= 100
     return score
 
 
 def should_follow_url(url: str, policy: DomainPolicy) -> bool:
     if not policy.is_allowed(url):
+        return False
+    if is_low_value_source_url(url):
         return False
     return score_url(url) >= -2
 

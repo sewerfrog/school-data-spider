@@ -155,12 +155,15 @@ def extract_fee(text: str, source: SourceRecord, claim_path: str) -> tuple[Requi
         text,
         re.IGNORECASE,
     )
-    if not match:
+    snippet = match.group(1).strip() if match else _fee_table_reference_snippet(text, source)
+    if not snippet:
         return None, []
-    snippet = match.group(1).strip()
     parsed, parse_status = parse_money_candidates(snippet)
-    if parse_status == RAW_NEEDS_REVIEW and _fee_snippet_requires_number(snippet):
-        return None, []
+    if match and parse_status == RAW_NEEDS_REVIEW and _fee_snippet_requires_number(snippet):
+        snippet = _fee_table_reference_snippet(text, source)
+        if not snippet:
+            return None, []
+        parsed, parse_status = parse_money_candidates(snippet)
     evidence = evidence_from_source(claim_path=claim_path, source=source, snippet=snippet, confidence=Confidence.MEDIUM)
     return _requirement("tuition/fees", _clean_sentence(snippet), claim_path, parsed=parsed, parse_status=parse_status), [evidence]
 
@@ -274,6 +277,26 @@ def _requirement(label: str, value: str, claim_path: str, *, parsed=None, parse_
 def _fee_snippet_requires_number(snippet: str) -> bool:
     lower = snippet.lower()
     return any(token in lower for token in ("tuition", "fee", "fees", "application fee")) and not re.search(r"(?:HKD|HK\$|S\$|SGD|USD|US\$|\$)\s*[0-9]", snippet, flags=re.IGNORECASE)
+
+
+def _fee_table_reference_snippet(text: str, source: SourceRecord) -> str | None:
+    source_hint = f"{source.source_url} {source.title or ''}".lower()
+    if any(token in source_hint for token in ("/graduate", "/postgraduate", "postgraduate", "graduate tuition", "/hall-admission", "/sao/", "residential life")):
+        return None
+    if "/admissions/undergraduate/" not in source.source_url.lower() and "undergraduate" not in text[:2500].lower():
+        return None
+
+    cleaned = _clean_sentence(text)
+    anchors = []
+    semester_match = re.search(r"Tuition Fees For Semester 1 and 2(?:\s+Accepted programme offer in [0-9]{4})?", cleaned, flags=re.IGNORECASE)
+    ay_match = re.search(r"Tuition fees payable for AY[0-9]{4}\s*[-–]\s*[0-9]{2,4}", cleaned, flags=re.IGNORECASE)
+    part_time_match = re.search(r"Tuition Fees payable per academic unit[^.]{0,180}", cleaned, flags=re.IGNORECASE)
+    for match in (semester_match, ay_match, part_time_match):
+        if match:
+            anchors.append(_clean_sentence(match.group(0)))
+    if not anchors:
+        return None
+    return ". ".join(dict.fromkeys(anchors))
 
 
 def _looks_like_non_admissions_contact(url: str, title: str | None, text: str) -> bool:

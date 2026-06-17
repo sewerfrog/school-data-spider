@@ -1,4 +1,4 @@
-from university_admissions_crawler.crawler.filters import DomainPolicy, canonicalize_url, is_pdf_url, score_url
+from university_admissions_crawler.crawler.filters import DomainPolicy, canonicalize_url, is_low_value_source_url, is_pdf_url, score_url, should_follow_url
 
 
 def test_canonicalize_url_drops_fragments_tracking_and_sorts_query():
@@ -26,3 +26,47 @@ def test_score_url_prefers_admissions_and_penalizes_news():
 def test_is_pdf_url():
     assert is_pdf_url("https://example.edu/prospectus.pdf")
     assert not is_pdf_url("https://example.edu/prospectus.html")
+
+
+def test_low_value_source_urls_are_not_followed_even_on_admissions_domain():
+    policy = DomainPolicy("https://admissions.example.edu/")
+
+    assert is_low_value_source_url("https://admissions.example.edu/core/assets/base.css?t=x")
+    assert is_low_value_source_url("https://admissions.example.edu/sites/default/files/favicon.ico")
+    assert is_low_value_source_url("https://admissions.example.edu/files/GDPR%20Privacy%20Notice%20Applicants.pdf")
+    assert not is_low_value_source_url("https://admissions.example.edu/files/undergraduate-admissions-prospectus.pdf")
+    assert score_url("https://admissions.example.edu/core/assets/base.css?t=x") < 0
+    assert score_url("https://admissions.example.edu/files/GDPR%20Privacy%20Notice%20Applicants.pdf") < 0
+    assert not should_follow_url("https://admissions.example.edu/core/assets/base.css?t=x", policy)
+    assert not should_follow_url("https://admissions.example.edu/files/GDPR%20Privacy%20Notice%20Applicants.pdf", policy)
+    assert should_follow_url("https://admissions.example.edu/files/undergraduate-admissions-prospectus.pdf", policy)
+
+
+def test_low_value_document_filter_blocks_privacy_cookie_and_terms_pdfs():
+    policy = DomainPolicy("https://admissions.example.edu/")
+    urls = [
+        "https://admissions.example.edu/files/privacy-notice-applicants.pdf",
+        "https://admissions.example.edu/files/GDPR%20Privacy%20Notice%20Applicants.pdf",
+        "https://admissions.example.edu/files/cookie-policy.pdf",
+        "https://admissions.example.edu/files/terms-of-use.pdf",
+        "https://admissions.example.edu/files/Personal%20Information%20Collection%20Statement.pdf",
+    ]
+
+    for url in urls:
+        assert is_low_value_source_url(url)
+        assert score_url(url) < 0
+        assert not should_follow_url(url, policy)
+
+
+def test_low_value_document_filter_keeps_admissions_pdf_counterexamples():
+    policy = DomainPolicy("https://admissions.example.edu/")
+    urls = [
+        "https://admissions.example.edu/files/2026-undergraduate-admissions-prospectus.pdf",
+        "https://admissions.example.edu/files/international-entry-requirements.pdf",
+        "https://admissions.example.edu/files/undergraduate-tuition-fees.pdf",
+        "https://admissions.example.edu/files/programme-requirements.pdf",
+    ]
+
+    for url in urls:
+        assert not is_low_value_source_url(url)
+        assert should_follow_url(url, policy)

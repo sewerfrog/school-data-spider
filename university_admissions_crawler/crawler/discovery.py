@@ -7,7 +7,8 @@ from dataclasses import dataclass, field
 from urllib.parse import urlparse
 
 from university_admissions_crawler.crawler.fetcher import FetchResult, Fetcher
-from university_admissions_crawler.crawler.filters import DomainPolicy, canonicalize_url, score_url, should_follow_url
+from university_admissions_crawler.crawler.filters import DomainPolicy, canonicalize_url
+from university_admissions_crawler.crawler.relevance import DEFAULT_RELEVANCE_STRATEGY, KeywordPlan, RelevanceStrategy
 from university_admissions_crawler.extractor.schema import WarningCode, WarningRecord
 
 
@@ -19,6 +20,8 @@ class DiscoveryConfig:
     allowed_domains: set[str] = field(default_factory=set)
     allow_official_subdomains: bool = True
     retries: int = 1
+    relevance_strategy: RelevanceStrategy = DEFAULT_RELEVANCE_STRATEGY
+    keyword_plan: KeywordPlan | None = None
 
 
 @dataclass(slots=True)
@@ -49,17 +52,17 @@ def discover(seed_url: str, fetcher: Fetcher, config: DiscoveryConfig | None = N
         if not policy.is_allowed(normalized):
             continue
         result = _fetch_with_retries(fetcher, normalized, config.retries)
-        page_score = score_url(result.final_url, result.title, result.markdown or result.text)
+        page_score = config.relevance_strategy.score(result.final_url, result.title, result.markdown or result.text)
         pages.append(DiscoveredPage(result=result, depth=depth, score=page_score))
         if result.ok and depth < config.max_depth:
             scored_links = sorted(
-                ((score_url(normalize_url(link), text=link), normalize_url(link)) for link in result.links),
+                ((config.relevance_strategy.score(normalize_url(link), text=link), normalize_url(link)) for link in result.links),
                 key=lambda item: item[0],
                 reverse=True,
             )
             for _, link in scored_links:
                 link = normalize_url(link)
-                if link not in seen and should_follow_url(link, policy):
+                if link not in seen and config.relevance_strategy.should_follow(link, policy):
                     queue.append((link, depth + 1))
     return pages
 

@@ -1,6 +1,6 @@
 # 版本说明：University Admissions Crawler MVP
 
-快照日期：2026-06-10
+快照日期：2026-06-16
 项目目录：`/Users/sewerfrog/work/智能选校/school-data-spider`
 
 本文是版本快照和变更说明。安装、运行和测试命令以 `README.md` 为准；项目结构、已知问题和清理计划以 `PROJECT_MAP.md` 为准。
@@ -24,8 +24,15 @@
 - 本科上下文过滤：对 postgraduate/graduate、hall/accommodation、search/current-students、privacy/contact form 等常见污染页面做更保守的核心字段 gate。
 - 主内容和表格文本化：HTML 处理会优先取主内容区域，并将表格转成可抽取文本；这不是完整 DOM/table schema parser。
 - 诊断输出：`run.config` 记录 coverage、source strategy 和 source strategy summary，报告中也会显示解析状态。
+- Classification assist diagnostics：guarded mock classification assist 只记录候选分类诊断；`classification_assist_summary` 会记录 entries、fallback、applied、disagreement 等计数，即使启用后 0 触发也保持可见。
+- Source filtering 边界：抓取前过滤明显静态资源和 privacy/GDPR/cookie/terms 类低价值文档，同时通过 admissions prospectus、entry requirements、tuition fees、programme requirements PDF 反例保护招生材料。
+- Extraction diagnostics：source-level 记录 extractor 的 `extracted`、`no_match`、`skipped` 等结果和 reason，汇总到 `extraction_diagnostics_summary`；报告在 facts 前展示。
+- Missing reasons：对 `coverage.missing` 增加字段级 `missing_reasons`，用于说明当前 crawl/extractor 链路卡在 `not_attempted`、`attempted_no_match`、`context_gate_failed`、`application_portal_unreachable` 等位置。它不是官网缺失证明。
+- NTU fees saved-source 回归：NTU undergraduate tuition fee 页面已通过 fee context gate；在当前 saved text 没有金额时，extractor 只输出官方 fee table/reference raw candidate，`parse_status` 为 `raw_needs_manual_review`，不伪造结构化金额。
 - Saved-source 回归材料：测试依赖的 HKU/NTU/PolyU saved source 已复制到 `tests/fixtures/saved_sources/`，测试不应再读取 `outputs/`。
 - `outputs/` 语义收敛：`outputs/` 保留为生成输出和历史参考样例目录，不作为当前 deterministic test fixture 来源。
+- CLI / packaging 边界：`pyproject.toml` 提供 `university-admissions-crawler` console script；文档示例继续使用 `python -m university_admissions_crawler.cli`，避免依赖 PATH 状态。
+- Guarded LLM 边界：`--enable-llm --llm-provider mock` 现在有两条 mock-only 诊断用途：带 `--keyword-query` 时生成 keyword plan；带 `--enable-classification-assist` 时记录低置信度分类辅助诊断。真实 hosted providers 仍被 CLI 拒绝。
 - 结构清理：单次扫描和 batch 扫描已共用 `pipeline/output_writer.py` 写出 `result.json` / `report.md`。
 - crawler 边界拆分：`FetchResult` / `Fetcher` 已拆到 `crawler/types.py`，source/content-type 判断已拆到 `crawler/source_types.py`，JSON helper 已拆到 `crawler/json_content.py`，optional warning-only stubs 已拆到 `crawler/optional_stubs.py`。
 - 兼容保护：旧的 `crawler.fetcher` 导入路径、JSON underscored helper、`pipeline.merge._merge_data` 等兼容入口仍保留，并由 `tests/test_compatibility_boundaries.py` 覆盖。
@@ -34,8 +41,11 @@
 ## 3. 已知仍有限制
 
 - 真实官网抽取仍不是生产级；复杂专业体系、复杂费用表、多轮申请日期和 PDF 表格需要更强的 section/table 级解析。
+- NTU fees 当前只是找到官方 fee table/reference，不是完成金额结构化解析；后续需要抓到或解析实际 table 内容。
+- `missing_reasons` 描述的是当前抓取和 extractor 尝试结果，不能证明官网没有提供该字段；多 source 混合失败时字段级归因优先级仍可优化。
+- source filtering 有明确降噪收益，但低价值文档关键词仍可能误伤极少数招生材料，因此 admissions PDF 反例测试需要继续保留。
 - `outputs/nus-live-programmes/` 是旧的一次性 NUS 产物，不能代表当前通用 pipeline 已能稳定复现完整 NUS 专业体系。
-- 旧的 HKU/NTU/PolyU/NUS `outputs/` 结果不会因代码修复自动更新；要看到新行为需要重新跑真实学校 crawl。
+- 旧的 HKU/NTU/PolyU/NUS `outputs/` 结果不会因代码修复自动更新；`outputs/hku-live-step6*` 和 `outputs/ntu-current-diagnostics/` 这类当前分支诊断输出也只是 generated artifacts。要看到新行为需要重新跑对应学校 crawl。
 - Browser 抓取依赖本地 Playwright 和 Chromium；缺失时应返回 `optional_dependency_missing` warning。
 - WAF、portal、challenge 页面和连接关闭仍可能导致抓取失败或抓到无效内容。
 - `overall confidence` 不是覆盖率指标；字段是否完整应同时查看 coverage 和 warnings。
@@ -48,17 +58,18 @@
 
 ```bash
 env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider
+.venv314/bin/python -m compileall -q university_admissions_crawler tests
 ```
 
-结果：`85 passed`。
+结果：pytest 为 `112 passed`；compileall 通过。
 
-与 saved-source fixture 迁移相关的局部验证仍可作为专项参考：
+与本轮 diagnostics/source-filtering/report 相关的目标测试组：
 
 ```bash
-env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_pipeline.py tests/test_classifier_ntu_regression.py
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_filters.py tests/test_discovery.py tests/test_pipeline.py tests/test_report_cli.py
 ```
 
-结果：`20 passed`。
+结果：`57 passed`。
 
 完整验证命令和环境说明请看 `README.md`。
 
@@ -67,6 +78,8 @@ env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovid
 - 增强 DOM / section / table 级解析，减少长页面和复杂 CMS 的文本污染。
 - 增强专业抽取器，区分 degree programme、major、minor、second major、special programme。
 - 增强日期、费用和奖学金抽取，支持多申请人群、多轮次、多 cohort 和资助类型。
+- 优先优化 `missing_reasons` 的字段级归因优先级，避免同一字段多个 source 混合失败时展示次要原因。
+- 继续处理 NTU fees 的真实表格内容解析；当前只应把 saved-source 行为视为 raw reference fallback。
 - 增强 PDF 表格解析；是否引入 `pdfplumber` 或同类依赖需要单独评估。
 - 将有价值的真实学校样例迁移到更明确的 `docs/examples/` 或记录保留清单，避免继续混用 `outputs/`。
 - 继续小步拆分 `crawler/fetcher.py` 剩余的 PDF fallback 或时间 helper，避免同时移动 fixture/live/browser fetcher 类。

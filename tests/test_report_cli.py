@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from university_admissions_crawler.cli import main
 from university_admissions_crawler.crawler.fetcher import FetchResult
+from university_admissions_crawler.crawler.relevance import keyword_plan_from_query
 from university_admissions_crawler.evidence.provenance import source_from_text
 from university_admissions_crawler.extractor.schema import SourceType
 from university_admissions_crawler.pipeline.output_writer import write_result_files
@@ -22,11 +23,24 @@ def test_markdown_report_contains_evidence_and_no_verdict():
     report = render_markdown_report(data)
     assert "Evidence appendix" in report
     assert "Warnings / Manual check" in report
+    assert "## Extraction Diagnostics" in report
+    assert "`application_periods`" in report
+    assert report.index("## Extraction Diagnostics") < report.index("## Facts")
     assert "Discovered categories" in report
     assert "application_deadlines" in report
     assert "Required documents include transcripts and passport copy" in report
     assert "Admissions verdict: not provided" in report
     assert "you can" not in report.lower()
+
+
+def test_markdown_report_shows_missing_reasons_before_facts_when_fields_are_missing():
+    data = run_fixture_scan(ROOT, seed_url="https://fixture.test/realistic-admissions.html", max_pages=1, max_depth=0)
+    report = render_markdown_report(data)
+
+    assert "## Missing Reasons" in report
+    assert report.index("## Missing Reasons") < report.index("## Facts")
+    assert "`accepted_qualifications`" in report
+    assert "they do not prove the official site lacks the field" in report
 
 
 def test_markdown_report_marks_parsed_clean_candidates():
@@ -35,6 +49,15 @@ def test_markdown_report_marks_parsed_clean_candidates():
     assert "parse `parsed`" in report
     assert '"amount": 45000' in report
     assert '"test_name": "IELTS"' in report
+
+
+def test_markdown_report_shows_keyword_plan_only_as_diagnostics():
+    data = run_fixture_scan(ROOT, keyword_plan=keyword_plan_from_query("fees tuition"))
+    report = render_markdown_report(data)
+
+    assert "## Keyword Plan" in report
+    assert "- Query: fees tuition" in report
+    assert report.index("## Keyword Plan") < report.index("## Facts")
 
 
 def test_cli_fixture_smoke_writes_json_and_markdown():
@@ -53,7 +76,151 @@ def test_cli_fixture_smoke_writes_json_and_markdown():
         assert data["evidence"]
         assert data["warnings"]
         assert data["discovered_categories"]
+        assert data["run"]["config"]["extraction_diagnostics_summary"]["attempts_count"] > 0
+        assert set(data["run"]["config"]["missing_reasons"]) == set(data["run"]["config"]["coverage"]["missing"])
+        assert "keyword_plan" not in data["run"]["config"]
         assert "Evidence appendix" in report.read_text()
+
+
+def test_cli_fixture_records_explicit_keyword_query_plan():
+    with TemporaryDirectory() as tmp:
+        code = main([str(ROOT), "--fixture", "--keyword-query", "undergraduate admissions IELTS fees", "--output-dir", tmp])
+        assert code == 0
+        data = json.loads((Path(tmp) / "result.json").read_text())
+        keyword_plan = data["run"]["config"]["keyword_plan"]
+        assert keyword_plan["query"] == "undergraduate admissions IELTS fees"
+        assert keyword_plan["source"] == "user"
+        assert keyword_plan["positive_keywords"] == ["undergraduate", "admissions", "ielts", "fees"]
+        assert "/admissions" in keyword_plan["url_hints"]
+        assert "/fees" in keyword_plan["url_hints"]
+        assert data["run"]["config"]["relevance_strategy"] == "rule_based"
+
+
+def test_cli_fixture_mock_llm_generates_reviewable_keyword_plan():
+    with TemporaryDirectory() as tmp:
+        code = main(
+            [
+                str(ROOT),
+                "--fixture",
+                "--keyword-query",
+                "undergraduate admissions IELTS fees",
+                "--enable-llm",
+                "--llm-provider",
+                "mock",
+                "--output-dir",
+                tmp,
+            ]
+        )
+        assert code == 0
+        data = json.loads((Path(tmp) / "result.json").read_text())
+        report = (Path(tmp) / "report.md").read_text()
+        assert data["run"]["config"]["keyword_plan"]["source"] == "llm"
+        assert data["run"]["config"]["llm_keyword_plan"]["provider"] == "mock"
+        assert data["run"]["config"]["llm_keyword_plan"]["fallback"] is False
+        assert "## LLM Keyword Plan Diagnostics" in report
+
+
+def test_cli_fixture_mock_classification_assist_records_diagnostics_only():
+    with TemporaryDirectory() as tmp:
+        code = main(
+            [
+                str(ROOT),
+                "--fixture",
+                "--seed-url",
+                "https://fixture.test/blog.html",
+                "--max-pages",
+                "1",
+                "--max-depth",
+                "0",
+                "--enable-llm",
+                "--llm-provider",
+                "mock",
+                "--enable-classification-assist",
+                "--output-dir",
+                tmp,
+            ]
+        )
+        assert code == 0
+        data = json.loads((Path(tmp) / "result.json").read_text())
+        report = (Path(tmp) / "report.md").read_text()
+        diagnostics = data["run"]["config"]["classification_assist"]
+        summary = data["run"]["config"]["classification_assist_summary"]
+        assert diagnostics[0]["rule_category"] == "undergraduate_admissions"
+        assert diagnostics[0]["candidate"]["category"] == "undergraduate_admissions"
+        assert diagnostics[0]["applied"] is False
+        assert summary["entries_count"] == 1
+        assert summary["applied_count"] == 0
+        assert summary["disagreement_count"] == 0
+        assert data["discovered_categories"][0]["category"] == "undergraduate_admissions"
+        assert "## Classification Assist Diagnostics" in report
+        assert "- Entries: 1" in report
+        assert "- Applied entries: 0" in report
+        assert "- Rule/candidate disagreements: 0" in report
+        assert "classification assist is diagnostics-only and does not change facts" in report
+        assert "candidate `undergraduate_admissions`" in report
+
+
+def test_cli_fixture_classification_assist_records_zero_trigger_summary():
+    with TemporaryDirectory() as tmp:
+        code = main(
+            [
+                str(ROOT),
+                "--fixture",
+                "--seed-url",
+                "https://fixture.test/admissions/index.html",
+                "--max-pages",
+                "1",
+                "--max-depth",
+                "0",
+                "--enable-llm",
+                "--llm-provider",
+                "mock",
+                "--enable-classification-assist",
+                "--output-dir",
+                tmp,
+            ]
+        )
+        assert code == 0
+        data = json.loads((Path(tmp) / "result.json").read_text())
+        report = (Path(tmp) / "report.md").read_text()
+
+        assert data["run"]["config"]["classification_assist"] == []
+        summary = data["run"]["config"]["classification_assist_summary"]
+        assert summary["entries_count"] == 0
+        assert summary["fallback_count"] == 0
+        assert summary["applied_count"] == 0
+        assert summary["disagreement_count"] == 0
+        assert "## Classification Assist Diagnostics" not in report
+
+
+def test_cli_fixture_bm25_like_relevance_strategy_is_opt_in():
+    with TemporaryDirectory() as tmp:
+        code = main(
+            [
+                str(ROOT),
+                "--fixture",
+                "--keyword-query",
+                "fees tuition international",
+                "--relevance-strategy",
+                "bm25-like",
+                "--output-dir",
+                tmp,
+            ]
+        )
+        assert code == 0
+        data = json.loads((Path(tmp) / "result.json").read_text())
+        assert data["run"]["config"]["relevance_strategy"] == "bm25_like"
+        assert any(item["relevance_strategy"] == "bm25_like" for item in data["run"]["config"]["source_strategy"])
+
+
+def test_cli_bm25_like_relevance_strategy_requires_keyword_query():
+    with redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+        try:
+            main([str(ROOT), "--fixture", "--relevance-strategy", "bm25-like"])
+        except SystemExit as exc:
+            assert exc.code != 0
+        else:
+            raise AssertionError("bm25-like relevance strategy should require --keyword-query")
 
 
 def test_write_result_files_writes_json_and_markdown():
@@ -81,6 +248,22 @@ def test_cli_smoke_flag_caps_depth_and_provider_flags_are_guarded():
             assert exc.code != 0
         else:
             raise AssertionError("guarded LLM flag should exit non-zero")
+
+    with redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+        try:
+            main([str(ROOT), "--fixture", "--enable-classification-assist"])
+        except SystemExit as exc:
+            assert exc.code != 0
+        else:
+            raise AssertionError("classification assist should require guarded LLM opt-in")
+
+    with redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+        try:
+            main([str(ROOT), "--fixture", "--keyword-query", "fees", "--enable-llm", "--llm-provider", "openai"])
+        except SystemExit as exc:
+            assert exc.code != 0
+        else:
+            raise AssertionError("real LLM providers should remain guarded")
 
 
 def test_cli_live_http_writes_json_and_markdown_from_local_server():
@@ -159,6 +342,62 @@ def test_cli_config_batch_writes_per_university_outputs():
         data = json.loads(result.read_text())
         assert data["institution"]["name"]["value"] == "Example University"
         assert data["run"]["config"]["university_id"] == "example-u"
+
+
+def test_cli_config_batch_accepts_opt_in_keyword_plan_and_relevance_strategy():
+    with TemporaryDirectory() as config_tmp, TemporaryDirectory() as out_tmp:
+        config_path = Path(config_tmp) / "universities.json"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "universities": [
+                        {
+                            "id": "example-u",
+                            "name": "Example University",
+                            "seed_urls": ["https://example.edu/"],
+                            "allowed_domains": ["example.edu"],
+                            "max_pages": 2,
+                            "max_depth": 1,
+                            "mode": "live-http",
+                            "keyword_query": "fees tuition international",
+                            "relevance_strategy": "bm25-like",
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        with patch("university_admissions_crawler.cli.LiveHTTPFetcher", _FakeLiveHTTPFetcher):
+            code = main(["--config", str(config_path), "--output-dir", out_tmp])
+        assert code == 0
+        data = json.loads((Path(out_tmp) / "example-u" / "result.json").read_text())
+        report = (Path(out_tmp) / "example-u" / "report.md").read_text()
+        assert data["run"]["config"]["keyword_plan"]["query"] == "fees tuition international"
+        assert data["run"]["config"]["relevance_strategy"] == "bm25_like"
+        assert "## Keyword Plan" in report
+
+
+def test_cli_config_batch_bm25_like_requires_keyword_query():
+    with TemporaryDirectory() as config_tmp, TemporaryDirectory() as out_tmp:
+        config_path = Path(config_tmp) / "universities.json"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "id": "example-u",
+                    "name": "Example University",
+                    "seed_urls": ["https://example.edu/"],
+                    "relevance_strategy": "bm25-like",
+                }
+            ),
+            encoding="utf-8",
+        )
+        with redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+            try:
+                main(["--config", str(config_path), "--output-dir", out_tmp])
+            except SystemExit as exc:
+                assert exc.code != 0
+            else:
+                raise AssertionError("batch bm25-like relevance strategy should require keyword_query")
 
 
 class _FakeLiveHTTPFetcher:
