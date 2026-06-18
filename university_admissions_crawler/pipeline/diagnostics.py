@@ -223,6 +223,8 @@ def _missing_reason_for_attempts(attempts: list[dict[str, object]], portal_urls:
         return "context_gate_failed"
     if any(item.get("reason") == "undergraduate_context_gate_failed" for item in attempts):
         return "undergraduate_context_gate_failed"
+    if portal_urls:
+        return "application_portal_unreachable"
     if any(item.get("status") == "skipped" for item in attempts):
         return "manual_check_required"
     return "manual_check_required"

@@ -179,14 +179,37 @@ git diff --check -- README.md VERSION_NOTES.zh.md PROJECT_MAP.md docs/keyword-cr
 env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider
 ```
 
+### Step 5：收窄 portal/manual-check missing reason 边界
+
+修改文件：
+
+- `university_admissions_crawler/pipeline/diagnostics.py`
+- `tests/test_pipeline.py`
+- `docs/keyword-crawl-design.zh.md`
+
+目标：
+
+- 当字段没有 `no_match` 或 context gate 这类更具体失败，但本次 crawl 已发现 application portal / blocked challenge source 时，优先输出 `application_portal_unreachable`。
+- 保持 `attempted_no_match` 和 context gate 仍高于 portal reason。
+- 不把 portal reason 写成“官网没有提供字段”，只表示当前流程不能进入或不能使用该入口。
+
+验证方式：
+
+```bash
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_pipeline.py
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider
+git diff --check
+```
+
 ## 当前执行结果
 
-截至 2026-06-18，本阶段 Step 1 到 Step 4 已按最小风险路径执行：
+截至 2026-06-18，本阶段 Step 1 到 Step 5 已按最小风险路径执行：
 
 - Step 1 已修正 `missing_reasons` 优先级：同一字段同时存在 extractor `no_match` 与 context gate skipped 时，优先输出 `attempted_no_match`。
 - Step 2 已固定 NTU fees 边界：当前 saved source 只有官方 fee table/reference，继续保持 `raw_needs_manual_review`；新增 NTU-style amount-row fixture 证明 source 明确包含 `S$` 金额时可解析为结构化 `SGD` amount。
 - Step 3 已隔离检查 `run_university_scan.py`，确认现有 `_ExtractionDiagnosticsRecorder` 已覆盖当前收敛需求，因此没有修改主流程。
 - Step 4 已同步 `README.md`、`VERSION_NOTES.zh.md` 和 `PROJECT_MAP.md`，避免把 raw reference 写成结构化金额或 coverage 提升。
+- Step 5 已收窄 portal/manual-check 边界：当没有更具体 extractor/context 失败且存在 application portal / challenge source 时，优先输出 `application_portal_unreachable`，避免落入泛化 `manual_check_required`。
 
 当前完整验证结果：
 

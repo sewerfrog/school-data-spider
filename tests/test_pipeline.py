@@ -203,6 +203,36 @@ def test_missing_reasons_prefers_no_match_over_context_gate_when_both_exist():
     ]
 
 
+def test_missing_reasons_prefers_portal_over_generic_manual_check():
+    reasons = _missing_reasons(
+        {"missing": ["required_documents"]},
+        [
+            {
+                "url": "https://example.edu/admissions/requirements",
+                "attempts": [
+                    {
+                        "field": "required_documents",
+                        "extractor": "extract_required_document",
+                        "status": "skipped",
+                        "reason": "existing_value",
+                    }
+                ],
+            }
+        ],
+        [
+            {
+                "url": "https://apply.example.edu/login",
+                "strategy": "application_portal",
+            }
+        ],
+    )
+
+    assert reasons["required_documents"]["reason"] == "application_portal_unreachable"
+    assert reasons["required_documents"]["source_urls"] == [
+        "https://example.edu/admissions/requirements",
+    ]
+
+
 def test_classification_assist_records_low_confidence_diagnostics_without_changing_rule_category():
     data = run_fixture_scan(
         ROOT,
