@@ -23,13 +23,17 @@ Evidence-first MVP for extracting undergraduate admissions information from offi
   mock classification assist is enabled; zero-trigger runs remain visible, and
   candidates are not applied to facts.
 - Records source-level extraction diagnostics plus field-level
-  `missing_reasons` for missing core fields; these describe current
-  crawl/extractor outcomes and are not official absence evidence.
+  `missing_reasons` for missing core fields. Mixed extractor failures now
+  prefer `attempted_no_match` over context-gate skips, but these diagnostics
+  still describe current crawl/extractor outcomes and are not official absence
+  evidence.
 - Adds a lightweight cleaned-candidate layer for key fields: `raw_text`, `parsed`, and `parse_status`.
 - Parses common English test scores, fee amounts, and application dates when the raw text is specific enough; otherwise the raw candidate remains visible for manual review.
 - Keeps raw fee-table/reference candidates when an official undergraduate fee
   page exposes only table labels rather than amounts; these remain
-  `raw_needs_manual_review` and are not structured fee amounts.
+  `raw_needs_manual_review` and are not structured fee amounts. A fixture-backed
+  NTU-style amount-row case verifies that explicit `S$` values parse as
+  structured `SGD` amounts when the source actually contains them.
 - Filters undergraduate core extraction away from common pollution pages such as postgraduate/graduate pages, hall/accommodation pages, search pages, current-students pages, privacy/contact forms, and generic marketing pages unless they have strong undergraduate admissions context.
 - Records discovery relevance diagnostics under `run.config`, including per-source discovery score, relevance signals, and strategy name.
 - Supports reviewable keyword plans for discovery diagnostics through `--keyword-query`; by default these plans do not change crawl ordering.
@@ -134,23 +138,24 @@ Saved-source regression fixtures live under `tests/fixtures/saved_sources/`.
 The `outputs/` directory is for generated run output and should not be required
 by deterministic tests.
 
-Current feature-branch validation after the diagnostics, source-filtering, and
-NTU fee saved-source updates:
+Current feature-branch validation after the diagnostics, missing-reason
+priority, and NTU fee boundary updates:
 
 ```bash
 env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider
 python -m compileall -q university_admissions_crawler tests
 ```
 
-The latest local pytest run passed `112` tests.
+The latest local pytest run passed `114` tests.
 
-The focused target group used during the diagnostics/source-filtering work is:
+The focused target group used during the diagnostics/source-filtering/report
+work is:
 
 ```bash
 env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_filters.py tests/test_discovery.py tests/test_pipeline.py tests/test_report_cli.py
 ```
 
-The latest target-group run passed `57` tests.
+The latest target-group run passed `59` tests.
 
 ## Evidence and safety policy
 

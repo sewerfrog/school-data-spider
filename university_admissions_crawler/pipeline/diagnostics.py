@@ -217,12 +217,12 @@ def _missing_reasons(coverage: dict[str, object], extraction_entries: list[objec
 def _missing_reason_for_attempts(attempts: list[dict[str, object]], portal_urls: list[str]) -> str:
     if not attempts:
         return "application_portal_unreachable" if portal_urls else "not_attempted"
+    if any(item.get("status") == "no_match" for item in attempts):
+        return "attempted_no_match"
     if any(item.get("reason") == "context_gate_failed" for item in attempts):
         return "context_gate_failed"
     if any(item.get("reason") == "undergraduate_context_gate_failed" for item in attempts):
         return "undergraduate_context_gate_failed"
-    if any(item.get("status") == "no_match" for item in attempts):
-        return "attempted_no_match"
     if any(item.get("status") == "skipped" for item in attempts):
         return "manual_check_required"
     return "manual_check_required"

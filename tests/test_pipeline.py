@@ -9,6 +9,7 @@ from university_admissions_crawler.extractor.llm_provider import MockClassificat
 from university_admissions_crawler.extractor.html_extractor import extract_contact, extract_english_requirement, extract_fee
 from university_admissions_crawler.evidence.provenance import source_from_text
 from university_admissions_crawler.extractor.schema import SourceType
+from university_admissions_crawler.pipeline.diagnostics import _missing_reasons
 from university_admissions_crawler.pipeline.run_university_scan import run_fixture_scan, run_scan
 
 ROOT = Path("tests/fixtures/mini_university_site")
@@ -162,6 +163,44 @@ def test_pipeline_attaches_core_coverage_and_source_strategy():
     assert admissions_entry["relevance_strategy"] == "rule_based"
     assert "positive_keyword:admission" in admissions_entry["discovery_signals"]
     assert "path_relevance_hint:/admission" in admissions_entry["discovery_signals"]
+
+
+def test_missing_reasons_prefers_no_match_over_context_gate_when_both_exist():
+    reasons = _missing_reasons(
+        {"missing": ["fees"]},
+        [
+            {
+                "url": "https://example.edu/admissions/fees",
+                "attempts": [
+                    {
+                        "field": "fees",
+                        "extractor": "extract_fee",
+                        "status": "skipped",
+                        "reason": "context_gate_failed",
+                    }
+                ],
+            },
+            {
+                "url": "https://example.edu/admissions/tuition",
+                "attempts": [
+                    {
+                        "field": "fees",
+                        "extractor": "extract_fee",
+                        "status": "no_match",
+                        "reason": "category_route",
+                    }
+                ],
+            },
+        ],
+        [],
+    )
+
+    assert reasons["fees"]["reason"] == "attempted_no_match"
+    assert reasons["fees"]["attempts"] == 2
+    assert reasons["fees"]["source_urls"] == [
+        "https://example.edu/admissions/fees",
+        "https://example.edu/admissions/tuition",
+    ]
 
 
 def test_classification_assist_records_low_confidence_diagnostics_without_changing_rule_category():
@@ -340,6 +379,29 @@ def test_ntu_undergraduate_tuition_saved_source_extracts_fee_table_reference():
         attempt["field"] == "fees" and attempt["extractor"] == "extract_fee" and attempt["status"] == "extracted" and attempt["reason"] == "category_route"
         for attempt in fee_diagnostics["attempts"]
     )
+
+
+def test_ntu_undergraduate_tuition_amount_rows_parse_when_source_contains_values():
+    fee_url = "https://www.ntu.edu.sg/admissions/undergraduate/financial-matters/tuition-fees"
+    title = "Tuition Fees | NTU Singapore"
+    text = (
+        "Tuition Fees | NTU Singapore Undergraduate Financial Matters Tuition Fees "
+        "Full-Time Programmes Tuition Fees For Semester 1 and 2 Accepted programme offer in 2026 | "
+        "Singapore Citizen S$8,250 per year | "
+        "Permanent Resident S$11,550 per year | "
+        "International Student S$17,950 per year."
+    )
+    source = source_from_text(source_url=fee_url, source_type=SourceType.HTML, title=title, text=text)
+
+    record, evidence = extract_fee(text, source, "/fees/0/value")
+
+    assert record is not None
+    assert evidence
+    assert record.value.parse_status == "parsed"
+    parsed = {(item["currency"], item["amount"], item["student_group"], item["billing_period"]) for item in record.value.parsed}
+    assert ("SGD", 8250, "local", "per year") in parsed
+    assert ("SGD", 11550, "permanent resident", "per year") in parsed
+    assert ("SGD", 17950, "non-local", "per year") in parsed
 
 
 def test_pipeline_does_not_extract_polyu_hall_or_phd_fees_from_saved_sources():
