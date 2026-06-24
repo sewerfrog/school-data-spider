@@ -43,6 +43,46 @@ LOW_VALUE_DOCUMENT_TERMS: tuple[str, ...] = (
     "personal information collection",
 )
 
+DISALLOWED_SOURCE_PLAN_HOST_TERMS: tuple[str, ...] = (
+    "facebook.",
+    "instagram.",
+    "linkedin.",
+    "twitter.",
+    "x.com",
+    "youtube.",
+    "youtu.be",
+    "tiktok.",
+    "reddit.",
+    "quora.",
+    "medium.",
+)
+
+DISALLOWED_SOURCE_PLAN_PATH_TERMS: tuple[str, ...] = (
+    "/redirect",
+    "/redir",
+    "/outbound",
+    "/external",
+    "/tracking",
+    "/track",
+)
+
+CHALLENGE_URL_TERMS: tuple[str, ...] = (
+    "_incapsula_resource",
+    "captcha",
+    "access-denied",
+    "access_denied",
+)
+
+CHALLENGE_TEXT_TERMS: tuple[str, ...] = (
+    "captcha",
+    "cloudflare",
+    "access denied",
+    "verify you are human",
+    "enable javascript",
+    "bot detection",
+    "incapsula incident id",
+)
+
 
 @dataclass(slots=True)
 class DomainPolicy:
@@ -146,6 +186,24 @@ def is_low_value_source_url(url: str) -> bool:
     return False
 
 
+def looks_like_blocked_or_challenge_source(url: str, title: str | None = None, text: str = "") -> bool:
+    """Return whether a fetched page is clearly a bot/WAF challenge."""
+
+    url_title = f"{url} {title or ''}".lower()
+    text_head = text[:4000].lower()
+    if any(term in url_title for term in CHALLENGE_URL_TERMS):
+        return True
+    if any(term in text_head for term in CHALLENGE_TEXT_TERMS):
+        return True
+    if _has_noindex_nofollow(text_head):
+        return True
+    if "request unsuccessful" in text_head and any(term in text_head for term in ("incident id", "_incapsula_resource")):
+        return True
+    if _looks_like_short_script_challenge(text_head):
+        return True
+    return False
+
+
 def score_url(url: str, title: str | None = None, text: str | None = None) -> int:
     haystack = " ".join(v for v in [url, title or "", text or ""] if v).lower()
     score = sum(2 for kw in POSITIVE_KEYWORDS if kw in haystack)
@@ -172,6 +230,40 @@ def should_follow_url(url: str, policy: DomainPolicy) -> bool:
     if is_low_value_source_url(url):
         return False
     return score_url(url) >= -2
+
+
+def validate_source_plan_candidate_url(url: str, policy: DomainPolicy) -> tuple[bool, str]:
+    """Validate a model-suggested URL before it can become a crawl candidate."""
+
+    parsed = urlparse(url)
+    if parsed.scheme != "https":
+        return False, "non_https"
+    if not policy.is_allowed(url):
+        return False, "outside_allowed_domain"
+    host = normalize_host(parsed.netloc)
+    if any(term in host for term in DISALLOWED_SOURCE_PLAN_HOST_TERMS):
+        return False, "social_or_forum_url"
+    path = unquote(parsed.path).lower()
+    if any(term in path for term in DISALLOWED_SOURCE_PLAN_PATH_TERMS):
+        return False, "tracking_or_redirect_url"
+    query_names = {key.lower() for key, _value in parse_qsl(parsed.query, keep_blank_values=True)}
+    if query_names & set(TRACKING_QUERY_NAMES) or any(any(key.startswith(prefix) for prefix in TRACKING_QUERY_PREFIXES) for key in query_names):
+        return False, "tracking_or_redirect_url"
+    if is_low_value_source_url(url):
+        return False, "low_value_source_url"
+    return True, "accepted"
+
+
+def _has_noindex_nofollow(text_lower: str) -> bool:
+    return "noindex" in text_lower and "nofollow" in text_lower and ("robots" in text_lower or "<meta" in text_lower)
+
+
+def _looks_like_short_script_challenge(text_lower: str) -> bool:
+    if len(text_lower) > 2500:
+        return False
+    has_challenge_markup = "<iframe" in text_lower or "<script" in text_lower
+    has_challenge_signal = "_incapsula_resource" in text_lower or "challenge" in text_lower or "captcha" in text_lower
+    return has_challenge_markup and has_challenge_signal
 
 
 def _canonical_query(query: str) -> str:

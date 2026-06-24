@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from university_admissions_crawler.classifier.page_classifier import classify_page
@@ -11,6 +12,8 @@ from university_admissions_crawler.evidence.provenance import source_from_text
 from university_admissions_crawler.extractor.schema import SourceType
 from university_admissions_crawler.pipeline.diagnostics import _missing_reasons
 from university_admissions_crawler.pipeline.run_university_scan import run_fixture_scan, run_scan
+from university_admissions_crawler.pipeline.source_planning import attach_source_plan_diagnostics
+from university_admissions_crawler.extractor.llm_provider import MockSourcePlanProvider
 
 ROOT = Path("tests/fixtures/mini_university_site")
 SAVED = Path("tests/fixtures/saved_sources")
@@ -117,6 +120,143 @@ def test_pipeline_extracts_public_json_api_claims():
     assert any(record.value.value == "SGD 32000 per year" for record in data.fees)
 
 
+def test_pipeline_marks_nus_incapsula_page_as_blocked_challenge():
+    blocked_url = "https://www.nus.edu.sg/oam/undergraduate-programmes"
+    text = (SAVED / "nus/incapsula_challenge.html").read_text(encoding="utf-8")
+    fetcher = _SavedSinglePageFetcher(
+        {
+            blocked_url: ("Request unsuccessful", text),
+        }
+    )
+
+    data = run_scan(
+        blocked_url,
+        fetcher,
+        DiscoveryConfig(max_pages=1, max_depth=0, allowed_hosts={"www.nus.edu.sg"}, allowed_domains={"nus.edu.sg"}),
+    )
+
+    assert not data.programmes
+    assert not data.fees
+    assert not data.admissions.application_periods
+    blocked_entry = next(item for item in data.run.config["source_strategy"] if item["url"] == blocked_url)
+    assert blocked_entry["strategy"] == "blocked_or_challenge"
+    assert data.run.config["source_strategy_summary"]["blocked_or_challenge"] == 1
+    blocked_diagnostics = next(item for item in data.run.config["extraction_diagnostics"] if item["url"] == blocked_url)
+    assert blocked_diagnostics["source_acquisition_status"] == "blocked_or_challenge"
+    assert blocked_diagnostics["attempts"] == []
+    assert data.run.config["missing_reasons"]["programmes"]["reason"] == "source_not_crawled"
+    assert blocked_url in data.run.config["missing_reasons"]["programmes"]["source_urls"]
+
+
+def test_pipeline_mock_source_planning_triggers_on_blocked_source_without_changing_facts():
+    blocked_url = "https://www.nus.edu.sg/oam/undergraduate-programmes"
+    text = (SAVED / "nus/incapsula_challenge.html").read_text(encoding="utf-8")
+    fetcher = _SavedSinglePageFetcher(
+        {
+            blocked_url: ("Request unsuccessful", text),
+        }
+    )
+    data = run_scan(
+        blocked_url,
+        fetcher,
+        DiscoveryConfig(max_pages=1, max_depth=0, allowed_hosts={"www.nus.edu.sg"}, allowed_domains={"nus.edu.sg"}),
+    )
+
+    attach_source_plan_diagnostics(
+        data,
+        MockSourcePlanProvider(
+            {
+                "candidate_urls": [
+                    {
+                        "url": "https://www.nus.edu.sg/nusbulletin/ay202526/programmes/",
+                        "reason": "Official NUS Bulletin programmes index.",
+                        "expected_category": "programme_list",
+                    },
+                    {
+                        "url": "https://example.com/nus/admissions",
+                        "reason": "Unofficial mirror should be rejected.",
+                        "expected_category": "undergraduate_admissions",
+                    },
+                    {
+                        "url": "http://www.nus.edu.sg/admissions",
+                        "reason": "Non-HTTPS candidate should be rejected.",
+                        "expected_category": "undergraduate_admissions",
+                    },
+                ],
+                "candidate_queries": ["site:nus.edu.sg undergraduate admissions"],
+                "warnings": [],
+            }
+        ),
+    )
+
+    assert not data.programmes
+    assert not data.fees
+    source_plan = data.run.config["llm_source_plan"]
+    assert source_plan["enabled"] is True
+    assert source_plan["triggered"] is True
+    assert source_plan["applied"] is False
+    assert source_plan["trigger_reasons"] == ["blocked_or_challenge_source", "all_core_fields_missing"]
+    assert source_plan["candidate_urls"]
+    assert source_plan["accepted_candidate_urls"] == [
+        {
+            "url": "https://www.nus.edu.sg/nusbulletin/ay202526/programmes/",
+            "reason": "Official NUS Bulletin programmes index.",
+            "expected_category": "programme_list",
+            "validation_status": "accepted",
+        }
+    ]
+    rejected = {item["url"]: item["rejection_reason"] for item in source_plan["rejected_candidate_urls"]}
+    assert rejected["https://example.com/nus/admissions"] == "outside_allowed_domain"
+    assert rejected["http://www.nus.edu.sg/admissions"] == "non_https"
+    assert source_plan["candidate_queries"]
+
+
+def test_pipeline_nus_mock_source_planning_regression_keeps_candidates_diagnostic_only():
+    blocked_url = "https://www.nus.edu.sg/oam/undergraduate-programmes"
+    text = (SAVED / "nus/incapsula_challenge.html").read_text(encoding="utf-8")
+    payload = json.loads((Path("tests/fixtures/llm/source_plan_nus.json")).read_text(encoding="utf-8"))
+    fetcher = _SavedSinglePageFetcher(
+        {
+            blocked_url: ("Request unsuccessful", text),
+        }
+    )
+
+    data = run_scan(
+        blocked_url,
+        fetcher,
+        DiscoveryConfig(max_pages=1, max_depth=0, allowed_hosts={"www.nus.edu.sg"}, allowed_domains={"nus.edu.sg"}),
+    )
+    attach_source_plan_diagnostics(data, MockSourcePlanProvider(payload))
+
+    assert fetcher.fetched == [blocked_url]
+    assert data.run.config["source_strategy"][0]["strategy"] == "blocked_or_challenge"
+    assert data.run.config["missing_reasons"]["programmes"]["reason"] == "source_not_crawled"
+    assert not data.programmes
+    assert not data.fees
+    assert not data.admissions.application_periods
+
+    source_plan = data.run.config["llm_source_plan"]
+    assert source_plan["triggered"] is True
+    assert source_plan["applied"] is False
+    accepted_urls = [item["url"] for item in source_plan["accepted_candidate_urls"]]
+    assert accepted_urls == [
+        "https://www.nus.edu.sg/nusbulletin/ay202526/programmes/",
+        "https://www.nus.edu.sg/nusbulletin/ay202526/programmes/school-of-computing/undergraduate-education/",
+        "https://chs.nus.edu.sg/programmes/",
+    ]
+    assert all(item["validation_status"] == "accepted" for item in source_plan["accepted_candidate_urls"])
+    rejected = {item["url"]: item["rejection_reason"] for item in source_plan["rejected_candidate_urls"]}
+    assert rejected == {
+        "https://example.com/nus/admissions": "outside_allowed_domain",
+    }
+    assert source_plan["candidate_queries"] == [
+        "site:nus.edu.sg undergraduate admissions application period NUS",
+        "site:nus.edu.sg nus bulletin undergraduate programmes",
+    ]
+    source_urls = {source.source_url for source in data.sources}
+    assert set(accepted_urls).isdisjoint(source_urls)
+
+
 def test_pipeline_uses_html_table_text_for_extraction():
     result = FixtureFetcher(ROOT).fetch("https://fixture.test/table-fees.html")
     assert "International undergraduate | Tuition is SGD 45000 per year." in result.markdown
@@ -151,6 +291,7 @@ def test_pipeline_attaches_core_coverage_and_source_strategy():
             "attempted_no_match",
             "context_gate_failed",
             "undergraduate_context_gate_failed",
+            "source_not_crawled",
             "application_portal_unreachable",
             "manual_check_required",
         }
@@ -231,6 +372,38 @@ def test_missing_reasons_prefers_portal_over_generic_manual_check():
     assert reasons["required_documents"]["source_urls"] == [
         "https://example.edu/admissions/requirements",
     ]
+
+
+def test_missing_reasons_prefers_source_acquisition_failure_for_blocked_source_attempts():
+    blocked_url = "https://www.nus.edu.sg/oam/undergraduate-programmes"
+    reasons = _missing_reasons(
+        {"missing": ["programmes"]},
+        [
+            {
+                "url": blocked_url,
+                "source_acquisition_status": "blocked_or_challenge",
+                "attempts": [
+                    {
+                        "field": "programmes",
+                        "extractor": "extract_programmes",
+                        "status": "no_match",
+                        "reason": "category_route",
+                    }
+                ],
+            }
+        ],
+        [
+            {
+                "url": blocked_url,
+                "strategy": "blocked_or_challenge",
+            }
+        ],
+    )
+
+    assert reasons["programmes"]["reason"] == "source_not_crawled"
+    assert reasons["programmes"]["attempts"] == 1
+    assert reasons["programmes"]["attempted_extractors"] == ["extract_programmes"]
+    assert reasons["programmes"]["source_urls"] == [blocked_url]
 
 
 def test_classification_assist_records_low_confidence_diagnostics_without_changing_rule_category():
@@ -471,8 +644,10 @@ class _SavedSinglePageFetcher:
 
     def __init__(self, pages):
         self.pages = pages
+        self.fetched = []
 
     def fetch(self, url: str) -> FetchResult:
+        self.fetched.append(url)
         title, text = self.pages[url]
         links = []
         if url == "https://fixture.test/":

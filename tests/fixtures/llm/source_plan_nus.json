@@ -1,0 +1,29 @@
+{
+  "candidate_urls": [
+    {
+      "url": "https://www.nus.edu.sg/nusbulletin/ay202526/programmes/",
+      "reason": "Official NUS Bulletin programmes index.",
+      "expected_category": "programme_list"
+    },
+    {
+      "url": "https://www.nus.edu.sg/nusbulletin/ay202526/programmes/school-of-computing/undergraduate-education/",
+      "reason": "Official NUS Bulletin undergraduate programme page for School of Computing.",
+      "expected_category": "programme_list"
+    },
+    {
+      "url": "https://chs.nus.edu.sg/programmes/",
+      "reason": "Official NUS College of Humanities and Sciences programmes page.",
+      "expected_category": "programme_list"
+    },
+    {
+      "url": "https://example.com/nus/admissions",
+      "reason": "Unofficial mirror-like page that must be rejected.",
+      "expected_category": "undergraduate_admissions"
+    }
+  ],
+  "candidate_queries": [
+    "site:nus.edu.sg undergraduate admissions application period NUS",
+    "site:nus.edu.sg nus bulletin undergraduate programmes"
+  ],
+  "warnings": []
+}

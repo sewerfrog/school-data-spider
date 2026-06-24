@@ -1,4 +1,9 @@
-from university_admissions_crawler.crawler.filters import DomainPolicy, canonicalize_url, is_low_value_source_url, is_pdf_url, score_url, should_follow_url
+from pathlib import Path
+
+from university_admissions_crawler.crawler.filters import DomainPolicy, canonicalize_url, is_low_value_source_url, is_pdf_url, looks_like_blocked_or_challenge_source, score_url, should_follow_url, validate_source_plan_candidate_url
+
+
+SAVED = Path("tests/fixtures/saved_sources")
 
 
 def test_canonicalize_url_drops_fragments_tracking_and_sorts_query():
@@ -70,3 +75,57 @@ def test_low_value_document_filter_keeps_admissions_pdf_counterexamples():
     for url in urls:
         assert not is_low_value_source_url(url)
         assert should_follow_url(url, policy)
+
+
+def test_blocked_or_challenge_detector_recognizes_incapsula_fixture():
+    text = (SAVED / "nus/incapsula_challenge.html").read_text(encoding="utf-8")
+
+    assert looks_like_blocked_or_challenge_source(
+        "https://www.nus.edu.sg/oam/undergraduate-programmes",
+        "Request unsuccessful",
+        text,
+    )
+
+
+def test_blocked_or_challenge_detector_recognizes_common_block_pages():
+    assert looks_like_blocked_or_challenge_source(
+        "https://admissions.example.edu/apply",
+        "Access Denied",
+        "Access Denied. Please enable JavaScript and complete the captcha.",
+    )
+    assert looks_like_blocked_or_challenge_source(
+        "https://admissions.example.edu/_Incapsula_Resource?SWUDNSAI=1",
+        None,
+        "",
+    )
+
+
+def test_blocked_or_challenge_detector_keeps_regular_admissions_pages():
+    text = (
+        "Undergraduate Admissions. Applications open on 1 October 2026. "
+        "Students should review programme requirements, tuition fees, scholarships, and contact details."
+    )
+
+    assert not looks_like_blocked_or_challenge_source(
+        "https://admissions.example.edu/undergraduate",
+        "Undergraduate Admissions",
+        text,
+    )
+
+
+def test_source_plan_candidate_url_validation_accepts_official_https_subdomains():
+    policy = DomainPolicy("https://www.nus.edu.sg/oam/undergraduate-programmes", allowed_domains={"nus.edu.sg"})
+
+    assert validate_source_plan_candidate_url("https://www.nus.edu.sg/nusbulletin/ay202526/programmes/", policy) == (True, "accepted")
+    assert validate_source_plan_candidate_url("https://chs.nus.edu.sg/programmes/", policy) == (True, "accepted")
+    assert validate_source_plan_candidate_url("https://dentistry.nus.edu.sg/education/undergraduate/", policy) == (True, "accepted")
+
+
+def test_source_plan_candidate_url_validation_rejects_unsafe_or_unofficial_urls():
+    policy = DomainPolicy("https://www.nus.edu.sg/oam/undergraduate-programmes", allowed_domains={"nus.edu.sg"})
+
+    assert validate_source_plan_candidate_url("http://www.nus.edu.sg/admissions", policy) == (False, "non_https")
+    assert validate_source_plan_candidate_url("https://example.com/nus/admissions", policy) == (False, "outside_allowed_domain")
+    assert validate_source_plan_candidate_url("https://facebook.com/nusadmissions", policy) == (False, "outside_allowed_domain")
+    assert validate_source_plan_candidate_url("https://www.nus.edu.sg/redirect?target=https://example.com", policy) == (False, "tracking_or_redirect_url")
+    assert validate_source_plan_candidate_url("https://www.nus.edu.sg/files/privacy-notice.pdf", policy) == (False, "low_value_source_url")
