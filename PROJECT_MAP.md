@@ -22,9 +22,9 @@
 - 报告输出：生成 Markdown evidence report。
 - 增量 diff：传入 previous result 时记录 source hash 和字段变化。
 - source filtering：抓取前过滤明显静态资源和 privacy/GDPR/cookie/terms 类低价值文档，并用 admissions prospectus、entry requirements、tuition fees、programme requirements PDF 反例保护误删边界。
-- diagnostics：`classification_assist_summary`、`extraction_diagnostics_summary` 和 `missing_reasons` 已写入 `run.config`，报告会在 facts 前展示相关诊断；这些内容不改变事实字段。
-- saved-source 回归：NTU undergraduate tuition fee 页面已能通过 fee context gate，并在没有具体金额时抽取官网 fee table/reference raw candidate，`parse_status` 保持 `raw_needs_manual_review`。
-- 测试：`.venv314` 环境下当前完整 pytest 结果为 `112 passed`；本轮 diagnostics/source-filtering/report 目标测试组为 `57 passed`。
+- diagnostics：`classification_assist_summary`、`extraction_diagnostics_summary` 和 `missing_reasons` 已写入 `run.config`，报告会在 facts 前展示相关诊断；这些内容不改变事实字段。字段级缺失原因和抽取器修复细节见 `docs/keyword-crawl-design.zh.md`。
+- saved-source 回归：HKU/NTU/PolyU 相关回归 fixture 已迁到 `tests/fixtures/saved_sources/`；NTU fee 当前能力边界见 `docs/keyword-crawl-design.zh.md`。
+- 测试：`.venv314` 环境下当前完整 pytest 结果为 `114 passed`；本轮 diagnostics/source-filtering/report 目标测试组为 `59 passed`。
 
 ## 3. 未完成或实验性功能
 
@@ -143,7 +143,7 @@ python3 -m compileall university_admissions_crawler tests
 - `cli.py` 和 `pipeline/batch.py` 之间仍有相似 URL/domain helper 逻辑；为避免扩大行为变更，本轮未抽公共 helper。
 - `pipeline/run_university_scan.py` 职责偏重：调度、分类分流、抽取、PDF、补抽取、diff 混在一起。
 - `pipeline/run_university_scan.py` 新增 diagnostics 插桩后可读性继续下降；当前已用 `_ExtractionDiagnosticsRecorder` 收敛重复记录，但后续不应继续把更多诊断逻辑塞进主循环。
-- `missing_reasons` 是当前抓取和 extractor 尝试的诊断，不是官网字段缺失证明；当同一字段存在多种失败路径时，字段级归因优先级仍可优化。
+- `missing_reasons` 是当前抓取和 extractor 尝试的诊断，不是官网字段缺失证明；字段级 reason 的详细边界和后续修复循环见 `docs/keyword-crawl-design.zh.md`。
 - source filtering 对 HKU 类站点有降噪收益，但低价值文档过滤仍有少量误删风险；招生 prospectus / entry requirements / tuition fees / programme requirements PDF 反例测试需要继续保留。
 - NTU undergraduate fees 当前只能抽到官网 fee table/reference raw candidate，不是结构化金额。若要拿到具体金额，需要后续解析或抓取实际 fee table 内容。
 - `crawler/fetcher.py` 文件仍偏大：fixture/live/browser fetcher 和 PDF HTTP fallback 仍在同一文件；HTML 文本化 helper 已拆到 `crawler/html_text.py`，JSON link/text helper 已拆到 `crawler/json_content.py`，optional stubs 已拆到 `crawler/optional_stubs.py`，fetch result 类型已拆到 `crawler/types.py`，source/content-type 判断已拆到 `crawler/source_types.py`。
@@ -181,8 +181,7 @@ python3 -m compileall university_admissions_crawler tests
 18. 已从 `crawler/fetcher.py` 拆出 `FetchResult` / `Fetcher` 到 `crawler/types.py`，并保留 `crawler.fetcher` re-export 兼容路径。当前最新完整验证见第 2 节。
 19. 已从 `crawler/fetcher.py` 拆出 source type/content type helper 到 `crawler/source_types.py`，并保留 `crawler.fetcher` private helper 兼容名。当前验证同上。
 20. 已在 `pipeline/batch.py` 抽出 `_scan_limits_for_config()`，只集中 batch `max_pages` / `max_depth` 计算，未改变 `parser.error()` 或 `print()` 行为。当前验证同上。
-21. 已补 Step 6 diagnostics/source filtering 能力：classification assist 零触发 summary、source-level extraction diagnostics、field-level missing reasons、低价值 source 过滤边界测试。当前最新完整验证见第 2 节。
-22. 已修 NTU undergraduate tuition fee saved-source 路径：先固化 context gate 回归，再修 fee context gate，最后补窄范围 fee-table/reference fallback。当前最新完整验证见第 2 节。
+21. 已补 diagnostics/source filtering 与 Phase 2 字段级诊断能力：classification assist summary、source-level extraction diagnostics、field-level missing reasons、低价值 source 过滤边界测试，以及 NTU fee raw/reference 与 amount-row 解析边界测试。专题设计和执行记录见 `docs/keyword-crawl-design.zh.md`；当前最新完整验证见第 2 节。
 
 建议的后续顺序：
 
@@ -192,6 +191,5 @@ python3 -m compileall university_admissions_crawler tests
 4. 处理未使用或半使用接口：`CrawlConfig` / `smoke_config()`、`parse_sitemap_urls()`、`source_hashes()`、`_looks_like_false_english_requirement()` 当前已有边界测试。下一步应先决定是否进入真实调用路径，而不是直接删除。风险：SAFE 到 MEDIUM。
 5. 对未填充 schema 字段做兼容性决策：`international_requirements`、`standardized_tests`、`selection_tests_or_interviews` 应标为 experimental、补 pipeline 行为，或在兼容计划后移除。风险：MEDIUM 到 HIGH。
 6. 评估 `outputs/nus-live-programmes/` 和 `outputs/batch*/` 中仍有价值的样例是否迁到 `docs/examples/` 或保留清单。任何移动或删除都需要人工确认。风险：MEDIUM。
-7. 优化 `missing_reasons` 字段级归因优先级，使同一字段多个 source 失败路径时优先展示最接近真实瓶颈的结果。风险：SAFE 到 MEDIUM。
-8. 继续完善 NTU fees：当前只确认官方 fee table/reference，后续若要结构化金额，需要先拿到真实 table 内容并加 fixture-backed extractor 测试。风险：MEDIUM。
-9. 不要一次性重写 extractor，也不要随便引入新依赖；先用 fixture-backed tests 支撑小步重构，再针对复杂 table、PDF、programme 抽取补专项能力。风险：HIGH。
+7. 继续执行 `docs/keyword-crawl-design.zh.md` 中的字段级诊断和 extractor 修复循环：portal/manual-check/absence-evidence 边界、真实 fee table 解析、复杂 table/PDF/programme 抽取都应使用 fixture-backed tests 小步推进。风险：MEDIUM 到 HIGH。
+8. 不要一次性重写 extractor，也不要随便引入新依赖；先用 fixture-backed tests 支撑小步重构，再针对复杂 table、PDF、programme 抽取补专项能力。风险：HIGH。

@@ -25,6 +25,7 @@ def render_markdown_report(data: AdmissionsData) -> str:
     _llm_keyword_plan(lines, data)
     _classification_assist(lines, data)
     _source_strategy(lines, data)
+    _source_planning(lines, data)
     _extraction_diagnostics(lines, data)
     _missing_reasons(lines, data)
 
@@ -205,6 +206,65 @@ def _source_strategy(lines: list[str], data: AdmissionsData) -> None:
     for label, count in summary.items():
         lines.append(f"- `{label}`: {count}")
     lines.append("")
+
+
+def _source_planning(lines: list[str], data: AdmissionsData) -> None:
+    diagnostics = data.run.config.get("llm_source_plan")
+    if not isinstance(diagnostics, dict):
+        return
+
+    summary = data.run.config.get("source_strategy_summary")
+    blocked_count = 0
+    if isinstance(summary, dict):
+        raw_count = summary.get("blocked_or_challenge")
+        if isinstance(raw_count, int):
+            blocked_count = raw_count
+
+    lines.append("## Source Planning Diagnostics")
+    lines.append("")
+    lines.append(f"- Enabled: {diagnostics.get('enabled', False)}")
+    lines.append(f"- Triggered: {diagnostics.get('triggered', False)}")
+    lines.append(f"- Provider: `{diagnostics.get('provider', 'unknown')}`")
+    lines.append(f"- Fallback: {diagnostics.get('fallback', False)}")
+    lines.append(f"- Applied: {diagnostics.get('applied', False)}")
+    lines.append(f"- Blocked/challenge sources: {blocked_count}")
+    triggers = diagnostics.get("trigger_reasons") or []
+    if isinstance(triggers, list) and triggers:
+        lines.append(f"- Trigger reasons: {', '.join(f'`{trigger}`' for trigger in triggers)}")
+    _source_plan_candidates(lines, "Accepted candidate URLs", diagnostics.get("accepted_candidate_urls") or [])
+    _source_plan_candidates(lines, "Rejected candidate URLs", diagnostics.get("rejected_candidate_urls") or [])
+    queries = diagnostics.get("candidate_queries") or []
+    if isinstance(queries, list) and queries:
+        lines.append("- Candidate queries:")
+        for query in queries[:10]:
+            lines.append(f"  - {query}")
+        if len(queries) > 10:
+            lines.append(f"  - Omitted queries: {len(queries) - 10}")
+    warnings = diagnostics.get("warnings") or []
+    if isinstance(warnings, list) and warnings:
+        lines.append(f"- Warnings: {', '.join(str(warning) for warning in warnings)}")
+    note = diagnostics.get("note")
+    if note:
+        lines.append(f"- Note: {note}")
+    lines.append("- Note: source planning diagnostics are not admissions facts.")
+    lines.append("")
+
+
+def _source_plan_candidates(lines: list[str], title: str, candidates: object) -> None:
+    items = [item for item in candidates if isinstance(item, dict)] if isinstance(candidates, list) else []
+    lines.append(f"- {title}: {len(items)}")
+    for item in items[:10]:
+        url = item.get("url", "unknown")
+        category = item.get("expected_category", "unknown")
+        reason = item.get("reason", "")
+        line = f"  - {url} (`{category}`)"
+        if title.startswith("Rejected"):
+            line += f" rejected `{item.get('rejection_reason', 'unknown')}`"
+        if reason:
+            line += f": {reason}"
+        lines.append(line)
+    if len(items) > 10:
+        lines.append(f"  - Omitted candidates: {len(items) - 10}")
 
 
 def _extraction_diagnostics(lines: list[str], data: AdmissionsData) -> None:

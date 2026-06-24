@@ -10,12 +10,13 @@ from university_admissions_crawler.crawler.discovery import DiscoveryConfig
 from university_admissions_crawler.crawler.fetcher import LiveHTTPFetcher, PlaywrightBrowserFetcher
 from university_admissions_crawler.crawler.relevance import build_relevance_strategy
 from university_admissions_crawler.evidence.store import load_previous_result
-from university_admissions_crawler.extractor.llm_provider import MockClassificationAssistProvider, MockKeywordPlanProvider, generate_keyword_plan_with_fallback
+from university_admissions_crawler.extractor.llm_provider import MockClassificationAssistProvider, MockKeywordPlanProvider, MockSourcePlanProvider, generate_keyword_plan_with_fallback
 from university_admissions_crawler.extractor.pdf_extractor import PypdfPDFExtractor
 from university_admissions_crawler.pipeline.batch import _run_batch
 from university_admissions_crawler.pipeline.diagnostics import inferred_allowed_domain
 from university_admissions_crawler.pipeline.output_writer import write_result_files
 from university_admissions_crawler.pipeline.run_university_scan import run_fixture_scan, run_scan
+from university_admissions_crawler.pipeline.source_planning import attach_source_plan_diagnostics
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -36,6 +37,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--enable-llm", action="store_true", help="Guarded future LLM mode; unsupported in this offline MVP")
     parser.add_argument("--llm-provider", choices=["mock", "openai", "anthropic", "gemini"], help="Reserved provider selector for future guarded LLM mode")
     parser.add_argument("--enable-classification-assist", action="store_true", help="Record mock LLM diagnostics for low-confidence page classifications; does not change extraction")
+    parser.add_argument("--enable-source-planning", action="store_true", help="Record mock LLM diagnostics with candidate official source hints; does not crawl candidates or change facts")
     parser.add_argument("--keyword-query", help="Optional user keyword query recorded as a reviewable keyword plan; does not change crawl behavior yet")
     parser.add_argument("--relevance-strategy", default="rule-based", choices=["rule-based", "bm25-like"], help="Opt-in discovery relevance strategy; default preserves existing rule-based scoring")
     parser.add_argument("--enable-browser", action="store_true", help="Use Playwright browser-backed live crawling for JavaScript-rendered pages")
@@ -55,10 +57,12 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--llm-provider requires --enable-llm.")
     if args.enable_classification_assist and not args.enable_llm:
         parser.error("--enable-classification-assist requires --enable-llm.")
+    if args.enable_source_planning and not args.enable_llm:
+        parser.error("--enable-source-planning requires --enable-llm.")
     if args.enable_llm and args.llm_provider != "mock":
         parser.error("Only --llm-provider mock is supported for guarded keyword-plan generation.")
-    if args.enable_llm and not args.keyword_query and not args.enable_classification_assist:
-        parser.error("--enable-llm requires --keyword-query so generated plans remain reviewable.")
+    if args.enable_llm and not args.keyword_query and not args.enable_classification_assist and not args.enable_source_planning:
+        parser.error("--enable-llm requires --keyword-query, --enable-classification-assist, or --enable-source-planning.")
     if args.enable_scrapegraph:
         parser.error("ScrapeGraphAI mode is guarded and not implemented in this offline MVP.")
     if args.config:
@@ -80,6 +84,7 @@ def main(argv: list[str] | None = None) -> int:
     llm_keyword_plan_diagnostics = None
     keyword_plan_override = None
     classification_assist_provider = MockClassificationAssistProvider() if args.enable_classification_assist else None
+    source_plan_provider = MockSourcePlanProvider() if args.enable_source_planning else None
     if args.enable_llm and args.keyword_query:
         llm_result = generate_keyword_plan_with_fallback(args.keyword_query, MockKeywordPlanProvider())
         keyword_plan_override = llm_result.keyword_plan
@@ -108,6 +113,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         if llm_keyword_plan_diagnostics is not None:
             data.run.config["llm_keyword_plan"] = llm_keyword_plan_diagnostics
+        if source_plan_provider is not None:
+            attach_source_plan_diagnostics(data, source_plan_provider)
     else:
         seed_url = _require_live_url(parser, args.input)
         fetcher = (
@@ -138,6 +145,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         if llm_keyword_plan_diagnostics is not None:
             data.run.config["llm_keyword_plan"] = llm_keyword_plan_diagnostics
+        if source_plan_provider is not None:
+            attach_source_plan_diagnostics(data, source_plan_provider)
     result_path, report_path = write_result_files(data, output_dir)
     print(f"Wrote {result_path}")
     print(f"Wrote {report_path}")

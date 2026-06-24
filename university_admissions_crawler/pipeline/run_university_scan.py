@@ -189,12 +189,13 @@ def run_scan(
                 title=result.title,
             )
         )
+        strategy = source_strategy_for(result.source.source_type, result.final_url, result.title, text, classification.category)
         data.run.config.setdefault("source_strategy", []).append(
             {
                 "url": result.final_url,
                 "source_type": str(result.source.source_type),
                 "category": str(classification.category),
-                "strategy": source_strategy_for(result.source.source_type, result.final_url, result.title, text, classification.category),
+                "strategy": strategy,
                 "discovery_score": discovery_diagnostics.score,
                 "discovery_signals": list(discovery_diagnostics.signals),
                 "relevance_strategy": discovery_diagnostics.strategy,
@@ -202,14 +203,18 @@ def run_scan(
         )
         extraction_attempts: list[dict[str, object]] = []
         extraction_recorder = _ExtractionDiagnosticsRecorder(extraction_attempts)
-        data.run.config.setdefault("extraction_diagnostics", []).append(
-            {
-                "url": result.final_url,
-                "source_type": str(result.source.source_type),
-                "category": str(classification.category),
-                "attempts": extraction_attempts,
-            }
-        )
+        extraction_entry = {
+            "url": result.final_url,
+            "source_type": str(result.source.source_type),
+            "category": str(classification.category),
+            "attempts": extraction_attempts,
+        }
+        if strategy == "blocked_or_challenge":
+            extraction_entry["source_acquisition_status"] = "blocked_or_challenge"
+        data.run.config.setdefault("extraction_diagnostics", []).append(extraction_entry)
+
+        if strategy == "blocked_or_challenge":
+            continue
 
         if classification.category == PageCategory.UNDERGRADUATE_ADMISSIONS:
             claim_path = f"/admissions/application_periods/{len(data.admissions.application_periods)}/value"

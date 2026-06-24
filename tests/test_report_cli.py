@@ -7,12 +7,15 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from university_admissions_crawler.cli import main
+from university_admissions_crawler.crawler.discovery import DiscoveryConfig
 from university_admissions_crawler.crawler.fetcher import FetchResult
 from university_admissions_crawler.crawler.relevance import keyword_plan_from_query
 from university_admissions_crawler.evidence.provenance import source_from_text
+from university_admissions_crawler.extractor.llm_provider import MockSourcePlanProvider
 from university_admissions_crawler.extractor.schema import SourceType
 from university_admissions_crawler.pipeline.output_writer import write_result_files
-from university_admissions_crawler.pipeline.run_university_scan import run_fixture_scan
+from university_admissions_crawler.pipeline.run_university_scan import run_fixture_scan, run_scan
+from university_admissions_crawler.pipeline.source_planning import attach_source_plan_diagnostics
 from university_admissions_crawler.reports.render_report import render_markdown_report
 
 ROOT = Path("tests/fixtures/mini_university_site")
@@ -79,6 +82,7 @@ def test_cli_fixture_smoke_writes_json_and_markdown():
         assert data["run"]["config"]["extraction_diagnostics_summary"]["attempts_count"] > 0
         assert set(data["run"]["config"]["missing_reasons"]) == set(data["run"]["config"]["coverage"]["missing"])
         assert "keyword_plan" not in data["run"]["config"]
+        assert "llm_source_plan" not in data["run"]["config"]
         assert "Evidence appendix" in report.read_text()
 
 
@@ -118,6 +122,82 @@ def test_cli_fixture_mock_llm_generates_reviewable_keyword_plan():
         assert data["run"]["config"]["llm_keyword_plan"]["provider"] == "mock"
         assert data["run"]["config"]["llm_keyword_plan"]["fallback"] is False
         assert "## LLM Keyword Plan Diagnostics" in report
+
+
+def test_cli_fixture_mock_source_planning_records_diagnostics_only():
+    with TemporaryDirectory() as tmp:
+        code = main(
+            [
+                str(ROOT),
+                "--fixture",
+                "--seed-url",
+                "https://fixture.test/realistic-admissions.html",
+                "--max-pages",
+                "1",
+                "--max-depth",
+                "0",
+                "--enable-llm",
+                "--llm-provider",
+                "mock",
+                "--enable-source-planning",
+                "--output-dir",
+                tmp,
+            ]
+        )
+        assert code == 0
+        data = json.loads((Path(tmp) / "result.json").read_text())
+        source_plan = data["run"]["config"]["llm_source_plan"]
+        assert source_plan["enabled"] is True
+        assert source_plan["triggered"] is False
+        assert source_plan["applied"] is False
+        assert source_plan["candidate_urls"] == []
+        assert source_plan["candidate_queries"] == []
+
+
+def test_markdown_report_shows_source_planning_diagnostics_before_facts():
+    seed_url = "https://www.nus.edu.sg/oam/undergraduate-programmes"
+    text = Path("tests/fixtures/saved_sources/nus/incapsula_challenge.html").read_text(encoding="utf-8")
+    data = run_scan(
+        seed_url,
+        _SinglePageFetcher(text),
+        DiscoveryConfig(max_pages=1, max_depth=0, allowed_domains={"nus.edu.sg"}),
+    )
+    attach_source_plan_diagnostics(
+        data,
+        MockSourcePlanProvider(
+            {
+                "candidate_urls": [
+                    {
+                        "url": "https://www.nus.edu.sg/nusbulletin/ay202526/programmes/",
+                        "reason": "Official NUS Bulletin programmes index.",
+                        "expected_category": "programme_list",
+                    },
+                    {
+                        "url": "https://example.com/nus/admissions",
+                        "reason": "Unofficial mirror-like page.",
+                        "expected_category": "undergraduate_admissions",
+                    },
+                ],
+                "candidate_queries": ["site:nus.edu.sg nus bulletin undergraduate programmes"],
+                "warnings": [],
+            }
+        ),
+    )
+
+    report = render_markdown_report(data)
+
+    assert "## Source Planning Diagnostics" in report
+    assert report.index("## Source Planning Diagnostics") < report.index("## Facts")
+    assert "- Enabled: True" in report
+    assert "- Triggered: True" in report
+    assert "- Applied: False" in report
+    assert "- Blocked/challenge sources: 1" in report
+    assert "- Accepted candidate URLs: 1" in report
+    assert "https://www.nus.edu.sg/nusbulletin/ay202526/programmes/" in report
+    assert "- Rejected candidate URLs: 1" in report
+    assert "https://example.com/nus/admissions" in report
+    assert "rejected `outside_allowed_domain`" in report
+    assert "source planning diagnostics are not admissions facts" in report
 
 
 def test_cli_fixture_mock_classification_assist_records_diagnostics_only():
@@ -256,6 +336,14 @@ def test_cli_smoke_flag_caps_depth_and_provider_flags_are_guarded():
             assert exc.code != 0
         else:
             raise AssertionError("classification assist should require guarded LLM opt-in")
+
+    with redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+        try:
+            main([str(ROOT), "--fixture", "--enable-source-planning"])
+        except SystemExit as exc:
+            assert exc.code != 0
+        else:
+            raise AssertionError("source planning should require guarded LLM opt-in")
 
     with redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
         try:
@@ -449,5 +537,35 @@ class _FakeLiveHTTPFetcher:
             engine=self.engine,
             text=text,
             markdown=text,
+            source=source,
+        )
+
+
+class _SinglePageFetcher:
+    engine = "single-page-test"
+
+    def __init__(self, text: str) -> None:
+        self.text = text
+
+    def fetch(self, url: str) -> FetchResult:
+        source = source_from_text(
+            source_url=url,
+            source_type=SourceType.HTML,
+            title="Request unsuccessful",
+            text=self.text,
+            retrieved_at="2026-06-01T00:00:00+00:00",
+            engine=self.engine,
+        )
+        return FetchResult(
+            url=url,
+            final_url=url,
+            status=200,
+            title="Request unsuccessful",
+            content_type="text/html",
+            retrieved_at="2026-06-01T00:00:00+00:00",
+            engine=self.engine,
+            text=self.text,
+            markdown=self.text,
+            links=[],
             source=source,
         )

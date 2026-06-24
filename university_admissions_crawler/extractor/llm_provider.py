@@ -10,9 +10,38 @@ from university_admissions_crawler.crawler.relevance import KEYWORD_PLAN_OUTPUT_
 from university_admissions_crawler.extractor.schema import EvidenceItem, PageCategory, WarningCode, WarningRecord
 
 
+MAX_SOURCE_PLAN_URLS = 20
+MAX_SOURCE_PLAN_QUERIES = 20
+MAX_SOURCE_PLAN_REASON_LENGTH = 240
+MAX_SOURCE_PLAN_QUERY_LENGTH = 160
+MAX_SOURCE_PLAN_URL_LENGTH = 300
+MAX_SOURCE_PLAN_CATEGORY_LENGTH = 80
 MAX_CLASSIFICATION_REASON_LENGTH = 300
 MAX_CLASSIFICATION_SIGNAL_LENGTH = 80
 MAX_CLASSIFICATION_SIGNALS = 20
+SOURCE_PLAN_OUTPUT_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "required": ["candidate_urls", "candidate_queries", "warnings"],
+    "properties": {
+        "candidate_urls": {
+            "type": "array",
+            "maxItems": MAX_SOURCE_PLAN_URLS,
+            "items": {
+                "type": "object",
+                "required": ["url", "reason", "expected_category"],
+                "properties": {
+                    "url": {"type": "string", "maxLength": MAX_SOURCE_PLAN_URL_LENGTH},
+                    "reason": {"type": "string", "maxLength": MAX_SOURCE_PLAN_REASON_LENGTH},
+                    "expected_category": {"type": "string", "maxLength": MAX_SOURCE_PLAN_CATEGORY_LENGTH},
+                },
+                "additionalProperties": False,
+            },
+        },
+        "candidate_queries": {"type": "array", "items": {"type": "string", "maxLength": MAX_SOURCE_PLAN_QUERY_LENGTH}, "maxItems": MAX_SOURCE_PLAN_QUERIES},
+        "warnings": {"type": "array", "items": {"type": "string", "maxLength": MAX_SOURCE_PLAN_REASON_LENGTH}, "maxItems": MAX_SOURCE_PLAN_QUERIES},
+    },
+    "additionalProperties": False,
+}
 CLASSIFICATION_ASSIST_OUTPUT_SCHEMA: dict[str, object] = {
     "type": "object",
     "required": ["category", "reason", "confidence", "signals"],
@@ -48,6 +77,40 @@ class KeywordPlanGenerationResult:
 
 
 @dataclass(frozen=True, slots=True)
+class SourcePlanCandidateURL:
+    url: str
+    reason: str
+    expected_category: str
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "url": self.url,
+            "reason": self.reason,
+            "expected_category": self.expected_category,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class SourcePlanResult:
+    candidate_urls: tuple[SourcePlanCandidateURL, ...] = ()
+    candidate_queries: tuple[str, ...] = ()
+    warnings: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "candidate_urls": [item.to_dict() for item in self.candidate_urls],
+            "candidate_queries": list(self.candidate_queries),
+            "warnings": list(self.warnings),
+        }
+
+
+@dataclass(slots=True)
+class SourcePlanGenerationResult:
+    source_plan: SourcePlanResult
+    diagnostics: dict[str, object] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
 class ClassificationAssistResult:
     category: PageCategory
     reason: str
@@ -79,6 +142,13 @@ class ClassificationAssistProvider(Protocol):
     name: str
 
     def classify_page_payload(self, url: str, title: str | None, text: str, schema: dict[str, object]) -> dict[str, object]:
+        ...
+
+
+class SourcePlanProvider(Protocol):
+    name: str
+
+    def generate_source_plan_payload(self, context: dict[str, object], schema: dict[str, object]) -> dict[str, object]:
         ...
 
 
@@ -150,6 +220,43 @@ class MockClassificationAssistProvider:
         }
 
 
+class MockSourcePlanProvider:
+    """Deterministic source-plan provider for diagnostics-only tests."""
+
+    name = "mock"
+
+    def __init__(self, payload: dict[str, object] | None = None, error: Exception | None = None) -> None:
+        self._payload = dict(payload) if payload is not None else None
+        self._error = error
+
+    def generate_source_plan_payload(self, context: dict[str, object], schema: dict[str, object]) -> dict[str, object]:
+        if self._error is not None:
+            raise self._error
+        if self._payload is not None:
+            return dict(self._payload)
+        seed_url = str(context.get("input_url") or "").rstrip("/")
+        host_hint = seed_url.split("/")[2] if "://" in seed_url else "example.edu"
+        return {
+            "candidate_urls": [
+                {
+                    "url": f"https://{host_hint}/admissions",
+                    "reason": "Mock official admissions landing page candidate.",
+                    "expected_category": "undergraduate_admissions",
+                },
+                {
+                    "url": f"https://{host_hint}/programmes",
+                    "reason": "Mock official programmes index candidate.",
+                    "expected_category": "programme_list",
+                },
+            ],
+            "candidate_queries": [
+                f"site:{host_hint} undergraduate admissions",
+                f"site:{host_hint} undergraduate programmes",
+            ],
+            "warnings": [],
+        }
+
+
 def generate_keyword_plan_with_fallback(query: str, provider: KeywordPlanProvider) -> KeywordPlanGenerationResult:
     """Generate a keyword plan via an optional provider and fall back to rule parsing."""
 
@@ -188,6 +295,43 @@ def generate_keyword_plan_with_fallback(query: str, provider: KeywordPlanProvide
                 "warnings": list(fallback_plan.warnings),
             },
         )
+
+
+def generate_source_plan_diagnostic(context: dict[str, object], provider: SourcePlanProvider) -> dict[str, object]:
+    """Return source-planning diagnostics without adding URLs to the crawl."""
+
+    provider_name = getattr(provider, "name", type(provider).__name__)
+    started = perf_counter()
+    try:
+        payload = provider.generate_source_plan_payload(context, SOURCE_PLAN_OUTPUT_SCHEMA)
+        source_plan = source_plan_from_payload(payload)
+        return {
+            "provider": provider_name,
+            "schema": "SOURCE_PLAN_OUTPUT_SCHEMA",
+            "fallback": False,
+            "elapsed_ms": _elapsed_ms(started),
+            "trigger_reasons": _bounded_text_list(context.get("trigger_reasons", []), field="trigger_reasons", max_items=MAX_SOURCE_PLAN_QUERIES, max_length=MAX_SOURCE_PLAN_REASON_LENGTH),
+            "candidate_urls": [item.to_dict() for item in source_plan.candidate_urls],
+            "candidate_queries": list(source_plan.candidate_queries),
+            "warnings": list(source_plan.warnings),
+            "applied": False,
+            "note": "Source planning is diagnostics-only; candidate URLs are not crawled and do not create admissions facts.",
+        }
+    except Exception as exc:
+        return {
+            "provider": provider_name,
+            "schema": "SOURCE_PLAN_OUTPUT_SCHEMA",
+            "fallback": True,
+            "elapsed_ms": _elapsed_ms(started),
+            "trigger_reasons": _bounded_text_list(context.get("trigger_reasons", []), field="trigger_reasons", max_items=MAX_SOURCE_PLAN_QUERIES, max_length=MAX_SOURCE_PLAN_REASON_LENGTH),
+            "candidate_urls": [],
+            "candidate_queries": [],
+            "warnings": ["llm_source_plan_fallback"],
+            "applied": False,
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+            "note": "Source planning is diagnostics-only; candidate URLs are not crawled and do not create admissions facts.",
+        }
 
 
 def generate_classification_assist_diagnostic(
@@ -289,6 +433,48 @@ def validate_llm_candidates(candidates: list[LLMCandidateClaim], evidence: list[
                 )
             )
     return result
+
+
+def source_plan_from_payload(payload: dict[str, object]) -> SourcePlanResult:
+    allowed_keys = {"candidate_urls", "candidate_queries", "warnings"}
+    extra_keys = set(payload) - allowed_keys
+    if extra_keys:
+        raise ValueError(f"Unsupported source plan fields: {', '.join(sorted(extra_keys))}")
+    missing_keys = allowed_keys - set(payload)
+    if missing_keys:
+        raise ValueError(f"Source plan missing required fields: {', '.join(sorted(missing_keys))}")
+    candidate_urls = tuple(_source_plan_candidate_from_payload(item) for item in _required_dict_list(payload.get("candidate_urls"), field="candidate_urls", max_items=MAX_SOURCE_PLAN_URLS))
+    candidate_queries = tuple(_bounded_text_list(payload.get("candidate_queries", []), field="candidate_queries", max_items=MAX_SOURCE_PLAN_QUERIES, max_length=MAX_SOURCE_PLAN_QUERY_LENGTH))
+    warnings = tuple(_bounded_text_list(payload.get("warnings", []), field="warnings", max_items=MAX_SOURCE_PLAN_QUERIES, max_length=MAX_SOURCE_PLAN_REASON_LENGTH))
+    return SourcePlanResult(candidate_urls=candidate_urls, candidate_queries=candidate_queries, warnings=warnings)
+
+
+def _source_plan_candidate_from_payload(payload: dict[str, object]) -> SourcePlanCandidateURL:
+    allowed_keys = {"url", "reason", "expected_category"}
+    extra_keys = set(payload) - allowed_keys
+    if extra_keys:
+        raise ValueError(f"Unsupported source plan candidate fields: {', '.join(sorted(extra_keys))}")
+    missing_keys = allowed_keys - set(payload)
+    if missing_keys:
+        raise ValueError(f"Source plan candidate missing required fields: {', '.join(sorted(missing_keys))}")
+    return SourcePlanCandidateURL(
+        url=_bounded_text(_required_text(payload.get("url"), field="url"), field="url", max_length=MAX_SOURCE_PLAN_URL_LENGTH),
+        reason=_bounded_text(_required_text(payload.get("reason"), field="reason"), field="reason", max_length=MAX_SOURCE_PLAN_REASON_LENGTH),
+        expected_category=_bounded_text(_required_text(payload.get("expected_category"), field="expected_category"), field="expected_category", max_length=MAX_SOURCE_PLAN_CATEGORY_LENGTH),
+    )
+
+
+def _required_dict_list(value: object, *, field: str, max_items: int) -> list[dict[str, object]]:
+    if not isinstance(value, list | tuple):
+        raise ValueError(f"Source plan field {field} must be a list.")
+    if len(value) > max_items:
+        raise ValueError(f"Source plan field {field} exceeds {max_items} items.")
+    out: list[dict[str, object]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            raise ValueError(f"Source plan field {field} must contain only objects.")
+        out.append(item)
+    return out
 
 
 def _elapsed_ms(started: float) -> int:

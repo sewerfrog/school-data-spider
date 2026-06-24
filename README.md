@@ -23,18 +23,31 @@ Evidence-first MVP for extracting undergraduate admissions information from offi
   mock classification assist is enabled; zero-trigger runs remain visible, and
   candidates are not applied to facts.
 - Records source-level extraction diagnostics plus field-level
-  `missing_reasons` for missing core fields; these describe current
-  crawl/extractor outcomes and are not official absence evidence.
+  `missing_reasons` for missing core fields. Mixed extractor failures now
+  prefer `attempted_no_match` over context-gate skips, but these diagnostics
+  still describe current crawl/extractor outcomes and are not official absence
+  evidence.
+- Detects obvious WAF/challenge/noindex/access-denied sources and records them
+  as `blocked_or_challenge` diagnostics. These sources remain reviewable but
+  are not treated as usable admissions text for fact extraction.
+- Supports opt-in mock LLM source-planning diagnostics through
+  `--enable-source-planning`. Candidate URLs and queries are validated and
+  reported under diagnostics only; they are not crawled automatically and never
+  become admissions facts.
 - Adds a lightweight cleaned-candidate layer for key fields: `raw_text`, `parsed`, and `parse_status`.
 - Parses common English test scores, fee amounts, and application dates when the raw text is specific enough; otherwise the raw candidate remains visible for manual review.
 - Keeps raw fee-table/reference candidates when an official undergraduate fee
   page exposes only table labels rather than amounts; these remain
-  `raw_needs_manual_review` and are not structured fee amounts.
+  `raw_needs_manual_review` and are not structured fee amounts. A fixture-backed
+  NTU-style amount-row case verifies that explicit `S$` values parse as
+  structured `SGD` amounts when the source actually contains them.
 - Filters undergraduate core extraction away from common pollution pages such as postgraduate/graduate pages, hall/accommodation pages, search pages, current-students pages, privacy/contact forms, and generic marketing pages unless they have strong undergraduate admissions context.
 - Records discovery relevance diagnostics under `run.config`, including per-source discovery score, relevance signals, and strategy name.
 - Supports reviewable keyword plans for discovery diagnostics through `--keyword-query`; by default these plans do not change crawl ordering.
 - Provides an opt-in deterministic `bm25-like` relevance strategy for keyword-assisted discovery ranking. It must be explicitly selected and requires a keyword query.
-- Supports guarded mock LLM keyword-plan generation and classification-assist diagnostics for plumbing tests only; hosted LLM providers remain disabled.
+- Supports guarded mock LLM keyword-plan generation, classification-assist
+  diagnostics, and source-planning diagnostics for plumbing tests only; hosted
+  LLM providers remain disabled.
 - Guards optional live/browser/PDF/LLM/crawl4ai/ScrapeGraphAI capabilities behind interfaces; they are not required for core tests.
 - Writes `result.json` and `report.md`.
 
@@ -46,7 +59,7 @@ Optional capabilities are represented as dependency groups / guarded execution m
 
 - `browser`: Playwright browser-backed live crawling support
 - `pdf`: optional pypdf parsing support for live PDF sources
-- `llm`: guarded mock keyword-plan plumbing, mock classification-assist diagnostics, and future hosted LLM provider surface
+- `llm`: guarded mock keyword-plan plumbing, mock classification-assist diagnostics, mock source-planning diagnostics, and future hosted LLM provider surface
 - `crawl4ai`: future crawl4ai adapter surface, currently warning-only stub
 - `scrapegraph`: future ScrapeGraphAI adapter support
 
@@ -105,7 +118,7 @@ For extracted key fields, `result.json` now keeps both the original candidate an
 
 If a field cannot be safely parsed, it is left as a raw candidate with `parse_status` such as `unparsed` or `raw_needs_manual_review`; it should not be treated as a cleaned business field.
 
-For a smaller smoke run, add `--smoke`; it caps the run at `max_pages<=20` and `max_depth<=2` even if larger values are supplied. In batch mode, a university config's own `max_pages` or `max_depth` still overrides the CLI smoke cap for that university. `--enable-scrapegraph` remains a guarded future surface and fails closed. `--enable-llm` is guarded as well: only `--llm-provider mock` is currently accepted. With `--keyword-query`, it can generate a reviewable keyword plan; with `--enable-classification-assist`, it records low-confidence classification diagnostics. Hosted providers remain rejected.
+For a smaller smoke run, add `--smoke`; it caps the run at `max_pages<=20` and `max_depth<=2` even if larger values are supplied. In batch mode, a university config's own `max_pages` or `max_depth` still overrides the CLI smoke cap for that university. `--enable-scrapegraph` remains a guarded future surface and fails closed. `--enable-llm` is guarded as well: only `--llm-provider mock` is currently accepted. With `--keyword-query`, it can generate a reviewable keyword plan; with `--enable-classification-assist`, it records low-confidence classification diagnostics; with `--enable-source-planning`, it records candidate official source diagnostics. Hosted providers remain rejected.
 
 To compare with a previous run:
 
@@ -134,23 +147,24 @@ Saved-source regression fixtures live under `tests/fixtures/saved_sources/`.
 The `outputs/` directory is for generated run output and should not be required
 by deterministic tests.
 
-Current feature-branch validation after the diagnostics, source-filtering, and
-NTU fee saved-source updates:
+Current feature-branch validation after diagnostics, source-planning, missing
+reason priority, and NTU fee boundary updates:
 
 ```bash
 env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider
 python -m compileall -q university_admissions_crawler tests
 ```
 
-The latest local pytest run passed `112` tests.
+The latest local pytest run passed `126` tests.
 
-The focused target group used during the diagnostics/source-filtering work is:
+The focused target group used during the diagnostics/source-filtering/source
+planning/report work is:
 
 ```bash
 env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_filters.py tests/test_discovery.py tests/test_pipeline.py tests/test_report_cli.py
 ```
 
-The latest target-group run passed `57` tests.
+The latest target-group run passed `71` tests.
 
 ## Evidence and safety policy
 
@@ -161,6 +175,9 @@ The latest target-group run passed `57` tests.
 - Non-official supporting sources and ambiguous applicant-group requirements are warning-producing.
 - Unsupported LLM candidate claims are rejected unless claim path, source text, evidence snippet, and candidate value all line up.
 - LLM keyword-plan output is never promoted into admissions facts. It is validated into a `KeywordPlan`, recorded as run diagnostics, and can only affect discovery ordering when an explicit relevance strategy uses it.
+- LLM source-plan output is never promoted into admissions facts. It is
+  schema-validated, URL-validated, recorded as diagnostics, and not followed by
+  the crawler in the current implementation.
 - Fetch/bad-status/parse/PDF failures produce warnings and the scan continues when other usable sources remain.
 
 ## Non-goals
@@ -170,7 +187,7 @@ The latest target-group run passed `57` tests.
 - No unbounded crawl.
 - No unsupported factual inference.
 - No required paid API credentials or hosted-provider calls in core tests.
-- No hosted LLM keyword-plan generation in the current implementation.
+- No hosted LLM keyword-plan or source-plan generation in the current implementation.
 
 ## Live crawling status
 
@@ -242,13 +259,19 @@ All modes write the same output shape:
 - `classification_assist` and `classification_assist_summary` — present only
   when guarded mock classification assist is enabled; suggestions are
   diagnostics-only and remain unapplied.
+- `llm_source_plan` — present only when guarded mock source planning is
+  enabled. It records trigger state, provider/schema/fallback status,
+  candidate queries, accepted/rejected candidate URLs, warnings, and an
+  explicit `applied: false` boundary. Accepted candidates are reviewable source
+  hints, not automatically crawled sources.
 
 The report also marks parsed versus raw-only values. For example, parsed fee
 rows appear with structured `currency`, `amount`, `student_group`,
 `academic_year`/`cohort`, `billing_period`, `fee_type`, and `raw_text` when
 those parts can be inferred. When present, keyword plans, mock LLM keyword
-diagnostics, classification assist, extraction diagnostics, and missing reasons
-are shown in diagnostic sections before facts; they are not admissions facts.
+diagnostics, classification assist, source planning, extraction diagnostics,
+and missing reasons are shown in diagnostic sections before facts; they are not
+admissions facts.
 
 ## Keyword-assisted discovery
 

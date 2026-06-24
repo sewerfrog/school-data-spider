@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import Counter
 from urllib.parse import urlparse
 
+from university_admissions_crawler.crawler.filters import looks_like_blocked_or_challenge_source
 from university_admissions_crawler.extractor.schema import AdmissionsData, PageCategory, SourceType, WarningCode, WarningRecord
 
 
@@ -30,22 +31,12 @@ PORTAL_TERMS = (
     "sso",
 )
 
-CHALLENGE_TERMS = (
-    "captcha",
-    "cloudflare",
-    "access denied",
-    "verify you are human",
-    "enable javascript",
-    "blocked",
-)
-
-
 def source_strategy_for(source_type: SourceType, url: str, title: str | None, text: str, category: PageCategory | None = None) -> str:
     """Return a coarse strategy label for report diagnostics."""
 
     url_title = f"{url} {title or ''}".lower()
     text_lower = text.lower()
-    if any(term in url_title for term in CHALLENGE_TERMS) or any(term in text_lower[:1200] for term in CHALLENGE_TERMS):
+    if looks_like_blocked_or_challenge_source(url, title, text):
         return "blocked_or_challenge"
     if any(term in url_title for term in PORTAL_TERMS) or "please log in" in text_lower[:1200] or "sign in to" in text_lower[:1200]:
         return "application_portal"
@@ -178,11 +169,15 @@ def _missing_reasons(coverage: dict[str, object], extraction_entries: list[objec
     if not isinstance(missing, list):
         return {}
 
+    source_strategy_by_url = _source_strategy_by_url(source_strategy)
     attempts_by_field: dict[str, list[dict[str, object]]] = {}
     for source in extraction_entries:
         if not isinstance(source, dict):
             continue
         url = source.get("url")
+        source_acquisition_status = source.get("source_acquisition_status")
+        if not isinstance(source_acquisition_status, str) and isinstance(url, str):
+            source_acquisition_status = source_strategy_by_url.get(url)
         raw_attempts = source.get("attempts")
         if not isinstance(raw_attempts, list):
             continue
@@ -193,16 +188,21 @@ def _missing_reasons(coverage: dict[str, object], extraction_entries: list[objec
             enriched = dict(attempt)
             if isinstance(url, str) and url:
                 enriched["source_url"] = url
+            if isinstance(source_acquisition_status, str) and source_acquisition_status:
+                enriched["source_acquisition_status"] = source_acquisition_status
             attempts_by_field.setdefault(field, []).append(enriched)
 
-    portal_urls = _urls_for_source_strategies(source_strategy, {"application_portal", "blocked_or_challenge"})
+    challenge_urls = _urls_for_source_strategies(source_strategy, {"blocked_or_challenge"})
+    portal_urls = _urls_for_source_strategies(source_strategy, {"application_portal"})
     out: dict[str, object] = {}
     for field in missing:
         field_name = str(field)
         attempts = attempts_by_field.get(field_name, [])
-        reason = _missing_reason_for_attempts(attempts, portal_urls)
+        reason = _missing_reason_for_attempts(attempts, challenge_urls, portal_urls)
         source_urls = sorted({str(item.get("source_url")) for item in attempts if item.get("source_url")})
-        if not source_urls and reason == "application_portal_unreachable":
+        if not source_urls and reason == "source_not_crawled":
+            source_urls = challenge_urls
+        elif not source_urls and reason == "application_portal_unreachable":
             source_urls = portal_urls
         out[field_name] = {
             "reason": reason,
@@ -214,18 +214,50 @@ def _missing_reasons(coverage: dict[str, object], extraction_entries: list[objec
     return out
 
 
-def _missing_reason_for_attempts(attempts: list[dict[str, object]], portal_urls: list[str]) -> str:
+def _missing_reason_for_attempts(attempts: list[dict[str, object]], challenge_urls: list[str], portal_urls: list[str]) -> str:
     if not attempts:
+        if challenge_urls:
+            return "source_not_crawled"
         return "application_portal_unreachable" if portal_urls else "not_attempted"
-    if any(item.get("reason") == "context_gate_failed" for item in attempts):
-        return "context_gate_failed"
-    if any(item.get("reason") == "undergraduate_context_gate_failed" for item in attempts):
-        return "undergraduate_context_gate_failed"
-    if any(item.get("status") == "no_match" for item in attempts):
+    if _all_attempts_from_blocked_sources(attempts, challenge_urls):
+        return "source_not_crawled"
+    usable_attempts = [item for item in attempts if not _is_blocked_source_attempt(item, challenge_urls)]
+    if any(item.get("status") == "no_match" for item in usable_attempts):
         return "attempted_no_match"
+    if any(item.get("reason") == "context_gate_failed" for item in usable_attempts):
+        return "context_gate_failed"
+    if any(item.get("reason") == "undergraduate_context_gate_failed" for item in usable_attempts):
+        return "undergraduate_context_gate_failed"
+    if portal_urls:
+        return "application_portal_unreachable"
     if any(item.get("status") == "skipped" for item in attempts):
         return "manual_check_required"
     return "manual_check_required"
+
+
+def _source_strategy_by_url(source_strategy: object) -> dict[str, str]:
+    if not isinstance(source_strategy, list):
+        return {}
+    out: dict[str, str] = {}
+    for item in source_strategy:
+        if not isinstance(item, dict):
+            continue
+        url = item.get("url")
+        strategy = item.get("strategy")
+        if isinstance(url, str) and url and isinstance(strategy, str) and strategy:
+            out[url] = strategy
+    return out
+
+
+def _all_attempts_from_blocked_sources(attempts: list[dict[str, object]], challenge_urls: list[str]) -> bool:
+    return bool(attempts) and all(_is_blocked_source_attempt(item, challenge_urls) for item in attempts)
+
+
+def _is_blocked_source_attempt(attempt: dict[str, object], challenge_urls: list[str]) -> bool:
+    if attempt.get("source_acquisition_status") == "blocked_or_challenge":
+        return True
+    source_url = attempt.get("source_url")
+    return isinstance(source_url, str) and source_url in challenge_urls
 
 
 def _urls_for_source_strategies(source_strategy: object, strategies: set[str]) -> list[str]:
@@ -244,10 +276,11 @@ def _urls_for_source_strategies(source_strategy: object, strategies: set[str]) -
 def _missing_reason_note(reason: str) -> str:
     notes = {
         "not_attempted": "No extractor attempt was recorded for this missing field in the captured sources.",
+        "source_not_crawled": "Captured source was blocked/challenge content, so extractors did not receive usable official page text.",
         "attempted_no_match": "At least one extractor ran on captured sources but did not match a supported pattern.",
         "context_gate_failed": "Captured sources did not pass the field-specific context gate.",
         "undergraduate_context_gate_failed": "Captured sources did not pass the undergraduate admissions context gate.",
-        "application_portal_unreachable": "Relevant source diagnostics indicate an application portal or blocked/challenge page.",
+        "application_portal_unreachable": "Relevant source diagnostics indicate an application portal that this crawler cannot enter.",
         "manual_check_required": "The field remains missing after skipped or inconclusive extraction attempts.",
     }
     return notes.get(reason, "The field remains missing and needs manual review.")
