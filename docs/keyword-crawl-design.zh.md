@@ -15,9 +15,9 @@ mock source planning 工作。
 
 当前准备进入下一阶段：
 
-**Phase 4: Fixture-Backed Field Repair Loop**
+**Phase 4: Programme Catalog Extraction**
 
-**阶段 4：基于 fixture 的真实字段修复闭环**
+**阶段 4：专业目录抽取与表格输出**
 
 项目最终目标是自动化爬取任意大学官网招生信息的关键字段。NTU 对比说明，
 当前系统已经能在字段层解释 extractor / context gate / manual check 问题；NUS
@@ -26,8 +26,9 @@ mock source planning 工作。
 
 阶段 3 的结论是：这批改动值得保留，但它不是一次字段覆盖率大幅提升，而是一次
 诊断层和规划层能力提升。下一阶段不应继续扩 LLM 功能，也不应继续把诊断逻辑
-硬塞进主流程；更稳的方向是选择一个真实字段缺口，基于 saved/current source 建立
-fixture-backed extractor / context-gate 修复样板。
+硬塞进主流程。新的优先方向是把“大学提供的每一个细分本科专业”提升为通用核心
+能力：建立独立的 programme catalog schema、extractor、diagnostics 和 CSV/table
+输出。
 
 ## 当前目标与边界
 
@@ -197,254 +198,444 @@ env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovid
 
 ## Phase 4 当前任务目标
 
-下一阶段不要继续扩大 LLM 功能。当前更小风险的目标是建立一个“真实字段修复闭环”：
+Phase 4 的目标是把“细分专业目录抽取”作为本项目的通用核心能力，而不是继续把它
+塞进现有 admissions core field 的 `programmes` 里。
 
-- 先隔离确认某个缺字段确实有可用官方 source。
-- 再用 fixture-backed failing test 固定该缺口。
-- 只修改对应 extractor、context gate 或 source classification 的最小位置。
-- 保持 evidence-first：没有 source/snippet/evidence path 的内容仍不能写 facts。
-- 每次只修一个字段，不把 NUS/NTU/HKU/PolyU 多校问题混在一次改动里。
+原因：
 
-优先候选：
+- 专业目录是高基数表格。一个大学可能有几十到几百条 degree、major、minor、
+  second major、special programme、dual degree 或 admissions choice。只用
+  `coverage.programmes = found` 会严重低估完整性问题。
+- 现有 `ProgrammeRecord` 只包含 `name`、`degree`、`faculty_or_school`、
+  `source_url`、`prerequisites`、`evidence`，不足以承载专业表需要的 category、
+  mode、duration、admissions choice、major/minor/specialisation、programme URL、
+  parse status 和 row-level warnings。
+- 当前 `extract_programmes()` 主要是 Bachelor/BSc/BA/BEng 等 regex，适合轻量候选，
+  不适合构建完整专业目录。
+- 旧 NUS `outputs/nus-live-programmes/programmes.csv` 已经证明目标表格形态有价值，
+  但它是一份一次性产物，不代表当前通用 pipeline 已能稳定复现。
 
-1. NUS `programmes`：当前 live smoke 中是 `attempted_no_match`，如果 captured source
-   已包含官方 programme list，这是最适合做第一个 extractor 修复样板的高价值字段。
-2. NTU `application_periods`：如果 saved/current source 中已有明确日期表，比
-   `undergraduate_application_entry` 更适合先修。
-3. NTU `fees`：只有在 source 明确包含 `S$` 金额或可解析表格内容时才继续结构化；
-   否则保持 `raw_needs_manual_review`，不伪造 amount。
+因此 Phase 4 应把系统核心能力拆成两条主线：
 
-暂不优先：
+1. Admissions Facts Extraction：继续负责申请时间、费用、资格、材料、英语要求、
+   联系方式等招生事实字段。
+2. Programme Catalog Extraction：新增独立 schema、parser、diagnostics 和 CSV/table
+   输出，负责大学本科专业目录、细分专业和所属学院/学制/degree/admissions choice。
 
-- `required_documents`：很多内容在 application portal / checklist 内，需要先区分
-  portal-only 信息和公开页面信息。
-- `undergraduate_application_entry`：当前逻辑依赖 application period 设置入口，后续要
-  单独设计 admissions/apply URL 候选识别，不应和字段 extractor 修复混在一起。
-- hosted LLM source planning：当前 mock-only 诊断入口已经足够，下一步不扩大供应商。
+## 目标输出形态
+
+Phase 4 最终应生成：
+
+- `result.json` 中的 `programme_catalog`。
+- `programme_catalog.csv`，用于表格审阅、数据库导入或后续选校业务。
+- report 中的 programme catalog summary 和 diagnostics，不把 100+ 行完整表硬塞进
+  admissions facts 区。
+
+建议 CSV 字段：
+
+```text
+university_id
+university_name
+programme_id
+name
+normalized_name
+faculty_or_school
+department
+degree_or_award
+programme_level
+programme_type
+category
+mode
+duration_or_units
+admissions_choice_name
+majors
+minors
+second_majors
+specialisations
+programme_url
+source_url
+source_title
+evidence_snippet
+evidence_confidence
+parse_status
+warnings
+retrieved_at
+```
+
+`programme_type` 至少应能区分：
+
+- `degree_programme`
+- `major`
+- `minor`
+- `second_major`
+- `specialisation`
+- `special_programme`
+- `dual_degree`
+- `joint_degree`
+- `pathway`
+- `admissions_choice`
 
 ## Phase 4 执行计划
 
-### Step 1：文档状态对齐
+### Step 1：定义 Programme Catalog Schema
 
 修改文件：
 
-- `docs/keyword-crawl-design.zh.md`
-- `README.md`
-- `VERSION_NOTES.zh.md`
+- `university_admissions_crawler/extractor/schema.py`
+- `tests/test_schema_evidence.py`
 
 目标：
 
-- 把 Phase 3 标记为已完成并写入复盘结论。
-- 明确 `accepted_candidate_urls` 只是 diagnostics 候选，不是当前 crawl frontier。
-- 把下一阶段目标切换到 fixture-backed field repair loop。
+- 新增 `ProgrammeCatalogRecord`，不要直接大改现有 `ProgrammeRecord`。
+- 在 `AdmissionsData` 上新增 `programme_catalog: list[ProgrammeCatalogRecord]`。
+- 保留现有 `programmes` 字段，作为 admissions 摘要和兼容字段。
+- 字段先覆盖旧 NUS CSV 已验证过的最小集合：
+  - `name`
+  - `faculty_or_school`
+  - `degree_or_award`
+  - `category`
+  - `mode`
+  - `duration_or_units`
+  - `admissions_choice_name`
+  - `specialisations_or_majors`
+  - `source_url`
+  - `evidence_snippet`
+  - `evidence_confidence`
+  - `parse_status`
+  - `warnings`
 
 验证方式：
 
 ```bash
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_schema_evidence.py
 git diff --check
 ```
 
 风险控制：
 
-- 只改描述型文档。
-- 不改运行代码、测试 fixture 或 generated outputs。
+- 不删除或重命名 `ProgrammeRecord`。
+- 不改变 `coverage.programmes` 的现有语义。
+- 没有 source/snippet/evidence path 的专业不能进入 catalog。
 
-### Step 2：隔离选择第一个字段修复目标
+### Step 2：固定 NUS Programme Catalog 目标样板
 
 修改文件：
 
-- 无。输出只写 `/tmp`，不提交 generated artifacts。
+- `tests/fixtures/programme_catalog/nus/...`
+- `tests/test_programme_catalog.py`
 
 目标：
 
-- 用现有 CLI 或已保存 output 对比 NUS / NTU 的 `coverage`、`missing_reasons`、
-  `extraction_diagnostics_summary`、`source_strategy_summary`。
-- 只选择一个满足以下条件的字段：
-  - source 是官方 source。
-  - source text 中确实有目标字段的可抽取证据。
-  - 当前缺失原因不是纯 portal/manual-check。
-  - 修复点能落在 extractor / context gate / classifier 的小范围代码里。
+- 从旧 `outputs/nus-live-programmes/` 或
+  `temp_imports/previous-session-archive/nus-live-programmes/` 中抽取最小官方 source
+  fixture。
+- 不要求一开始复现旧 CSV 全部 91 行。
+- 先固定 3 类代表记录：
+  - degree programme，例如 Business、Computing、Engineering。
+  - major / specialisation，例如 BBA majors 或 CHS majors。
+  - special programme，例如 NUS College。
+- 测试必须断言 row value、source URL、evidence snippet 和 parse status。
 
 验证方式：
 
 ```bash
-.venv314/bin/python -B -m university_admissions_crawler.cli <seed-url> \
-  --enable-browser \
-  --browser-wait-until domcontentloaded \
-  --timeout-seconds 45 \
-  --output-dir /tmp/uac-field-repair-check \
-  --allowed-domain <official-domain> \
-  --max-pages 30 \
-  --max-depth 2
-```
-
-风险控制：
-
-- 如果 source 中没有明确证据，停止并换目标，不写 extractor 猜测规则。
-- 如果需要新增 fixture，先在下一步单独完成，不和生产代码混改。
-
-### Step 3：为选中字段增加 fixture-backed failing test
-
-修改文件：
-
-- `tests/fixtures/saved_sources/<school>/...`，仅在需要固化官方 source 时新增。
-- `tests/test_pipeline.py` 或现有更贴近的 focused test 文件。
-- 如确实需要新建测试文件，应先说明理由，避免测试分散。
-
-目标：
-
-- 先写失败测试，证明当前缺口可复现。
-- 测试同时断言 value 和 evidence claim path。
-- 保留当前 `missing_reasons` 断言，避免修字段时破坏诊断。
-
-验证方式：
-
-```bash
-env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_pipeline.py
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_programme_catalog.py
 git diff --check
 ```
 
 风险控制：
 
-- fixture 必须来自官方 source，不能用 LLM 生成事实内容。
-- 不从 `outputs/` 直接读取测试数据；需要的 saved source 应复制到
-  `tests/fixtures/saved_sources/`。
+- 旧 NUS CSV 只能作为 expected contract，不能当作当前通用 pipeline 已实现能力。
+- fixture 必须来自官方 source，不用 LLM 生成专业事实。
+- 不提交新的 live output。
 
-### Step 4：最小 extractor / gate 修复
+### Step 3：实现结构化 Programme Catalog Parser
 
 修改文件：
 
-- 优先 `university_admissions_crawler/extractor/structured.py`。
-- 如果诊断证明是 gate 问题，才改
-  `university_admissions_crawler/crawler/admissions_context.py`。
-- 如果诊断证明是分类问题，才改
-  `university_admissions_crawler/classifier/page_classifier.py`。
-- 避免继续扩大 `university_admissions_crawler/pipeline/run_university_scan.py`。
+- 新增 `university_admissions_crawler/extractor/programme_catalog.py`
+- 小范围接入 `university_admissions_crawler/pipeline/run_university_scan.py`
+- `tests/test_programme_catalog.py`
+- 必要时 `tests/test_pipeline.py`
 
 目标：
 
-- 让 Step 3 的失败测试通过。
-- 只覆盖目标字段的已验证页面结构。
-- 保留 raw fallback；无法稳定解析时使用 `raw_needs_manual_review` 或
-  `needs_manual_check`，不生成假结构化值。
+- 新 parser 输出 `ProgrammeCatalogRecord`，不直接替代旧 `extract_programmes()`。
+- 支持第一批明确结构：
+  - programme index page
+  - faculty/school undergraduate education page
+  - card/grid programme list
+  - table/list text
+  - headings + following list
+- 对无法稳定归类的记录使用 `raw_needs_manual_review` 或 row-level warning。
 
 验证方式：
 
 ```bash
-env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_pipeline.py tests/test_classifier.py tests/test_classifier_ntu_regression.py
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_programme_catalog.py tests/test_pipeline.py
 git diff --check
 ```
 
 风险控制：
 
-- 不重写已有 extractor。
-- 不为了提高 coverage 降低 context gate。
-- 不改变 LLM/source planning 行为。
+- 不继续扩大 `extract_programmes()` 的 regex 职责。
+- 不为了多抽而放宽到任意包含 Bachelor 的营销句子。
+- 不把 major/minor/special programme 强行写成 degree programme。
 
-### Step 5：报告和 diagnostics 回归检查
+### Step 4：Programme Source Discovery 优化
 
 修改文件：
 
-- 默认无。
-- 只有当字段输出形态或 diagnostics 展示确实变化时，才改
-  `university_admissions_crawler/reports/render_report.py` 和
-  `tests/test_report_cli.py`。
+- `university_admissions_crawler/classifier/page_classifier.py`
+- `university_admissions_crawler/crawler/discovery.py`
+- `university_admissions_crawler/crawler/relevance.py`
+- `tests/test_classifier.py`
+- `tests/test_discovery.py`
 
 目标：
 
-- 确认修复后的字段显示在 facts 中。
-- 确认 `missing_reasons` 不再把已找到字段列为 missing。
-- 确认 diagnostics 仍位于 facts 前，source planning 仍不写 facts。
+- 让 crawler 更容易发现专业目录来源，而不是只停留在 general admissions 页面。
+- 增强 programme source signals：
+  - `/programmes/`
+  - `/undergraduate-programmes`
+  - `/undergraduate-education`
+  - `/degree-programmes`
+  - `/majors`
+  - `/minors`
+  - `/bulletin`
+  - `/catalogue`
+  - `/study/undergraduate`
+- 继续受 `max_pages`、`max_depth`、allowed domain 和 source filtering 约束。
 
 验证方式：
 
 ```bash
-env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_report_cli.py tests/test_pipeline.py
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_classifier.py tests/test_discovery.py tests/test_pipeline.py
 git diff --check
 ```
 
 风险控制：
 
-- 不为了展示效果改变 schema。
-- 不把候选 URL、classification assist 或 source plan 内容渲染成 admissions facts。
+- 不做无边界全站 crawl。
+- 不把 news、alumni、marketing、summer/pre-university programme 页面误判为本科专业目录。
+- `accepted_candidate_urls` 仍只是 diagnostics 候选，是否进入 crawl frontier 需要未来阶段单独设计。
 
-### Step 6：live smoke 与旧输出对比
+### Step 5：CSV / Table 输出
 
 修改文件：
 
-- 无。输出只写 `/tmp`，不提交 generated artifacts。
+- 新增 `university_admissions_crawler/reports/programme_catalog_csv.py`
+- `university_admissions_crawler/pipeline/output_writer.py`
+- `tests/test_report_cli.py` 或新增 `tests/test_programme_catalog_output.py`
 
 目标：
 
-- 对选中学校重新跑小范围 live/browser smoke。
-- 对比修复前后的 `coverage`、`facts`、`missing_reasons`、
-  `extraction_diagnostics_summary`。
-- 只宣布经过 source/evidence 验证的提升，不把 live 网络偶然性当稳定能力。
+- 当 `programme_catalog` 非空时输出：
+  - `programme_catalog.csv`
+  - 可选 `programme_catalog.json`
+- CSV 字段顺序固定。
+- Markdown report 只展示 summary 和 diagnostics，不把完整表格塞进 facts。
 
 验证方式：
 
 ```bash
-.venv314/bin/python -B -m university_admissions_crawler.cli <seed-url> \
-  --enable-browser \
-  --browser-wait-until domcontentloaded \
-  --timeout-seconds 45 \
-  --output-dir /tmp/uac-field-repair-after \
-  --allowed-domain <official-domain> \
-  --max-pages 30 \
-  --max-depth 2
-```
-
-风险控制：
-
-- 如果 live source 结构变化导致结果不可比，以 fixture test 为准，并在复盘中说明。
-- 不提交 `/tmp` 或 `outputs/` 中的大批生成结果。
-
-### Step 7：阶段复盘、文档同步与提交
-
-修改文件：
-
-- `docs/keyword-crawl-design.zh.md`
-- 必要时 `README.md`
-- 必要时 `VERSION_NOTES.zh.md`
-
-目标：
-
-- 记录这次字段修复到底提升了什么。
-- 明确它是否提升 coverage，还是只提升 raw/reference 可信度。
-- 记录仍未解决的字段和下一步候选。
-
-验证方式：
-
-```bash
-env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider
-python -m compileall -q university_admissions_crawler tests
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_report_cli.py tests/test_programme_catalog_output.py
 git diff --check
 ```
 
 风险控制：
 
-- 不把单个学校的字段修复宣传成“任意大学已完成”。
-- commit 前确认 `git status`，只提交本阶段相关文件。
+- 不破坏现有 `result.json`、`report.md` 输出。
+- 空 catalog 时不生成误导性的“成功表格”。
+- CSV 行必须来自 evidence-backed catalog records。
+
+### Step 6：Programme Catalog Diagnostics
+
+修改文件：
+
+- `university_admissions_crawler/pipeline/diagnostics.py`
+- `university_admissions_crawler/reports/render_report.py`
+- `tests/test_programme_catalog.py`
+- `tests/test_report_cli.py`
+
+目标：
+
+- 在 `run.config` 中新增 `programme_catalog_summary`，至少包含：
+  - `candidate_count`
+  - `accepted_count`
+  - `rejected_count`
+  - `duplicate_count`
+  - `by_programme_type`
+  - `by_faculty_or_school`
+  - `parse_status_counts`
+  - `sources_count`
+  - `source_urls`
+- report 在 facts 前或 programme catalog summary 区展示这些 diagnostics。
+
+验证方式：
+
+```bash
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_programme_catalog.py tests/test_report_cli.py
+git diff --check
+```
+
+风险控制：
+
+- diagnostics 只解释抽取过程，不证明官网没有提供专业。
+- 不把 rejected/ambiguous candidate 渲染成正式专业行。
+
+### Step 7：NUS 端到端样板
+
+修改文件：
+
+- `tests/fixtures/programme_catalog/nus/...`
+- `tests/test_programme_catalog.py`
+- 必要时 `configs/` 增加示例配置，但不提交 live output。
+
+目标：
+
+- 用 NUS 做第一所完整样板，因为已有旧 CSV 可做目标参考。
+- 第一阶段不要求完全复现旧 91 行，但要稳定覆盖：
+  - Business / Computing / CDE / CHS 代表性专业。
+  - degree programme、major/specialisation、special programme 的区分。
+  - row-level source/evidence。
+  - `programme_catalog.csv` 输出。
+
+验证方式：
+
+```bash
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_programme_catalog.py tests/test_pipeline.py tests/test_report_cli.py
+git diff --check
+```
+
+风险控制：
+
+- NUS live 如果遇到 WAF/challenge，以 fixture test 为准。
+- 不把旧 NUS one-off result 直接搬成当前 output。
+
+### Step 8：HKU / NTU / PolyU 泛化样板
+
+修改文件：
+
+- `tests/fixtures/saved_sources/hku/...`
+- `tests/fixtures/saved_sources/ntu/...`
+- `tests/fixtures/saved_sources/polyu/...`
+- `tests/test_programme_catalog.py`
+
+目标：
+
+- 每所学校先选择一个真实 programme catalog source。
+- HKU：现有 source 中有 “UNDERGRADUATE COURSES” 卡片列表，可先抽 programme code、
+  faculty、study period、type。
+- NTU：优先找明确 undergraduate programmes 或 admissions choices 页面，不从申请说明
+  长文里误抽。
+- PolyU：解决当前 `programmes=0` 的空白，至少固定一个 programme list source。
+
+验证方式：
+
+```bash
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_programme_catalog.py tests/test_classifier.py tests/test_discovery.py
+git diff --check
+```
+
+风险控制：
+
+- 每所学校只加最小 fixture，不引入大批 generated outputs。
+- 不要求一次覆盖所有院系。
+- 避免学校硬编码大分支；优先抽共通结构 helper。
+
+### Step 9：去重、归一化与质量控制
+
+修改文件：
+
+- `university_admissions_crawler/extractor/programme_catalog.py`
+- 可选新增 `university_admissions_crawler/extractor/programme_normalizer.py`
+- `tests/test_programme_catalog.py`
+
+目标：
+
+- 建立 normalized key：
+  - lowercased name
+  - degree/award
+  - faculty/school
+  - source URL
+- 输出 row-level warnings：
+  - `duplicate_name`
+  - `ambiguous_degree`
+  - `missing_faculty`
+  - `category_inferred`
+  - `raw_needs_manual_review`
+- 不静默删除重复项，先标记。
+
+验证方式：
+
+```bash
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_programme_catalog.py
+git diff --check
+```
+
+风险控制：
+
+- 不把 admissions A-Z choice 和 academic programme 混为一类。
+- 不把同名不同 award 的记录合并。
+
+### Step 10：可选 LLM 辅助，只做分类提示
+
+修改文件：
+
+- `university_admissions_crawler/extractor/llm_provider.py`
+- `tests/fixtures/llm/...`
+- `tests/test_programme_catalog.py`
+
+目标：
+
+- 只有 deterministic parser 无法区分 category 时，LLM 可以给 category hint。
+- LLM 只对已抓到 source text 中的 candidate 做分类辅助，例如：
+  - degree programme vs major
+  - special programme vs admissions pathway
+  - full-time vs part-time
+- LLM 不生成 programme facts，不补 source 里不存在的专业名。
+
+验证方式：
+
+```bash
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_programme_catalog.py tests/test_compatibility_boundaries.py
+git diff --check
+```
+
+风险控制：
+
+- 默认关闭。
+- mock-first。
+- 不接 hosted provider。
+- 仍必须 evidence/snippet 对齐。
 
 ## Phase 4 不做
 
-- 不继续扩展 LLM provider 或 hosted LLM。
-- 不自动 follow `accepted_candidate_urls`；如要把候选 URL 接入 crawl frontier，需要
-  新阶段单独设计。
-- 不用 LLM 生成 programme、fee、deadline、requirement 等招生 facts。
+- 不把 programme catalog 继续塞进现有 `coverage.programmes = found/missing` 语义里。
+- 不删除现有 `ProgrammeRecord` 或旧 `programmes` 字段。
+- 不把旧 NUS one-off CSV 当作当前通用 pipeline 的已实现能力。
+- 不自动 follow `accepted_candidate_urls`。
+- 不使用 LLM 生成专业事实。
 - 不绕过 WAF、人机验证、登录或申请系统。
-- 不把旧 NUS programme collection 当作当前通用 pipeline 的能力证明。
-- 不重写 `run_university_scan.py` 主循环。
 - 不刷新或提交大批 `outputs/` 历史产物。
 - 不做无关格式化、依赖升级或全仓重排。
+
+原 Phase 4 的单字段 extractor 修复计划暂时降级为后续候选任务。NTU application
+period、NTU fees table、required documents 和 application entry 仍重要，但应在
+Programme Catalog 这条主线建立后再继续小步处理。
 
 ## Phase 4 完成标准
 
 本阶段可以认为完成，当且仅当：
 
-- 选中一个真实字段缺口，并有 fixture-backed test 固定。
-- 修复后该字段有 source、snippet 和 evidence claim path。
-- 对应 `missing_reasons` 从 missing 中退出或原因更准确。
-- source planning、classification assist、LLM keyword plan 仍保持 diagnostics-only。
+- `result.json` 有 evidence-backed `programme_catalog`。
+- scan 输出 `programme_catalog.csv`，字段顺序稳定。
+- NUS fixture-backed 样板能覆盖 degree programme、major/specialisation 和 special
+  programme。
+- 至少一个 HKU/NTU/PolyU 样板证明 parser 不只是 NUS 特例。
+- 每条 catalog row 有 source URL、evidence snippet、parse status 和必要 warnings。
+- `programme_catalog_summary` 能解释候选数、接受数、重复数、分类分布和 source 分布。
+- 现有 admissions facts、source planning、classification assist、LLM keyword plan 仍
+  保持 evidence-first / diagnostics-only 边界。
 - 完整 deterministic 测试通过。
-- 文档明确说明这次提升对“任意大学官网自动化爬取”目标的实际帮助和边界。
