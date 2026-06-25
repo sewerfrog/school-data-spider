@@ -200,6 +200,20 @@ def test_markdown_report_shows_source_planning_diagnostics_before_facts():
     assert "source planning diagnostics are not admissions facts" in report
 
 
+def test_markdown_report_shows_programme_catalog_diagnostics_before_facts():
+    data = run_fixture_scan(ROOT)
+    report = render_markdown_report(data)
+
+    assert "## Programme Catalog Diagnostics" in report
+    assert report.index("## Programme Catalog Diagnostics") < report.index("## Facts")
+    assert "- Candidate rows:" in report
+    assert "- Accepted rows:" in report
+    assert "- Programme types:" in report
+    assert "- Sources:" in report
+    assert "https://fixture.test/programmes/index.html" in report
+    assert "programme catalog diagnostics summarize table extraction and are not admissions facts" in report
+
+
 def test_cli_fixture_mock_classification_assist_records_diagnostics_only():
     with TemporaryDirectory() as tmp:
         code = main(
@@ -311,6 +325,7 @@ def test_write_result_files_writes_json_and_markdown():
         assert report_path == Path(tmp) / "report.md"
         assert json.loads(result_path.read_text(encoding="utf-8"))["sources"]
         assert "Evidence appendix" in report_path.read_text(encoding="utf-8")
+        assert not (Path(tmp) / "programme_catalog.csv").exists()
 
 
 def test_cli_smoke_flag_caps_depth_and_provider_flags_are_guarded():

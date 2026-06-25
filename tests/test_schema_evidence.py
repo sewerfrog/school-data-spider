@@ -4,6 +4,7 @@ from university_admissions_crawler.extractor.schema import (
     Confidence,
     FieldValue,
     Institution,
+    ProgrammeCatalogRecord,
     RequirementRecord,
     RunMetadata,
     SourceType,
@@ -111,3 +112,62 @@ def test_pdf_evidence_can_carry_page_number():
 
     assert evidence.source_type == SourceType.PDF
     assert evidence.page_number == 2
+
+
+def test_programme_catalog_record_serializes_without_replacing_programmes():
+    data = make_data()
+    claim_path = "/programme_catalog/0/name"
+    data.programme_catalog.append(
+        ProgrammeCatalogRecord(
+            name="Data Science and Analytics",
+            faculty_or_school="College of Humanities and Sciences",
+            degree_or_award="Bachelor of Science",
+            category="undergraduate",
+            mode="full-time",
+            duration_or_units="4 years",
+            admissions_choice_name="Humanities and Sciences",
+            specialisations_or_majors=["Data Science and Analytics"],
+            source_url="https://example.edu/programmes/data-science",
+            evidence_snippet="Data Science and Analytics is offered by the College of Humanities and Sciences.",
+            evidence_confidence=Confidence.HIGH,
+            evidence_path=claim_path,
+            parse_status="parsed",
+        )
+    )
+    data.evidence.append(
+        evidence_from_source(
+            claim_path=claim_path,
+            source=data.sources[0],
+            snippet="Data Science and Analytics is offered by the College of Humanities and Sciences.",
+            confidence=Confidence.HIGH,
+        )
+    )
+
+    attach_validation_warnings(data)
+    dumped = data.to_dict()
+
+    assert dumped["programmes"] == []
+    assert dumped["programme_catalog"][0]["name"] == "Data Science and Analytics"
+    assert dumped["programme_catalog"][0]["evidence_confidence"] == "high"
+    assert dumped["programme_catalog"][0]["specialisations_or_majors"] == ["Data Science and Analytics"]
+    assert not [w for w in data.warnings if w.code == WarningCode.MISSING_EVIDENCE and "programme_catalog" in (w.field or "")]
+
+
+def test_programme_catalog_record_requires_row_level_provenance():
+    data = make_data()
+    data.programme_catalog.append(
+        ProgrammeCatalogRecord(
+            name="Computer Science",
+            source_url="",
+            evidence_snippet="",
+            evidence_path="",
+        )
+    )
+
+    attach_validation_warnings(data)
+
+    missing = [w for w in data.warnings if w.code == WarningCode.MISSING_EVIDENCE and "programme_catalog" in (w.field or "")]
+    assert missing
+    assert "source_url" in missing[0].message
+    assert "evidence_snippet" in missing[0].message
+    assert "evidence_path" in missing[0].message

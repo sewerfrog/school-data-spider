@@ -19,6 +19,11 @@ MAX_SOURCE_PLAN_CATEGORY_LENGTH = 80
 MAX_CLASSIFICATION_REASON_LENGTH = 300
 MAX_CLASSIFICATION_SIGNAL_LENGTH = 80
 MAX_CLASSIFICATION_SIGNALS = 20
+MAX_PROGRAMME_HINT_REASON_LENGTH = 300
+MAX_PROGRAMME_HINT_SIGNAL_LENGTH = 80
+MAX_PROGRAMME_HINT_SIGNALS = 20
+PROGRAMME_CATALOG_CATEGORY_VALUES = ("degree_programme", "major", "minor", "special_programme", "dual_degree", "unknown")
+PROGRAMME_CATALOG_MODE_VALUES = ("full-time", "part-time", "unknown")
 SOURCE_PLAN_OUTPUT_SCHEMA: dict[str, object] = {
     "type": "object",
     "required": ["candidate_urls", "candidate_queries", "warnings"],
@@ -50,6 +55,18 @@ CLASSIFICATION_ASSIST_OUTPUT_SCHEMA: dict[str, object] = {
         "reason": {"type": "string", "maxLength": MAX_CLASSIFICATION_REASON_LENGTH},
         "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
         "signals": {"type": "array", "items": {"type": "string", "maxLength": MAX_CLASSIFICATION_SIGNAL_LENGTH}, "maxItems": MAX_CLASSIFICATION_SIGNALS},
+    },
+    "additionalProperties": False,
+}
+PROGRAMME_CATALOG_CLASSIFICATION_OUTPUT_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "required": ["category", "mode", "reason", "confidence", "signals"],
+    "properties": {
+        "category": {"type": "string", "enum": list(PROGRAMME_CATALOG_CATEGORY_VALUES)},
+        "mode": {"type": "string", "enum": list(PROGRAMME_CATALOG_MODE_VALUES)},
+        "reason": {"type": "string", "maxLength": MAX_PROGRAMME_HINT_REASON_LENGTH},
+        "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+        "signals": {"type": "array", "items": {"type": "string", "maxLength": MAX_PROGRAMME_HINT_SIGNAL_LENGTH}, "maxItems": MAX_PROGRAMME_HINT_SIGNALS},
     },
     "additionalProperties": False,
 }
@@ -126,6 +143,30 @@ class ClassificationAssistResult:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class ProgrammeCatalogClassificationHint:
+    category: str
+    mode: str = "unknown"
+    reason: str = ""
+    confidence: str = "low"
+    signals: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "category": self.category,
+            "mode": self.mode,
+            "reason": self.reason,
+            "confidence": self.confidence,
+            "signals": list(self.signals),
+        }
+
+
+@dataclass(slots=True)
+class ProgrammeCatalogClassificationHintResult:
+    hint: ProgrammeCatalogClassificationHint | None = None
+    diagnostics: dict[str, object] = field(default_factory=dict)
+
+
 class LLMProvider(Protocol):
     def extract_candidates(self, source_text: str, schema_hint: str) -> list[LLMCandidateClaim]:
         ...
@@ -149,6 +190,13 @@ class SourcePlanProvider(Protocol):
     name: str
 
     def generate_source_plan_payload(self, context: dict[str, object], schema: dict[str, object]) -> dict[str, object]:
+        ...
+
+
+class ProgrammeCatalogAssistProvider(Protocol):
+    name: str
+
+    def classify_programme_candidate_payload(self, candidate_text: str, source_url: str, title: str | None, schema: dict[str, object]) -> dict[str, object]:
         ...
 
 
@@ -254,6 +302,40 @@ class MockSourcePlanProvider:
                 f"site:{host_hint} undergraduate programmes",
             ],
             "warnings": [],
+        }
+
+
+class MockProgrammeCatalogAssistProvider:
+    """Deterministic programme-candidate category hint provider for tests."""
+
+    name = "mock"
+
+    def __init__(self, payload: dict[str, object] | None = None, error: Exception | None = None) -> None:
+        self._payload = dict(payload) if payload is not None else None
+        self._error = error
+
+    def classify_programme_candidate_payload(self, candidate_text: str, source_url: str, title: str | None, schema: dict[str, object]) -> dict[str, object]:
+        if self._error is not None:
+            raise self._error
+        if self._payload is not None:
+            return dict(self._payload)
+        lowered = candidate_text.lower()
+        if "major:" in lowered or "primary major" in lowered:
+            category = "major"
+        elif "special programme" in lowered or "nus college" in lowered or "scholars programme" in lowered:
+            category = "special_programme"
+        elif "double degree" in lowered or "dual degree" in lowered:
+            category = "dual_degree"
+        elif "bachelor" in lowered or "bsc" in lowered or "beng" in lowered or "bba" in lowered:
+            category = "degree_programme"
+        else:
+            category = "unknown"
+        return {
+            "category": category,
+            "mode": _mode_hint_from_text(candidate_text),
+            "reason": "Mock programme catalog hint based only on the captured candidate row.",
+            "confidence": "low",
+            "signals": [category] if category != "unknown" else [],
         }
 
 
@@ -375,6 +457,71 @@ def generate_classification_assist_diagnostic(
             "error_type": type(exc).__name__,
             "error": str(exc),
         }
+
+
+def generate_programme_catalog_classification_hint(
+    *,
+    candidate_text: str,
+    source_url: str,
+    title: str | None,
+    provider: ProgrammeCatalogAssistProvider,
+) -> ProgrammeCatalogClassificationHintResult:
+    """Return a bounded category hint for one captured programme candidate row."""
+
+    provider_name = getattr(provider, "name", type(provider).__name__)
+    started = perf_counter()
+    try:
+        payload = provider.classify_programme_candidate_payload(candidate_text, source_url, title, PROGRAMME_CATALOG_CLASSIFICATION_OUTPUT_SCHEMA)
+        hint = programme_catalog_classification_hint_from_payload(payload)
+        return ProgrammeCatalogClassificationHintResult(
+            hint=hint,
+            diagnostics={
+                "provider": provider_name,
+                "schema": "PROGRAMME_CATALOG_CLASSIFICATION_OUTPUT_SCHEMA",
+                "fallback": False,
+                "elapsed_ms": _elapsed_ms(started),
+                "applied": hint.category != "unknown" or hint.mode != "unknown",
+            },
+        )
+    except Exception as exc:
+        return ProgrammeCatalogClassificationHintResult(
+            hint=None,
+            diagnostics={
+                "provider": provider_name,
+                "schema": "PROGRAMME_CATALOG_CLASSIFICATION_OUTPUT_SCHEMA",
+                "fallback": True,
+                "elapsed_ms": _elapsed_ms(started),
+                "applied": False,
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            },
+        )
+
+
+def programme_catalog_classification_hint_from_payload(payload: dict[str, object]) -> ProgrammeCatalogClassificationHint:
+    allowed_keys = {"category", "mode", "reason", "confidence", "signals"}
+    extra_keys = set(payload) - allowed_keys
+    if extra_keys:
+        raise ValueError(f"Unsupported programme catalog hint fields: {', '.join(sorted(extra_keys))}")
+    missing_keys = allowed_keys - set(payload)
+    if missing_keys:
+        raise ValueError(f"Programme catalog hint missing required fields: {', '.join(sorted(missing_keys))}")
+    category = _required_text(payload.get("category"), field="category")
+    if category not in PROGRAMME_CATALOG_CATEGORY_VALUES:
+        raise ValueError(f"Unsupported programme catalog category: {category}")
+    mode = _required_text(payload.get("mode"), field="mode")
+    if mode not in PROGRAMME_CATALOG_MODE_VALUES:
+        raise ValueError(f"Unsupported programme catalog mode: {mode}")
+    confidence = _required_text(payload.get("confidence"), field="confidence")
+    if confidence not in {"low", "medium", "high"}:
+        raise ValueError(f"Unsupported programme catalog confidence: {confidence}")
+    return ProgrammeCatalogClassificationHint(
+        category=category,
+        mode=mode,
+        reason=_bounded_text(_required_text(payload.get("reason"), field="reason"), field="reason", max_length=MAX_PROGRAMME_HINT_REASON_LENGTH),
+        confidence=confidence,
+        signals=tuple(_bounded_text_list(payload.get("signals", []), field="signals", max_items=MAX_PROGRAMME_HINT_SIGNALS, max_length=MAX_PROGRAMME_HINT_SIGNAL_LENGTH)),
+    )
 
 
 def classification_assist_from_payload(payload: dict[str, object]) -> ClassificationAssistResult:
@@ -509,3 +656,12 @@ def _bounded_text_list(value: object, *, field: str, max_items: int, max_length:
             seen.add(bounded)
             out.append(bounded)
     return out
+
+
+def _mode_hint_from_text(text: str) -> str:
+    lowered = text.lower()
+    if "full-time" in lowered or "full time" in lowered:
+        return "full-time"
+    if "part-time" in lowered or "part time" in lowered:
+        return "part-time"
+    return "unknown"

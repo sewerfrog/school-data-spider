@@ -1,0 +1,36 @@
+{
+  "fixture_origin": "outputs/nus-live-programmes/sources/official-source-index.md",
+  "origin_note": "Compact NUS source-like samples derived from older official-source summaries and programme CSV row contracts. These samples are for deterministic parser tests, not regenerated live output.",
+  "university": {
+    "id": "nus",
+    "name": "National University of Singapore",
+    "homepage_url": "https://www.nus.edu.sg"
+  },
+  "sources": [
+    {
+      "source_title": "NUS Bulletin AY2025/26 - School of Business Undergraduate Education",
+      "source_url": "https://www.nus.edu.sg/nusbulletin/ay202526/programmes/school-of-business/undergraduate-education",
+      "text": "Undergraduate Programmes\nProgramme | Degree | Mode | Duration | Admissions Choice\nBachelor of Business Administration with Honours | Bachelor of Business Administration (Honours) | full-time | 160 units | Business Administration\nBBA Major: Finance | Major within Bachelor of Business Administration (Honours) | full-time | within 160-unit BBA curriculum | Business Administration"
+    },
+    {
+      "source_title": "NUS Bulletin AY2025/26 - School of Computing Undergraduate Education",
+      "source_url": "https://www.nus.edu.sg/nusbulletin/ay202526/programmes/school-of-computing/undergraduate-education/",
+      "text": "Undergraduate Programmes\nProgramme | Degree | Mode | Duration | Admissions Choice\nBachelor of Computing in Computer Science | Bachelor of Computing (Honours) in Computer Science | full-time | four-year / at least 160 units | Common Computer Science Programmes"
+    },
+    {
+      "source_title": "NUS Bulletin AY2025/26 - College of Design and Engineering Undergraduate Education",
+      "source_url": "https://www.nus.edu.sg/nusbulletin/ay202526/programmes/college-of-design-and-engineering/undergraduate-education/",
+      "text": "Undergraduate Programmes\nProgramme | Degree | Mode | Duration | Admissions Choice\nBachelor of Engineering (Mechanical Engineering) | Bachelor of Engineering (Mechanical Engineering) | full-time | 160 units for cohorts 2025/26 onwards | Engineering"
+    },
+    {
+      "source_title": "NUS College of Humanities and Sciences - Programmes",
+      "source_url": "https://chs.nus.edu.sg/programmes/",
+      "text": "Undergraduate Programmes\nProgramme | Degree | Mode | Duration | Admissions Choice\nCHS Primary Major: Chinese Languages and Cultures | Four-year honours degree leading to BA, BSocSci or BSc (major-dependent) | full-time | four-year honours programme | Humanities & Sciences"
+    },
+    {
+      "source_title": "NUS Office of Admissions - Undergraduate Programmes",
+      "source_url": "https://nus.edu.sg/oam/undergraduate-programmes",
+      "text": "Undergraduate Programmes\nSpecial programmes\nNUS College"
+    }
+  ]
+}

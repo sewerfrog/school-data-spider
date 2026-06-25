@@ -109,18 +109,36 @@ selection、source acquisition、context gate、extractor 和真实站点结构�
 项目已有旧 NUS 输出：
 
 - `outputs/nus-live-programmes/result.json`
-- `temp_imports/previous-session-archive/nus-live-programmes/result.json`
+- `outputs/nus-live-programmes/programmes.csv`
+- `outputs/nus-live-programmes/report.zh.md`
+- `outputs/nus-live-programmes/sources/official-source-index.md`
 
-这两个文件内容相同。旧输出是 programme collection 格式，不是当前 CLI 的标准
-admissions schema。它包含：
+旧临时归档中曾保留过一份复制内容；归并后不再作为独立路径引用。当前稳定参考
+以 `outputs/nus-live-programmes/` 和 Phase 4 fixture 为准。
+
+旧输出是 programme collection 格式，不是当前 CLI 的标准 admissions schema。它包含：
 
 - 14 个 official sources
 - 85 条 structured programme records
 - 6 条 special programme records
 - 28 个 official admissions programme choices
+- `programmes.csv` 共 91 条数据行，含 degree programme、major、cross-disciplinary
+  degree 和 special programme。
 
 旧输出同时明确记录了限制：NUS simple HTTP fetch 会遇到 Incapsula/WAF/noindex
 challenge，旧数据是通过 browser/search extraction 和官方页面交叉核验得到的。
+
+旧临时归档中的其他信息已经压缩为以下项目级结论：
+
+- 上一阶段 handoff 明确了 evidence-first MVP 边界：核心运行时保持轻依赖，fixture-first，
+  live/browser/LLM/ScrapeGraph 都是 guarded flags；无法证实的招生事实只能保持 unknown、
+  warning 或 needs-manual-check。
+- fixture smoke run 原始临时目录已经不可读，只保留当时已确认统计：14 个 source、
+  16 条 evidence、14 个 discovered categories；warning 包括 diff manual check、
+  application deadline conflict 和 stale page；没有 missing evidence warning。
+- NUS one-off 专业产物是官方来源交叉核验结果，不是当前通用 pipeline 可稳定复现的
+  自动爬取结果。它的价值是为 Phase 4 定义 programme catalog 表格形态、source index
+  和 fixture-backed 目标样板。
 
 本轮 source acquisition diagnostics 固定了 NUS Incapsula/challenge 场景：如果抓到的
 source 内容是 challenge 页面，系统会把它诊断为 `blocked_or_challenge`，并把字段缺失
@@ -326,8 +344,7 @@ git diff --check
 
 目标：
 
-- 从旧 `outputs/nus-live-programmes/` 或
-  `temp_imports/previous-session-archive/nus-live-programmes/` 中抽取最小官方 source
+- 从旧 `outputs/nus-live-programmes/` 或其 official source index 中抽取最小官方 source
   fixture。
 - 不要求一开始复现旧 CSV 全部 91 行。
 - 先固定 3 类代表记录：

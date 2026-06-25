@@ -57,3 +57,38 @@ def test_polyu_non_admissions_pages_do_not_become_international_requirements():
         "Exchange Programmes and Overseas Internship Opportunities",
         "English Language Centre Institute for Higher Education Research and Development Quick Links General University Requirements.",
     ).category == PageCategory.IRRELEVANT
+
+
+def test_programme_catalog_source_signals_classify_as_programme_list():
+    checks = (
+        (
+            "https://www.nus.edu.sg/nusbulletin/ay202526/programmes/school-of-computing/undergraduate-education/",
+            "NUS Bulletin AY2025/26 - School of Computing Undergraduate Education",
+            "Bachelor of Computing in Computer Science and other degree programmes.",
+        ),
+        (
+            "https://example.edu/catalogue/undergraduate/majors",
+            "Undergraduate Catalogue - Majors",
+            "Students may choose majors and minors from the undergraduate catalogue.",
+        ),
+        (
+            "https://example.edu/study/undergraduate/degree-programmes",
+            "Undergraduate Degree Programmes",
+            "Bachelor degree programmes are listed by faculty.",
+        ),
+    )
+    for url, title, text in checks:
+        assert classify_page(url, title, text).category == PageCategory.PROGRAMME_LIST
+
+
+def test_programme_catalog_signals_do_not_override_non_admissions_context():
+    assert classify_page(
+        "https://example.edu/news/summer-programme-for-high-school-students",
+        "Summer Programme News",
+        "Pre-university summer programme for high school students.",
+    ).category == PageCategory.IRRELEVANT
+    assert classify_page(
+        "https://example.edu/alumni/mentoring-programmes",
+        "Alumni Mentoring Programmes",
+        "Alumni mentoring programmes and networking events.",
+    ).category == PageCategory.IRRELEVANT

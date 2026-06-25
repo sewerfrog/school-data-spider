@@ -26,6 +26,7 @@ def render_markdown_report(data: AdmissionsData) -> str:
     _classification_assist(lines, data)
     _source_strategy(lines, data)
     _source_planning(lines, data)
+    _programme_catalog_diagnostics(lines, data)
     _extraction_diagnostics(lines, data)
     _missing_reasons(lines, data)
 
@@ -265,6 +266,55 @@ def _source_plan_candidates(lines: list[str], title: str, candidates: object) ->
         lines.append(line)
     if len(items) > 10:
         lines.append(f"  - Omitted candidates: {len(items) - 10}")
+
+
+def _programme_catalog_diagnostics(lines: list[str], data: AdmissionsData) -> None:
+    summary = data.run.config.get("programme_catalog_summary")
+    if not isinstance(summary, dict) or not summary:
+        return
+    candidate_count = summary.get("candidate_count", 0)
+    rejected_count = summary.get("rejected_count", 0)
+    if not candidate_count and not rejected_count:
+        return
+
+    lines.append("## Programme Catalog Diagnostics")
+    lines.append("")
+    lines.append(f"- Candidate rows: {candidate_count}")
+    lines.append(f"- Accepted rows: {summary.get('accepted_count', 0)}")
+    lines.append(f"- Rejected rows: {rejected_count}")
+    lines.append(f"- Duplicate rows: {summary.get('duplicate_count', 0)}")
+    lines.append(f"- Manual-review rows: {summary.get('manual_review_count', 0)}")
+    lines.append(f"- Row warnings: {summary.get('warning_count', 0)}")
+    programme_types = summary.get("by_programme_type")
+    if isinstance(programme_types, dict) and programme_types:
+        lines.append(f"- Programme types: {_format_counts(programme_types)}")
+    faculties = summary.get("by_faculty_or_school")
+    if isinstance(faculties, dict) and faculties:
+        lines.append(f"- Faculties/schools: {_format_counts(faculties)}")
+    parse_statuses = summary.get("parse_status_counts")
+    if isinstance(parse_statuses, dict) and parse_statuses:
+        lines.append(f"- Parse statuses: {_format_counts(parse_statuses)}")
+    lines.append(f"- Sources: {summary.get('sources_count', 0)}")
+    source_urls = summary.get("source_urls") or []
+    if isinstance(source_urls, list) and source_urls:
+        lines.append("- Source URLs:")
+        for url in source_urls[:10]:
+            lines.append(f"  - {url}")
+        if len(source_urls) > 10:
+            lines.append(f"  - Omitted source URLs: {len(source_urls) - 10}")
+    duplicate_names = summary.get("duplicate_names") or []
+    if isinstance(duplicate_names, list) and duplicate_names:
+        lines.append("- Duplicate names:")
+        for item in duplicate_names[:10]:
+            if isinstance(item, dict):
+                lines.append(f"  - {item.get('name', 'unknown')}: {item.get('count', 0)}")
+        if len(duplicate_names) > 10:
+            lines.append(f"  - Omitted duplicate names: {len(duplicate_names) - 10}")
+    note = summary.get("note")
+    if note:
+        lines.append(f"- Note: {note}")
+    lines.append("- Note: programme catalog diagnostics summarize table extraction and are not admissions facts.")
+    lines.append("")
 
 
 def _extraction_diagnostics(lines: list[str], data: AdmissionsData) -> None:

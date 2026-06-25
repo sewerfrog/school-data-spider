@@ -200,6 +200,27 @@ class ProgrammeRecord:
 
 
 @dataclass(slots=True)
+class ProgrammeCatalogRecord:
+    name: str
+    source_url: str
+    evidence_snippet: str
+    evidence_path: str
+    faculty_or_school: str | None = None
+    degree_or_award: str | None = None
+    category: str | None = None
+    mode: str | None = None
+    duration_or_units: str | None = None
+    admissions_choice_name: str | None = None
+    specialisations_or_majors: list[str] = dc_field(default_factory=list)
+    evidence_confidence: Confidence = Confidence.MEDIUM
+    parse_status: str = "parsed"
+    warnings: list[WarningRecord] = dc_field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return _to_jsonable(self)
+
+
+@dataclass(slots=True)
 class AdmissionsRecord:
     undergraduate_application_entry: FieldValue = dc_field(default_factory=FieldValue)
     international_requirements: list[RequirementRecord] = dc_field(default_factory=list)
@@ -221,6 +242,7 @@ class AdmissionsData:
     sources: list[SourceRecord] = dc_field(default_factory=list)
     admissions: AdmissionsRecord = dc_field(default_factory=AdmissionsRecord)
     programmes: list[ProgrammeRecord] = dc_field(default_factory=list)
+    programme_catalog: list[ProgrammeCatalogRecord] = dc_field(default_factory=list)
     fees: list[RequirementRecord] = dc_field(default_factory=list)
     scholarships: list[RequirementRecord] = dc_field(default_factory=list)
     visa: list[RequirementRecord] = dc_field(default_factory=list)
@@ -319,6 +341,8 @@ def validate_evidence_links(data: AdmissionsData) -> list[WarningRecord]:
                 )
             )
 
+    warnings.extend(_validate_programme_catalog_rows(data, evidence_paths))
+
     for path, claim in iter_field_values(data):
         if claim.is_unknownish:
             continue
@@ -332,6 +356,50 @@ def validate_evidence_links(data: AdmissionsData) -> list[WarningRecord]:
             )
         )
 
+    return warnings
+
+
+def _validate_programme_catalog_rows(data: AdmissionsData, evidence_paths: set[str]) -> list[WarningRecord]:
+    warnings: list[WarningRecord] = []
+    for index, row in enumerate(data.programme_catalog):
+        row_path = f"/programme_catalog/{index}"
+        source_urls = [row.source_url] if row.source_url else []
+        missing_parts: list[str] = []
+        if not row.source_url.strip():
+            missing_parts.append("source_url")
+        if not row.evidence_snippet.strip():
+            missing_parts.append("evidence_snippet")
+        if not row.evidence_path.strip():
+            missing_parts.append("evidence_path")
+        if missing_parts:
+            warnings.append(
+                WarningRecord(
+                    WarningCode.MISSING_EVIDENCE,
+                    "Programme catalog row lacks required provenance fields: " + ", ".join(missing_parts),
+                    field=f"{row_path}/name",
+                    source_urls=source_urls,
+                )
+            )
+            continue
+        if not row.evidence_path.startswith(f"{row_path}/"):
+            warnings.append(
+                WarningRecord(
+                    WarningCode.MISSING_EVIDENCE,
+                    "Programme catalog row evidence_path must point inside the same programme_catalog row.",
+                    field=f"{row_path}/evidence_path",
+                    source_urls=source_urls,
+                )
+            )
+            continue
+        if row.evidence_path not in evidence_paths:
+            warnings.append(
+                WarningRecord(
+                    WarningCode.MISSING_EVIDENCE,
+                    "Programme catalog row evidence_path has no matching evidence item.",
+                    field=row.evidence_path,
+                    source_urls=source_urls,
+                )
+            )
     return warnings
 
 

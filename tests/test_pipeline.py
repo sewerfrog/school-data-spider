@@ -35,6 +35,24 @@ def test_offline_fixture_pipeline_discovers_extracts_and_warns():
     assert any(w.code == WarningCode.STALE_PAGE for w in data.warnings)
 
 
+def test_offline_fixture_pipeline_populates_programme_catalog_without_replacing_programmes():
+    data = run_fixture_scan(ROOT)
+    from university_admissions_crawler.extractor.schema import resolve_claim_path
+
+    assert any(programme.name.value == "Bachelor of Engineering" for programme in data.programmes)
+    assert any(row.name == "Bachelor of Engineering" for row in data.programme_catalog)
+    catalog_row = next(row for row in data.programme_catalog if row.name == "Bachelor of Engineering")
+    assert catalog_row.category == "degree_programme"
+    assert catalog_row.source_url == "https://fixture.test/programmes/index.html"
+    assert resolve_claim_path(data, catalog_row.evidence_path) == catalog_row.name
+    assert any(item.claim_path == catalog_row.evidence_path for item in data.evidence)
+    assert any(
+        attempt["field"] == "programme_catalog" and attempt["extractor"] == "extract_programme_catalog"
+        for entry in data.run.config["extraction_diagnostics"]
+        for attempt in entry["attempts"]
+    )
+
+
 def test_offline_fixture_pipeline_has_no_missing_evidence_for_known_claims():
     data = run_fixture_scan(ROOT)
     assert not [w for w in data.warnings if w.code == WarningCode.MISSING_EVIDENCE]
