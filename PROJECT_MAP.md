@@ -106,9 +106,8 @@ python3 -m compileall university_admissions_crawler tests
 - `tests/test_compatibility_boundaries.py`：兼容别名和半使用接口的边界测试；用于防止低风险清理时误删仍需保留的入口。
 - `configs/`：示例大学批量配置。
 - `outputs/`：generated-only 输出目录；当前测试 fixture 已迁到 `tests/fixtures/saved_sources/`，测试不应再依赖这里。
-- `outputs/nus-live-programmes/`：旧 NUS 一次性产物，包含 `result.json`、reports、`programmes.csv` 和 source index；作为参考样例保留，是否迁到 docs unclear。
+- `outputs/nus-live-programmes/`：旧 NUS 一次性产物，包含 `result.json`、reports、`programmes.csv` 和 source index；作为 Phase 4 programme catalog 的参考样例保留。它包含 14 个 official sources、85 条 structured programme records、6 条 special programme records 和 28 个官方招生 A-Z 入口；但这是 browser/search extraction 与官方页面交叉核验的一次性产物，不代表当前通用 pipeline 已能稳定复现完整 NUS 专业体系。
 - `outputs/batch*/`：旧 live/batch 扫描产物，包含 HKU、NTU、PolyU 等历史结果；作为参考样例保留，重新运行后才会反映当前代码。
-- `temp_imports/`：previous-session archive。是否仍需保留 unclear。
 
 ## 6. 重要函数、类、组件说明
 
@@ -154,7 +153,8 @@ python3 -m compileall university_admissions_crawler tests
 - 抽取质量主要取决于 regex 和文本上下文 gate，对真实复杂官网不稳定。
 - live PDF 默认策略已明确：未启用 `--enable-pdf` 时，非 fixture PDF 只产生 `OPTIONAL_DEPENDENCY_MISSING` warning，不产生基于 fixture parser 的 evidence。风险是如果外部调用曾依赖旧的隐含 fixture parser 行为，会看到输出减少；当前测试已覆盖新策略。
 - `outputs/` 已不应承担当期测试 fixture；如果后续需要保留样例，应迁到 `docs/examples/` 或记录清单。
-- `.venv314/`、`.omx/`、`.idea/`、`temp_imports/` 不属于核心产品源码；是否保留需进一步确认。
+- `.venv314/`、`.omx/`、`.idea/` 不属于核心产品源码；是否保留需进一步确认。
+- 旧临时归档目录已不再作为项目结构保留；其中的 handoff、fixture smoke 和 NUS one-off 摘要已经归并到 `docs/keyword-crawl-design.zh.md` 与本文件。
 - README / VERSION_NOTES 已收敛职责；真实站点旧结果仍需要重跑才反映当前代码。
 
 ## 8. 下一步推荐清理方向
@@ -182,6 +182,7 @@ python3 -m compileall university_admissions_crawler tests
 19. 已从 `crawler/fetcher.py` 拆出 source type/content type helper 到 `crawler/source_types.py`，并保留 `crawler.fetcher` private helper 兼容名。当前验证同上。
 20. 已在 `pipeline/batch.py` 抽出 `_scan_limits_for_config()`，只集中 batch `max_pages` / `max_depth` 计算，未改变 `parser.error()` 或 `print()` 行为。当前验证同上。
 21. 已补 diagnostics/source filtering 与 Phase 2 字段级诊断能力：classification assist summary、source-level extraction diagnostics、field-level missing reasons、低价值 source 过滤边界测试，以及 NTU fee raw/reference 与 amount-row 解析边界测试。专题设计和执行记录见 `docs/keyword-crawl-design.zh.md`；当前最新完整验证见第 2 节。
+22. 已将旧临时归档的 handoff、fixture smoke run 和 NUS one-off programme sample 摘要归并到 `docs/keyword-crawl-design.zh.md` 与本文件，临时归档目录不再作为项目结构保留。
 
 建议的后续顺序：
 

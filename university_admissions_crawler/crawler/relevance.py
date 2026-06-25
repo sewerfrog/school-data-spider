@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 from university_admissions_crawler.config import NEGATIVE_KEYWORDS, POSITIVE_KEYWORDS
 from university_admissions_crawler.crawler.admissions_context import NON_ADMISSIONS_PATH_HINTS, UNDERGRAD_ADMISSIONS_PATH_HINTS
 from university_admissions_crawler.crawler.filters import DomainPolicy, is_low_value_source_url, is_pdf_url, score_url, should_follow_url
+from university_admissions_crawler.crawler.filters import PROGRAMME_SOURCE_PATH_HINTS
 
 
 MAX_KEYWORD_QUERY_LENGTH = 500
@@ -43,6 +44,13 @@ PATH_RELEVANCE_HINTS: tuple[str, ...] = (
     "/apply",
     "/programme",
     "/program",
+    "/degree-program",
+    "/major",
+    "/minor",
+    "/bulletin",
+    "/catalogue",
+    "/catalog",
+    "/study/undergraduate",
     "/fee",
     "/scholarship",
     "/international",
@@ -73,9 +81,17 @@ KEYWORD_URL_HINTS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("application", ("/apply", "/admissions")),
     ("undergraduate", ("/undergraduate", "/ug")),
     ("ug", ("/undergraduate", "/ug")),
-    ("bachelor", ("/undergraduate", "/programmes")),
-    ("programme", ("/programme", "/programmes")),
-    ("program", ("/program", "/programs")),
+    ("bachelor", ("/undergraduate", "/programmes", "/undergraduate-education", "/degree-programmes")),
+    ("degree", ("/degree-programmes", "/programmes", "/undergraduate-education")),
+    ("major", ("/majors", "/programmes", "/catalogue")),
+    ("majors", ("/majors", "/programmes", "/catalogue")),
+    ("minor", ("/minors", "/programmes", "/catalogue")),
+    ("minors", ("/minors", "/programmes", "/catalogue")),
+    ("bulletin", ("/bulletin",)),
+    ("catalogue", ("/catalogue", "/catalog")),
+    ("catalog", ("/catalog", "/catalogue")),
+    ("programme", ("/programme", "/programmes", "/undergraduate-programmes", "/undergraduate-education")),
+    ("program", ("/program", "/programs", "/undergraduate-programs", "/undergraduate-education")),
     ("requirement", ("/requirements",)),
     ("requirements", ("/requirements",)),
     ("international", ("/international",)),
@@ -293,6 +309,7 @@ def _rule_based_signals(url: str, title: str | None = None, text: str | None = N
         signals.extend(f"non_admissions_path:{token}" for token in non_admissions_hits)
 
     signals.extend(f"path_relevance_hint:{token}" for token in PATH_RELEVANCE_HINTS if token in path)
+    signals.extend(f"programme_source_path_hint:{token}" for token in PROGRAMME_SOURCE_PATH_HINTS if token in path)
     signals.extend(f"path_noise_hint:{token}" for token in PATH_NOISE_HINTS if token in path)
     if is_pdf_url(url) and any(kw in haystack for kw in ("admission", "programme", "requirement", "prospectus")):
         signals.append("pdf_admissions_hint")

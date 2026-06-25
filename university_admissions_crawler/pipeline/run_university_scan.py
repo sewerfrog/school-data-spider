@@ -36,6 +36,7 @@ from university_admissions_crawler.extractor.html_extractor import (
 from university_admissions_crawler.extractor.llm_provider import ClassificationAssistProvider, generate_classification_assist_diagnostic
 from university_admissions_crawler.extractor.normalizer import add_warning
 from university_admissions_crawler.extractor.pdf_extractor import FixturePDFExtractor, MissingPDFExtractor, PDFExtractor
+from university_admissions_crawler.extractor.programme_catalog import extract_programme_catalog
 from university_admissions_crawler.pipeline.diagnostics import attach_run_diagnostics, source_strategy_for
 from university_admissions_crawler.extractor.schema import (
     AdmissionsData,
@@ -329,6 +330,7 @@ def run_scan(
                 data.admissions.accepted_qualifications.append(record)
                 data.evidence.extend(evidence)
         elif classification.category in {PageCategory.PROGRAMME_LIST, PageCategory.PROGRAMME_PREREQUISITES}:
+            _append_programme_catalog(data, text, result.source, extraction_recorder, reason="category_route")
             programme_start = len(data.programmes)
             programme_claim = f"/programmes/{programme_start}/name"
             programme_records = extract_programmes(text, result.source, "/programmes", programme_start)
@@ -534,6 +536,21 @@ def _default_pdf_extractor(fetcher: Fetcher) -> PDFExtractor:
     if isinstance(fetcher, FixtureFetcher):
         return FixturePDFExtractor()
     return MissingPDFExtractor()
+
+
+def _append_programme_catalog(data: AdmissionsData, text: str, source, recorder: "_ExtractionDiagnosticsRecorder", *, reason: str) -> None:
+    catalog_records = extract_programme_catalog(text, source, start_index=len(data.programme_catalog))
+    for record, evidence in catalog_records:
+        data.programme_catalog.append(record)
+        data.evidence.extend(evidence)
+    recorder.record_count(
+        field="programme_catalog",
+        extractor="extract_programme_catalog",
+        reason=reason,
+        claim_path="/programme_catalog",
+        record_count=len(catalog_records),
+        evidence_count=sum(len(evidence) for _record, evidence in catalog_records),
+    )
 
 
 def _extract_core_supplements(data: AdmissionsData, text: str, source, recorder: "_ExtractionDiagnosticsRecorder") -> None:

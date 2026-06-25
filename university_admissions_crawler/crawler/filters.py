@@ -83,6 +83,22 @@ CHALLENGE_TEXT_TERMS: tuple[str, ...] = (
     "incapsula incident id",
 )
 
+PROGRAMME_SOURCE_PATH_HINTS: tuple[str, ...] = (
+    "/programmes",
+    "/programs",
+    "/undergraduate-programmes",
+    "/undergraduate-programs",
+    "/undergraduate-education",
+    "/degree-programmes",
+    "/degree-programs",
+    "/majors",
+    "/minors",
+    "/bulletin",
+    "/catalogue",
+    "/catalog",
+    "/study/undergraduate",
+)
+
 
 @dataclass(slots=True)
 class DomainPolicy:
@@ -212,6 +228,8 @@ def score_url(url: str, title: str | None = None, text: str | None = None) -> in
     if any(token in path for token in NON_ADMISSIONS_PATH_HINTS) and not any(token in path for token in UNDERGRAD_ADMISSIONS_PATH_HINTS):
         score -= 12
     if any(token in path for token in ("/admission", "/undergraduate", "/apply", "/programme", "/program", "/fee", "/scholarship", "/international", "/requirement", "/contact")):
+        score += 6
+    if any(token in path for token in PROGRAMME_SOURCE_PATH_HINTS):
         score += 6
     if any(token in path for token in ("/news", "/alumni", "/giving", "/donate", "/staff", "/jobs", "/career", "/privacy", "/cookie")):
         score -= 8

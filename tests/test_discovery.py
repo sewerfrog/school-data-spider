@@ -96,6 +96,35 @@ def test_discovery_keeps_admissions_pdf_counterexamples():
     assert "https://admissions.example.edu/files/undergraduate-tuition-fees.pdf" in urls
 
 
+def test_discovery_prioritizes_programme_catalog_source_paths_under_page_limit():
+    fetcher = ProgrammeCatalogPriorityFetcher()
+
+    pages = discover(
+        "https://example.edu/",
+        fetcher,
+        DiscoveryConfig(max_pages=4, max_depth=1, allowed_hosts={"example.edu"}),
+    )
+
+    urls = [page.result.final_url for page in pages]
+    assert "https://example.edu/" in urls
+    assert "https://example.edu/nusbulletin/ay202526/programmes/school-of-computing/undergraduate-education" in urls
+    assert "https://example.edu/catalogue/undergraduate/majors" in urls
+    assert "https://example.edu/news/alumni-programmes" not in urls
+    assert "https://example.edu/summer/pre-university-programme" not in urls
+
+
+def test_relevance_diagnostics_exposes_programme_source_path_hint():
+    diagnostics = relevance_diagnostics(
+        RuleBasedRelevanceStrategy(),
+        "https://example.edu/nusbulletin/ay202526/programmes/school-of-computing/undergraduate-education",
+        "School of Computing Undergraduate Education",
+        "Bachelor of Computing in Computer Science.",
+    )
+
+    assert "programme_source_path_hint:/programmes" in diagnostics.signals
+    assert "programme_source_path_hint:/undergraduate-education" in diagnostics.signals
+
+
 class LinkedAssetFetcher:
     engine = "fixture"
 
@@ -130,4 +159,35 @@ class LinkedAssetFetcher:
             markdown=text,
             links=links,
             source=source_from_text(source_url=url, title="Admissions", source_type=SourceType.HTML, text=text),
+        )
+
+
+class ProgrammeCatalogPriorityFetcher:
+    engine = "fixture"
+
+    def fetch(self, url: str) -> FetchResult:
+        if url == "https://example.edu/":
+            text = "University home"
+            links = [
+                "https://example.edu/news/alumni-programmes",
+                "https://example.edu/summer/pre-university-programme",
+                "https://example.edu/nusbulletin/ay202526/programmes/school-of-computing/undergraduate-education",
+                "https://example.edu/catalogue/undergraduate/majors",
+                "https://example.edu/admissions",
+            ]
+        else:
+            text = "Undergraduate degree programmes and majors"
+            links = []
+        return FetchResult(
+            url=url,
+            final_url=url,
+            status=200,
+            title="Programmes",
+            content_type="text/html",
+            retrieved_at="2026-06-15T00:00:00+00:00",
+            engine=self.engine,
+            text=text,
+            markdown=text,
+            links=links,
+            source=source_from_text(source_url=url, title="Programmes", source_type=SourceType.HTML, text=text),
         )

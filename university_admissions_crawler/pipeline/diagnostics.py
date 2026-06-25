@@ -59,6 +59,7 @@ def attach_run_diagnostics(data: AdmissionsData) -> AdmissionsData:
     summary = Counter(item.get("strategy", "unknown") for item in source_strategy if isinstance(item, dict))
     data.run.config["coverage"] = coverage
     data.run.config["source_strategy_summary"] = dict(sorted(summary.items()))
+    data.run.config["programme_catalog_summary"] = _programme_catalog_summary(data)
     classification_assist = data.run.config.get("classification_assist")
     if isinstance(classification_assist, list):
         data.run.config["classification_assist_summary"] = _classification_assist_summary(classification_assist)
@@ -162,6 +163,56 @@ def _extraction_diagnostics_summary(entries: list[object]) -> dict[str, object]:
         "field_status_counts": {field: dict(sorted(counts.items())) for field, counts in sorted(field_status_counts.items())},
         "note": "Extraction diagnostics report attempted extractors and outcomes only; they do not change facts.",
     }
+
+
+def _programme_catalog_summary(data: AdmissionsData) -> dict[str, object]:
+    rows = data.programme_catalog
+    programme_types: Counter[str] = Counter()
+    faculties: Counter[str] = Counter()
+    parse_statuses: Counter[str] = Counter()
+    sources: Counter[str] = Counter()
+    names: dict[str, tuple[str, int]] = {}
+    manual_review_count = 0
+    warning_count = 0
+
+    for row in rows:
+        programme_types[row.category or "unknown"] += 1
+        faculties[row.faculty_or_school or "unknown"] += 1
+        parse_statuses[row.parse_status or "unknown"] += 1
+        sources[row.source_url] += 1
+        normalised_name = _normalise_programme_name(row.name)
+        if normalised_name:
+            display_name, count = names.get(normalised_name, (row.name, 0))
+            names[normalised_name] = (display_name, count + 1)
+        if row.parse_status != "parsed" or row.warnings:
+            manual_review_count += 1
+        warning_count += len(row.warnings)
+
+    duplicate_names = [
+        {"name": display_name, "count": count}
+        for display_name, count in sorted((value for value in names.values() if value[1] > 1), key=lambda item: item[0].casefold())
+    ]
+    duplicate_count = sum(item["count"] - 1 for item in duplicate_names)
+    source_urls = sorted(sources)
+    return {
+        "candidate_count": len(rows),
+        "accepted_count": len(rows),
+        "rejected_count": 0,
+        "duplicate_count": duplicate_count,
+        "duplicate_names": duplicate_names,
+        "by_programme_type": dict(sorted(programme_types.items())),
+        "by_faculty_or_school": dict(sorted(faculties.items())),
+        "parse_status_counts": dict(sorted(parse_statuses.items())),
+        "sources_count": len(source_urls),
+        "source_urls": source_urls,
+        "manual_review_count": manual_review_count,
+        "warning_count": warning_count,
+        "note": "Programme catalog diagnostics summarize extracted catalog rows only; rejected candidate rows are not persisted as admissions facts.",
+    }
+
+
+def _normalise_programme_name(name: str) -> str:
+    return " ".join(name.casefold().split())
 
 
 def _missing_reasons(coverage: dict[str, object], extraction_entries: list[object], source_strategy: object) -> dict[str, object]:

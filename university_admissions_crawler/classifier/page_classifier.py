@@ -23,7 +23,21 @@ KEYWORDS: dict[PageCategory, tuple[str, ...]] = {
     PageCategory.INTERNATIONAL_REQUIREMENTS: ("international requirements", "international applicants", "international", "requirements"),
     PageCategory.APPLICATION_DEADLINES: ("deadline", "deadlines", "apply by", "application period", "closing date"),
     PageCategory.ACCEPTED_QUALIFICATIONS: ("accepted qualification", "accepted qualifications", "qualification", "a-level", "ib diploma"),
-    PageCategory.PROGRAMME_LIST: ("programmes", "programs", "degrees", "degree", "undergraduate programmes"),
+    PageCategory.PROGRAMME_LIST: (
+        "programmes",
+        "programs",
+        "degrees",
+        "degree",
+        "undergraduate programmes",
+        "undergraduate education",
+        "degree programmes",
+        "degree programs",
+        "majors",
+        "minors",
+        "bulletin",
+        "catalogue",
+        "catalog",
+    ),
     PageCategory.PROGRAMME_PREREQUISITES: ("prerequisite", "prerequisites", "required for", "requires mathematics", "mathematics required"),
     PageCategory.FEES: ("tuition", "fees", "fee"),
     PageCategory.SCHOLARSHIPS: ("scholarship", "scholarships", "financial aid"),
@@ -47,6 +61,7 @@ STRONG_ADMISSIONS_SIGNALS = (
     "student pass",
     "undergraduate housing",
     "undergraduate programmes",
+    "undergraduate education",
 )
 
 STRONG_IRRELEVANT_PATHS = (

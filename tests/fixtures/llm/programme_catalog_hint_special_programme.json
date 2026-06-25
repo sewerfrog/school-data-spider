@@ -1,0 +1,7 @@
+{
+  "category": "special_programme",
+  "mode": "full-time",
+  "reason": "Candidate row is a named scholars programme in captured source text.",
+  "confidence": "low",
+  "signals": ["scholars_programme"]
+}
