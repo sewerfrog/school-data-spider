@@ -40,6 +40,9 @@ def test_markdown_report_shows_missing_reasons_before_facts_when_fields_are_miss
     data = run_fixture_scan(ROOT, seed_url="https://fixture.test/realistic-admissions.html", max_pages=1, max_depth=0)
     report = render_markdown_report(data)
 
+    assert "## Template Completeness Diagnostics" in report
+    assert report.index("## Template Completeness Diagnostics") < report.index("## Facts")
+    assert "- Next actions:" in report
     assert "## Missing Reasons" in report
     assert report.index("## Missing Reasons") < report.index("## Facts")
     assert "`accepted_qualifications`" in report
@@ -79,6 +82,8 @@ def test_cli_fixture_smoke_writes_json_and_markdown():
         assert data["evidence"]
         assert data["warnings"]
         assert data["discovered_categories"]
+        assert data["run"]["config"]["max_pages"] == 20
+        assert data["run"]["config"]["max_depth"] == 3
         assert data["run"]["config"]["extraction_diagnostics_summary"]["attempts_count"] > 0
         assert set(data["run"]["config"]["missing_reasons"]) == set(data["run"]["config"]["coverage"]["missing"])
         assert "keyword_plan" not in data["run"]["config"]
@@ -97,31 +102,15 @@ def test_cli_fixture_records_explicit_keyword_query_plan():
         assert keyword_plan["positive_keywords"] == ["undergraduate", "admissions", "ielts", "fees"]
         assert "/admissions" in keyword_plan["url_hints"]
         assert "/fees" in keyword_plan["url_hints"]
-        assert data["run"]["config"]["relevance_strategy"] == "rule_based"
+        assert data["run"]["config"]["relevance_strategy"] == "admissions_programme_profile"
 
 
-def test_cli_fixture_mock_llm_generates_reviewable_keyword_plan():
+def test_cli_fixture_accepts_explicit_rule_based_relevance_strategy():
     with TemporaryDirectory() as tmp:
-        code = main(
-            [
-                str(ROOT),
-                "--fixture",
-                "--keyword-query",
-                "undergraduate admissions IELTS fees",
-                "--enable-llm",
-                "--llm-provider",
-                "mock",
-                "--output-dir",
-                tmp,
-            ]
-        )
+        code = main([str(ROOT), "--fixture", "--relevance-strategy", "rule-based", "--output-dir", tmp])
         assert code == 0
         data = json.loads((Path(tmp) / "result.json").read_text())
-        report = (Path(tmp) / "report.md").read_text()
-        assert data["run"]["config"]["keyword_plan"]["source"] == "llm"
-        assert data["run"]["config"]["llm_keyword_plan"]["provider"] == "mock"
-        assert data["run"]["config"]["llm_keyword_plan"]["fallback"] is False
-        assert "## LLM Keyword Plan Diagnostics" in report
+        assert data["run"]["config"]["relevance_strategy"] == "rule_based"
 
 
 def test_cli_fixture_mock_source_planning_records_diagnostics_only():
@@ -191,6 +180,8 @@ def test_markdown_report_shows_source_planning_diagnostics_before_facts():
     assert "- Enabled: True" in report
     assert "- Triggered: True" in report
     assert "- Applied: False" in report
+    assert "- Crawled accepted candidate URLs: 0" in report
+    assert "- Budget-skipped accepted candidate URLs: 0" in report
     assert "- Blocked/challenge sources: 1" in report
     assert "- Accepted candidate URLs: 1" in report
     assert "https://www.nus.edu.sg/nusbulletin/ay202526/programmes/" in report
@@ -198,6 +189,44 @@ def test_markdown_report_shows_source_planning_diagnostics_before_facts():
     assert "https://example.com/nus/admissions" in report
     assert "rejected `outside_allowed_domain`" in report
     assert "source planning diagnostics are not admissions facts" in report
+
+
+def test_markdown_report_shows_source_planning_crawl_status():
+    seed_url = "https://example.edu/"
+    programme_url = "https://example.edu/programmes"
+    data = run_scan(
+        seed_url,
+        _SourcePlanningReportFetcher(
+            {
+                seed_url: ("Access Denied", "Access denied. Please enable JavaScript and complete the captcha.", []),
+                programme_url: ("Undergraduate Programmes", "Bachelor of Science", []),
+            }
+        ),
+        DiscoveryConfig(max_pages=3, max_depth=1, allowed_hosts={"example.edu"}),
+        source_plan_provider=MockSourcePlanProvider(
+            {
+                "candidate_urls": [
+                    {
+                        "url": programme_url,
+                        "reason": "Official programmes page candidate.",
+                        "expected_category": "programme_list",
+                    }
+                ],
+                "candidate_path_patterns": ["/programmes"],
+                "candidate_queries": [],
+                "warnings": [],
+            }
+        ),
+    )
+
+    report = render_markdown_report(data)
+
+    assert "- Applied: True" in report
+    assert "- Crawled accepted candidate URLs: 1" in report
+    assert "- Budget-skipped accepted candidate URLs: 0" in report
+    assert "https://example.edu/programmes (`programme_list`) crawl `crawled`" in report
+    assert "- Candidate path patterns:" in report
+    assert "  - /programmes" in report
 
 
 def test_markdown_report_shows_programme_catalog_diagnostics_before_facts():
@@ -208,6 +237,11 @@ def test_markdown_report_shows_programme_catalog_diagnostics_before_facts():
     assert report.index("## Programme Catalog Diagnostics") < report.index("## Facts")
     assert "- Candidate rows:" in report
     assert "- Accepted rows:" in report
+    assert "- Candidate sources:" in report
+    assert "- Crawled catalog sources:" in report
+    assert "- Raw-needs-review rows:" in report
+    assert "- Probable incomplete catalog:" in report
+    assert "- Recommended next action:" in report
     assert "- Programme types:" in report
     assert "- Sources:" in report
     assert "https://fixture.test/programmes/index.html" in report
@@ -346,6 +380,14 @@ def test_cli_smoke_flag_caps_depth_and_provider_flags_are_guarded():
 
     with redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
         try:
+            main([str(ROOT), "--fixture", "--keyword-query", "fees", "--enable-llm", "--llm-provider", "mock"])
+        except SystemExit as exc:
+            assert exc.code != 0
+        else:
+            raise AssertionError("keyword-query should not enable LLM keyword-plan generation")
+
+    with redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+        try:
             main([str(ROOT), "--fixture", "--enable-classification-assist"])
         except SystemExit as exc:
             assert exc.code != 0
@@ -362,11 +404,40 @@ def test_cli_smoke_flag_caps_depth_and_provider_flags_are_guarded():
 
     with redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
         try:
-            main([str(ROOT), "--fixture", "--keyword-query", "fees", "--enable-llm", "--llm-provider", "openai"])
+            main([str(ROOT), "--fixture", "--enable-llm", "--llm-provider", "anthropic", "--enable-source-planning"])
         except SystemExit as exc:
             assert exc.code != 0
         else:
-            raise AssertionError("real LLM providers should remain guarded")
+            raise AssertionError("unimplemented hosted providers should remain guarded")
+
+
+def test_cli_fixture_openai_source_planning_fails_closed_without_api_key(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    with TemporaryDirectory() as tmp:
+        code = main(
+            [
+                str(ROOT),
+                "--fixture",
+                "--seed-url",
+                "https://fixture.test/blog.html",
+                "--max-pages",
+                "1",
+                "--max-depth",
+                "0",
+                "--enable-llm",
+                "--llm-provider",
+                "openai",
+                "--enable-source-planning",
+                "--output-dir",
+                tmp,
+            ]
+        )
+        assert code == 0
+        data = json.loads((Path(tmp) / "result.json").read_text())
+        source_plan = data["run"]["config"]["llm_source_plan"]
+        assert source_plan["provider"] == "openai"
+        assert source_plan["fallback"] is True
+        assert "llm_source_plan_fallback" in source_plan["warnings"]
 
 
 def test_cli_live_http_writes_json_and_markdown_from_local_server():
@@ -375,7 +446,6 @@ def test_cli_live_http_writes_json_and_markdown_from_local_server():
             code = main(
                 [
                     "https://example.edu/",
-                    "--enable-live-network",
                     "--output-dir",
                     out_tmp,
                     "--max-pages",
@@ -388,30 +458,56 @@ def test_cli_live_http_writes_json_and_markdown_from_local_server():
         data = json.loads((Path(out_tmp) / "result.json").read_text())
         assert data["sources"]
         assert data["evidence"]
+        assert data["run"]["config"]["allowed_domains"] == ["example.edu"]
         assert any(item["source_url"].endswith("/admissions.html") for item in data["evidence"])
         assert "Evidence appendix" in (Path(out_tmp) / "report.md").read_text()
 
 
-def test_cli_auto_live_infers_domain_and_writes_coverage():
+def test_cli_live_defaults_infer_domain_and_use_homepage_first_limits():
     with TemporaryDirectory() as out_tmp:
         with patch("university_admissions_crawler.cli.LiveHTTPFetcher", _FakeLiveHTTPFetcher):
             code = main(
                 [
                     "https://example.edu/",
-                    "--auto",
                     "--output-dir",
                     out_tmp,
-                    "--max-pages",
-                    "5",
-                    "--max-depth",
-                    "1",
                 ]
             )
         assert code == 0
         data = json.loads((Path(out_tmp) / "result.json").read_text())
         assert data["run"]["config"]["allowed_domains"] == ["example.edu"]
+        assert data["run"]["config"]["max_pages"] == 80
+        assert data["run"]["config"]["max_depth"] == 4
         assert data["run"]["config"]["coverage"]["found_count"] > 0
         assert "Core Field Coverage" in (Path(out_tmp) / "report.md").read_text()
+
+
+def test_cli_browser_defaults_use_domcontentloaded_and_sixty_second_timeout():
+    with TemporaryDirectory() as out_tmp:
+        _RecordingBrowserFetcher.fetch_calls = []
+        with (
+            patch("university_admissions_crawler.cli.LiveHTTPFetcher", _FakeLiveHTTPFetcher),
+            patch("university_admissions_crawler.cli.PlaywrightBrowserFetcher", _RecordingBrowserFetcher),
+        ):
+            code = main(["https://example.edu/", "--enable-browser", "--output-dir", out_tmp, "--max-pages", "1", "--max-depth", "0"])
+        assert code == 0
+        assert _RecordingBrowserFetcher.last_kwargs["timeout_seconds"] == 60.0
+        assert _RecordingBrowserFetcher.last_kwargs["wait_until"] == "domcontentloaded"
+        assert _RecordingBrowserFetcher.fetch_calls == []
+
+
+def test_cli_browser_mode_falls_back_only_for_js_shell():
+    with TemporaryDirectory() as out_tmp:
+        _RecordingBrowserFetcher.fetch_calls = []
+        with (
+            patch("university_admissions_crawler.cli.LiveHTTPFetcher", _JsShellLiveHTTPFetcher),
+            patch("university_admissions_crawler.cli.PlaywrightBrowserFetcher", _RecordingBrowserFetcher),
+        ):
+            code = main(["https://example.edu/", "--enable-browser", "--output-dir", out_tmp, "--max-pages", "1", "--max-depth", "0"])
+        assert code == 0
+        assert _RecordingBrowserFetcher.fetch_calls == ["https://example.edu/"]
+        data = json.loads((Path(out_tmp) / "result.json").read_text())
+        assert data["sources"][0]["engine"] == "browser-test"
 
 
 def test_cli_config_batch_writes_per_university_outputs():
@@ -425,9 +521,6 @@ def test_cli_config_batch_writes_per_university_outputs():
                             "id": "example-u",
                             "name": "Example University",
                             "seed_urls": ["https://example.edu/"],
-                            "allowed_domains": ["example.edu"],
-                            "max_pages": 2,
-                            "max_depth": 1,
                             "mode": "live-http",
                         }
                     ]
@@ -435,7 +528,7 @@ def test_cli_config_batch_writes_per_university_outputs():
             ),
             encoding="utf-8",
         )
-        with patch("university_admissions_crawler.cli.LiveHTTPFetcher", _FakeLiveHTTPFetcher):
+        with patch("university_admissions_crawler.pipeline.batch.LiveHTTPFetcher", _FakeLiveHTTPFetcher):
             code = main(["--config", str(config_path), "--output-dir", out_tmp])
         assert code == 0
         result = Path(out_tmp) / "example-u" / "result.json"
@@ -445,6 +538,9 @@ def test_cli_config_batch_writes_per_university_outputs():
         data = json.loads(result.read_text())
         assert data["institution"]["name"]["value"] == "Example University"
         assert data["run"]["config"]["university_id"] == "example-u"
+        assert data["run"]["config"]["allowed_domains"] == ["example.edu"]
+        assert data["run"]["config"]["max_pages"] == 80
+        assert data["run"]["config"]["max_depth"] == 4
 
 
 def test_cli_config_batch_accepts_opt_in_keyword_plan_and_relevance_strategy():
@@ -470,7 +566,7 @@ def test_cli_config_batch_accepts_opt_in_keyword_plan_and_relevance_strategy():
             ),
             encoding="utf-8",
         )
-        with patch("university_admissions_crawler.cli.LiveHTTPFetcher", _FakeLiveHTTPFetcher):
+        with patch("university_admissions_crawler.pipeline.batch.LiveHTTPFetcher", _FakeLiveHTTPFetcher):
             code = main(["--config", str(config_path), "--output-dir", out_tmp])
         assert code == 0
         data = json.loads((Path(out_tmp) / "example-u" / "result.json").read_text())
@@ -507,7 +603,7 @@ class _FakeLiveHTTPFetcher:
     engine = "live-http-test"
 
     def __init__(self, *args, **kwargs):
-        pass
+        self.kwargs = kwargs
 
     def fetch(self, url: str) -> FetchResult:
         if url.endswith("/"):
@@ -556,6 +652,48 @@ class _FakeLiveHTTPFetcher:
         )
 
 
+class _RecordingBrowserFetcher(_FakeLiveHTTPFetcher):
+    engine = "browser-test"
+    last_kwargs = {}
+    fetch_calls = []
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        type(self).last_kwargs = kwargs
+
+    def fetch(self, url: str) -> FetchResult:
+        type(self).fetch_calls.append(url)
+        return super().fetch(url)
+
+
+class _JsShellLiveHTTPFetcher(_FakeLiveHTTPFetcher):
+    engine = "live-http-js-shell-test"
+
+    def fetch(self, url: str) -> FetchResult:
+        text = "<title>Example University</title><div id='root'></div><script src='/app.js'></script><script src='/vendor.js'></script>"
+        source = source_from_text(
+            source_url=url,
+            source_type=SourceType.HTML,
+            title="Example University",
+            text=text,
+            retrieved_at="2026-06-01T00:00:00+00:00",
+            engine=self.engine,
+        )
+        return FetchResult(
+            url=url,
+            final_url=url,
+            status=200,
+            title="Example University",
+            content_type="text/html",
+            retrieved_at="2026-06-01T00:00:00+00:00",
+            engine=self.engine,
+            text=text,
+            markdown="Example University",
+            links=[],
+            source=source,
+        )
+
+
 class _SinglePageFetcher:
     engine = "single-page-test"
 
@@ -582,5 +720,46 @@ class _SinglePageFetcher:
             text=self.text,
             markdown=self.text,
             links=[],
+            source=source,
+        )
+
+
+class _SourcePlanningReportFetcher:
+    engine = "source-planning-report-test"
+
+    def __init__(self, pages):
+        self.pages = pages
+
+    def fetch(self, url: str) -> FetchResult:
+        if url not in self.pages:
+            return FetchResult(
+                url=url,
+                final_url=url,
+                status=404,
+                title="Not Found",
+                content_type="text/plain",
+                retrieved_at="2026-06-01T00:00:00+00:00",
+                engine=self.engine,
+            )
+        title, text, links = self.pages[url]
+        source = source_from_text(
+            source_url=url,
+            source_type=SourceType.HTML,
+            title=title,
+            text=text,
+            retrieved_at="2026-06-01T00:00:00+00:00",
+            engine=self.engine,
+        )
+        return FetchResult(
+            url=url,
+            final_url=url,
+            status=200,
+            title=title,
+            content_type="text/html",
+            retrieved_at="2026-06-01T00:00:00+00:00",
+            engine=self.engine,
+            text=text,
+            markdown=text,
+            links=list(links),
             source=source,
         )

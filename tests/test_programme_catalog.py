@@ -329,6 +329,12 @@ def test_programme_catalog_summary_counts_types_sources_and_manual_review_rows()
     assert summary["candidate_count"] == 3
     assert summary["accepted_count"] == 3
     assert summary["rejected_count"] == 0
+    assert summary["candidate_source_count"] == 1
+    assert summary["crawled_catalog_source_count"] == 1
+    assert summary["accepted_row_count"] == 3
+    assert summary["raw_needs_review_count"] == 1
+    assert summary["probable_incomplete_catalog"] is True
+    assert summary["recommended_next_action"] == "manual_review_or_catalog_parser"
     assert summary["duplicate_count"] == 1
     assert summary["duplicate_names"] == [{"name": "Bachelor of Science in Data Science", "count": 2}]
     assert summary["by_programme_type"] == {"degree_programme": 2, "major": 1}

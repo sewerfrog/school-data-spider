@@ -8,6 +8,15 @@ from pathlib import Path
 from typing import Any
 
 
+FIXTURE_DEFAULT_MAX_PAGES = 20
+FIXTURE_DEFAULT_MAX_DEPTH = 3
+LIVE_DEFAULT_MAX_PAGES = 80
+LIVE_DEFAULT_MAX_DEPTH = 4
+DEFAULT_TIMEOUT_SECONDS = 60.0
+SMOKE_MAX_PAGES = 20
+SMOKE_MAX_DEPTH = 2
+
+
 @dataclass(slots=True)
 class UniversityConfig:
     id: str
@@ -19,7 +28,7 @@ class UniversityConfig:
     max_depth: int | None = None
     mode: str = "live-http"
     keyword_query: str | None = None
-    relevance_strategy: str = "rule-based"
+    relevance_strategy: str = "admissions-programme"
 
 
 def load_university_configs(path: str | Path) -> list[UniversityConfig]:
@@ -50,7 +59,7 @@ def _parse_config(item: dict[str, Any]) -> UniversityConfig:
         max_depth=item.get("max_depth"),
         mode=item.get("mode", "live-http"),
         keyword_query=item.get("keyword_query"),
-        relevance_strategy=item.get("relevance_strategy", "rule-based"),
+        relevance_strategy=item.get("relevance_strategy", "admissions-programme"),
     )
 
 

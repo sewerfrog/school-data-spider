@@ -26,30 +26,37 @@ relevance、合理的 timeout/browser 策略、source planning 和 diagnostics�
 
 **阶段 4：专业目录抽取与表格输出**
 
-当前进入下一阶段：
-
 **Phase 5: Homepage-First Automatic Admissions Crawl**
 
 **阶段 5：官网主页优先的自动招生信息爬取**
 
-阶段 3/4 的结论是：diagnostics、missing reasons、blocked/challenge detection、
-programme catalog schema 和 CSV 输出都值得保留。但这些能力还没有让项目成为真正的
-“官网主页输入 -> 自动找到招生和专业目录页 -> 输出完整模板”的工具。现阶段最大问题是：
+当前待执行的工程化需求：
 
-- CLI 参数过多，真实运行必须知道 `--auto`、`--enable-browser`、`--keyword-query`、
-  `--relevance-strategy bm25-like`、`--allowed-domain`、timeout / browser wait 等内部
-  细节。
-- `keyword_query` 本质是人工指引，不符合“只输入大学官网”的目标。
-- LLM keyword optimization 只是把人工关键词结构化，不能解决官网导航和 source
-  acquisition 问题，应该裁剪。
-- 当前 source planning 只写 diagnostics，不进入 crawl frontier，因此不能实际帮助从
-  主页找到专业目录页。
-- 当前 discovery 是 bounded BFS/deque，只在单页内排序 links，没有全局优先 frontier；
-  真实官网容易把 page budget 消耗在 about/news/corporate 页面。
+**Next Step: OpenAI Local Configuration Standardization**
 
-Phase 5 的核心方向是：裁剪 keyword 指引功能，把默认爬取策略改成
-programme/admissions-aware，并把 LLM 用在“分析官网导航和候选官方 source”上，而不是
-用在“生成关键词”或“生成事实”上。
+**下一步：OpenAI 本地配置标准化**
+
+后续功能规划：
+
+**Phase 6: LLM Structured Extraction Fallback**
+
+**阶段 6：LLM 结构化抽取候选 fallback**
+
+阶段 3/4/5 的结论是：diagnostics、missing reasons、blocked/challenge detection、
+programme catalog schema、CSV 输出、homepage-first discovery、priority frontier、
+sitemap/path probing、guarded source planning frontier hint 和真实 OpenAI provider 都值得
+保留。当前主链路已经从“用户用 keyword 引导 crawler”推进到“输入官网主页后，由内部
+profile 自动优先发现招生和专业目录 source”。
+
+当前仍需处理的问题已经不是 Phase 5 的 source acquisition 基线，而是：
+
+- OpenAI 本地配置标准化已经完成：`.env.example`、`.gitignore`、README、
+  版本说明和 `.env.example` 模板安全测试已对齐。
+- 真实 OpenAI provider 已接入 guarded source planning、classification assist 和
+  programme catalog hint，但还没有接入 Phase 6 的 structured extraction fallback。
+- 字段覆盖率仍取决于真实站点结构、source acquisition、context gate 和 extractor；
+  diagnostics 只能解释本次 run 的失败层级，不能证明官网从未提供某字段。
+- `run_university_scan.py` 的插桩仍偏重，后续新增复杂诊断前应优先抽小 helper/tracer。
 
 ## 当前目标与边界
 
@@ -99,12 +106,13 @@ programme/admissions-aware，并把 LLM 用在“分析官网导航和候选官�
   source acquisition failure。
 - `extraction_diagnostics` 会记录 source-level `source_acquisition_status`，用于区分
   blocked source 上的 no-match 和 usable source 上的 no-match。
-- `--enable-source-planning` 已接入 guarded mock LLM source planning。它必须配合
-  `--enable-llm --llm-provider mock`，默认不启用。
-- `llm_source_plan` 只写入 `run.config` diagnostics，不 crawl 候选 URL，不写 facts，
+- `--enable-source-planning` 已接入 guarded LLM source planning。它必须配合
+  `--enable-llm`，支持 deterministic `mock` 和真实 `openai` provider，默认不启用。
+- `llm_source_plan` 会写入 `run.config` diagnostics；accepted candidate URL 经过
+  deterministic validation 后可以作为 bounded crawl frontier hint，但不会直接写 facts，
   不绕过 WAF。
 - LLM candidate URL 会经过 deterministic validation，accepted/rejected 都可审计；
-  accepted candidate 只是诊断候选，不是当前 crawl frontier。
+  accepted candidate 只影响 bounded source acquisition，不是 admissions facts。
 - Markdown report 已在 facts 前展示 `Source Planning Diagnostics`，并明确说明它不是
   admissions facts。
 - `run_university_scan.py` 当前不继续膨胀；已有 diagnostics recorder 能覆盖当前
@@ -113,16 +121,18 @@ programme/admissions-aware，并把 LLM 用在“分析官网导航和候选官�
 这些能力提升的是排查能力，不等于字段覆盖率已经解决。coverage 仍取决于 source
 selection、source acquisition、context gate、extractor 和真实站点结构。
 
-以下能力在 Phase 5 需要裁剪或改造：
+Phase 5 已完成的裁剪和改造：
 
-- `--keyword-query` 不应继续作为用户主入口。项目目标是按招生模板自动找 source，
-  不是让用户用关键词引导 crawler。
-- LLM keyword plan / keyword optimization 应删除或降级为内部测试遗留，不再作为文档化
-  feature。
-- `bm25-like` 不应继续要求用户显式选择；programme/admissions-aware relevance 应成为
-  默认策略。
-- `--enable-source-planning` 不应长期停留在 diagnostics-only；LLM source planning 应
-  在通过 deterministic validation 后成为 guarded crawl frontier input。
+- `--keyword-query` 已降级为 deterministic debug input，不再是推荐主入口。
+- LLM keyword plan / keyword optimization 已从主流程移除，不再作为文档化产品能力。
+- `admissions_programme_profile` 已成为默认 relevance strategy；`bm25-like` 和
+  `rule-based` 只保留为显式兼容/调试路径。
+- Discovery 已使用全局 priority frontier，避免 page budget 被低价值 about/news/corporate
+  页面优先消耗。
+- Sitemap probing、常见官方路径 probing 和 extra candidates 已进入 priority frontier。
+- `--enable-source-planning` 仍是显式 guarded opt-in，但 accepted candidate URL 经过
+  deterministic validation 后可以作为 bounded crawl frontier hint；它们不会直接写
+  admissions facts。
 
 ## 当前复盘
 
@@ -216,7 +226,9 @@ extractor、context gate 和 source prioritization：
 
 仍需保留的风险提醒：
 
-- `accepted_candidate_urls` 是已验证的诊断候选，不是当前实现中的自动 crawl frontier。
+- `accepted_candidate_urls` 已从纯诊断候选升级为 bounded crawl frontier hint；它们仍不
+  写 facts，实际抓取状态通过 `applied_candidate_urls`、`budget_skipped_candidate_urls`
+  和每个 candidate 的 `crawl_status` 审计。
 - `run_university_scan.py` 插桩已经偏重，后续不要继续把更多诊断逻辑硬塞进主流程；
   如需继续扩展，应先抽小 helper/tracer。
 - `missing_reasons` 不能证明官网没有提供某字段，只能解释当前抓取链路和 extractor
@@ -235,9 +247,11 @@ extractor、context gate 和 source prioritization：
    `source_not_crawled`。
 4. 增加 `--enable-source-planning` guarded mock 入口和
    `pipeline/source_planning.py`。
-5. 增加 source-plan candidate URL validation；accepted/rejected 只进入 diagnostics。
+5. 增加 source-plan candidate URL validation；当时 accepted/rejected 只进入
+   diagnostics，后续 Phase 5 已把 accepted URL 接成 bounded crawl frontier hint。
 6. 在 `reports/render_report.py` 中于 facts 前展示 `Source Planning Diagnostics`。
-7. 用 NUS mock source plan fixture 固定 “候选 URL 不被自动抓取、不写 facts” 的边界。
+7. 用 NUS mock source plan fixture 固定候选 URL 不写 facts 的边界；后续测试改为
+   同时覆盖 crawled / budget-skipped crawl status。
 8. live smoke 验证：浏览器能抓到 NUS 30 个官方 HTML source 时，source planning
    不触发；coverage 为 `2/9`，剩余问题转向 extractor / context gate /
    source prioritization。
@@ -368,419 +382,532 @@ git diff --check
 # passed
 ```
 
-## Phase 5 当前任务目标
+## Phase 5 已完成基线
 
 Phase 5 的目标是把项目从“需要用户理解内部参数的 crawler”改成“输入官网主页即可
-自动尝试完成招生模板”的 crawler。
-
-目标命令形态：
+自动尝试完成招生模板”的 crawler。当前推荐命令形态已经收敛为：
 
 ```bash
 .venv314/bin/python -m university_admissions_crawler.cli https://www.example.edu/ \
   --output-dir outputs/example-auto
 ```
 
-用户不应必须知道：
+本阶段已完成内容压缩如下：
 
-- `--auto`
-- `--allowed-domain`
-- `--keyword-query`
-- `--relevance-strategy bm25-like`
-- `--enable-source-planning`
-- `--browser-wait-until domcontentloaded`
-- `--timeout-seconds 90`
+1. 非 fixture URL 默认进入 live homepage-first scan，`--auto` 和 `--enable-live-network`
+   只保留为兼容 flag。
+2. 默认从输入 URL 推断官方 allowed domain，并保留 `--allowed-domain` /
+   `--allowed-host` 作为高级控制。
+3. live 默认参数已收敛为更适合真实官网的 `max_pages=80`、`max_depth=4`、
+   `timeout_seconds=60`；`--smoke` 继续用于小预算验证。
+4. `admissions_programme_profile` 已成为默认 relevance strategy，覆盖本科招生、申请
+   要求、日期、费用、英语/国际要求、材料、联系方式和专业目录 source。
+5. `--keyword-query` 已降级为 deterministic debug input；LLM keyword optimization 已从
+   主流程移除。
+6. Discovery 已从单页局部排序的 BFS/deque 改成全局 priority frontier，并记录候选 URL 的
+   score、depth、source URL、anchor text 和 reason signals。
+7. Sitemap probing、常见官方路径 probing 和 extra candidates 已能进入 priority
+   frontier；404/403 path probe 不会被当作事实失败。
+8. Guarded LLM source planning 已从纯 diagnostics 升级为 bounded crawl frontier hint：
+   accepted candidate URL 必须先通过 HTTPS、allowed domain、low-value/source-value 等
+   deterministic validation。
+9. Markdown report 已显示 source planning enabled/triggered/applied、accepted/rejected、
+   crawled/budget-skipped candidate URL；candidate URL 不直接生成 admissions facts。
+10. Template completeness diagnostics 已能区分 source_not_found、source_blocked_or_challenge、
+    source_budget_skipped、extractor_not_attempted、attempted_no_match、context_gate_failed、
+    manual_check_required 和 portal_or_login_required 等失败层级。
+11. NUS、HKU、NTU、PolyU saved-source pipeline 样板已覆盖 source discovery、page category、
+    programme catalog rows 和 evidence path，未加入学校硬编码分支。
+12. OpenAI provider 已接入 guarded source planning、low-confidence classification assist、
+    captured programme row category/mode hint；mock provider 仍用于 deterministic offline
+    tests。Anthropic/Gemini 仍 fail closed。
 
-这些属于项目内部策略，应该由默认 profile 或自动 fallback 处理。
+当前仍然保留的边界：
 
-Phase 5 的“自动”不是无边界全站爬取，而是：
+- 不使用 LLM 直接生成招生事实、专业名、费用、申请时间或申请要求。
+- 不绕过 WAF、人机验证、登录、portal 或申请系统。
+- 不做无边界全站 crawl。
+- 不把 live output 作为 pytest 依赖。
+- 不一次性重写所有 extractor。
+- 不把 hosted LLM 作为 deterministic test 或默认运行依赖。
+- 所有 admissions facts 和 programme catalog rows 仍必须有 captured official source、
+  snippet 和 evidence path。
 
-1. 从 homepage 推断官方 domain / subdomain scope。
-2. 使用内置 admissions/programme source-discovery profile。
-3. 优先抓取本科招生、申请要求、费用、英语要求、材料、联系方式和专业目录相关 source。
-4. 在 deterministic discovery 不足时，用 LLM 生成官方 source candidates。
-5. LLM candidates 经过 URL/domain/source-value validation 后才能进入 crawl frontier。
-6. 所有 admissions facts 和 programme rows 仍必须来自实际抓取的 source/evidence。
-7. 如果没有抓全，report 必须说明失败卡在 source discovery、blocked/challenge、
-   budget exhausted、context gate 还是 extractor no_match。
+最近验证状态：
 
-## Phase 5 裁剪范围
+```bash
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider
+# 176 passed
 
-需要裁剪或降级的功能：
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m compileall -q university_admissions_crawler tests
+# passed
 
-- 删除面向用户的 LLM keyword optimization。它不符合“输入官网主页自动爬取模板”的
-  产品目标，也没有解决真实官网的 source discovery 问题。
-- `keyword_query` 不再作为主功能入口。保留与否取决于兼容成本；即使短期保留，也只能
-  作为低层调试参数，不应出现在推荐命令和主 README 工作流里。
-- `bm25-like` 不再要求用户显式选择。内置 programme/admissions relevance profile 应成为
-  默认 discovery 策略。
-- `source planning` 不再只是 report diagnostics；下一阶段应让 validated candidates
-  成为 guarded frontier input。
-- LLM 不生成申请要求、申请时间、专业名、费用、英语成绩等事实；LLM 只参与 source
-  navigation、页面用途判断和已抓取 candidate 的分类提示。
+git diff --check
+# passed
+```
 
-保留能力：
+当前实现仍不是“任意大学官网完整字段覆盖”的生产级闭环。Phase 5 解决的是默认
+source acquisition、priority discovery、programme catalog baseline、source planning
+frontier 和 diagnostics 可审计性；字段覆盖率仍取决于真实站点结构、context gate 和
+extractor 能力。
 
-- evidence-first schema 和 validation。
-- field-level `missing_reasons` 和 extraction diagnostics。
-- blocked/challenge detection。
-- programme catalog schema、CSV 输出和 row-level warnings。
-- mock-first LLM 测试方式。
-- optional browser/PDF 能力，但默认策略需要更适合真实官网。
+## Next Step：OpenAI Local Configuration Standardization
 
-## Phase 5 执行计划
+当前真实 OpenAI provider 已经可用。本阶段按团队项目标准化方式处理 API key 配置，
+不引入新运行时依赖，不把真实 credentials 写入仓库，也不改变 evidence-first 运行边界。
 
-### Step 1：CLI 默认运行模式收敛
+当前状态：
+
+- Step 1 已完成：`.gitignore` 已忽略 `.env` / `.env.*`，并保留 `.env.example` 可提交。
+- Step 2 已完成：已新增 `.env.example`，只包含 `OPENAI_API_KEY=` 和
+  `OPENAI_MODEL=gpt-4.1-mini`。
+- Step 3 已完成：`README.md` 已加入团队本地配置流程，并说明 CLI 不自动读取 `.env`。
+- Step 4 已完成：`VERSION_NOTES.zh.md` 和本文档已同步 OpenAI 本地配置边界。
+- Step 5 已完成：已增加 `.env.example` 模板安全测试。
+
+### Step 1：检查并补齐本地 secret 忽略规则（已完成）
 
 修改文件：
 
-- `university_admissions_crawler/cli.py`
-- `university_admissions_crawler/config_loader.py`
-- `university_admissions_crawler/pipeline/batch.py`
-- `tests/test_report_cli.py`
-- `tests/test_pipeline.py`
+- `.gitignore`
 
 目标：
 
-- 非 fixture 输入默认为 live auto crawl，不再要求用户显式传 `--auto` 或
-  `--enable-live-network`。
-- 默认从输入 URL 推断 `allowed_domains`，保留 `--allowed-domain` / `--allowed-host` 作为
-  额外收窄或扩展。
-- 默认 `max_pages` 调整到真实官网可用范围，例如 `80` 或 `100`；`--smoke` 继续保持小
-  上限。
-- 默认 `max_depth` 调整为 `4` 或 `5`，避免 `20` 这类深爬造成噪音。
-- 默认 `timeout_seconds` 调整到真实官网更可用的范围，例如 `60` 或 `90`。
-- 默认 browser wait 使用 `domcontentloaded`，避免 `networkidle` 在复杂官网长时间卡住。
-- 保留 `--fixture` 的旧行为，不让 fixture tests 受 live defaults 影响。
+- 确认 `.env` 和 `.env.*` 被忽略。
+- 明确保留 `.env.example` 可提交。
+- 不忽略 README、docs、tests 或 outputs 中已有普通文件。
+
+建议规则：
+
+```gitignore
+# Local secrets
+.env
+.env.*
+!.env.example
+```
 
 验证方式：
 
 ```bash
-env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_report_cli.py tests/test_pipeline.py
+git check-ignore -v .env
+git check-ignore -v .env.example || true
 git diff --check
 ```
 
 风险控制：
 
-- 不删除显式参数，只改变推荐路径和默认行为。
-- `--fixture` 必须继续离线、确定性运行。
-- batch config 中已有 university-level `max_pages` / `max_depth` 覆盖逻辑继续保留。
+- 不提交真实 `.env`。
+- 不把 `.env.example` 误加入 ignore。
 
-### Step 2：裁剪 LLM keyword optimization
+### Step 2：新增 `.env.example`（已完成）
 
 修改文件：
 
-- `university_admissions_crawler/cli.py`
-- `university_admissions_crawler/extractor/llm_provider.py`
-- `university_admissions_crawler/reports/render_report.py`
-- `university_admissions_crawler/crawler/relevance.py`
-- `tests/test_relevance.py`
-- `tests/test_report_cli.py`
+- `.env.example`
+
+目标：
+
+- 提供团队共享的本地配置模板。
+- 只包含变量名和安全默认模型，不包含真实 key 或 `sk-...` 示例。
+
+建议内容：
+
+```bash
+# Copy this file to .env for local development.
+# Never commit real API keys.
+
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-4.1-mini
+```
+
+验证方式：
+
+```bash
+git diff -- .env.example
+rg -n "sk-" .env.example README.md VERSION_NOTES.zh.md docs/keyword-crawl-design.zh.md
+```
+
+风险控制：
+
+- `.env.example` 是模板，不是运行证据，不进入 outputs 或 diagnostics。
+- 不在 fixture、测试输出或 commit message 中放真实 key。
+
+### Step 3：更新 README 的 OpenAI 本地配置流程（已完成）
+
+修改文件：
+
 - `README.md`
+
+目标：
+
+- 说明团队标准流程：
+  - `cp .env.example .env`
+  - 编辑 `.env`
+  - 用 `set -a; source .env; set +a` 加载到当前 shell。
+  - 用不打印 key 的命令验证环境变量是否存在。
+- 明确代码仍读取 `OPENAI_API_KEY` / `OPENAI_MODEL` 环境变量。
+- 明确 OpenAI 只用于 guarded source planning、classification assist 和 programme catalog
+  hint，不直接写 admissions facts。
+
+验证方式：
+
+```bash
+rg -n "env.example|OPENAI_API_KEY|OPENAI_MODEL|llm-provider openai" README.md
+git diff --check
+```
+
+风险控制：
+
+- 不承诺 CLI 自动读取 `.env`；当前阶段只是标准化模板和加载流程。
+- 不把真实 key 写进 README。
+
+### Step 4：同步版本说明和设计文档（已完成）
+
+修改文件：
+
 - `VERSION_NOTES.zh.md`
+- `docs/keyword-crawl-design.zh.md`
 
 目标：
 
-- 删除或废弃 `MockKeywordPlanProvider`、`KeywordPlanProvider`、
-  `generate_keyword_plan_with_fallback` 和 `llm_keyword_plan` report section。
-- CLI 不再支持 `--enable-llm --keyword-query` 作为生成 keyword plan 的功能。
-- `keyword_query` 如果短期保留，只作为 deterministic debug input，不再由 LLM 优化。
-- README / VERSION_NOTES 不再把 LLM keyword plan 写成项目能力。
-- 保留 LLM source planning 和 programme candidate classification hint 的 mock-first
-  测试能力，因为它们服务于 source navigation 和分类提示，不是 keyword 指引。
+- 记录 `.env.example` + 本地 `.env` 的团队配置方式。
+- 说明 `.env` 是本地 secret，不是 crawler 输入、不是 evidence source、不会写 facts。
+- 说明缺少 `OPENAI_API_KEY` 时 OpenAI provider fail closed 到 diagnostics，不中断整次 run。
 
 验证方式：
 
 ```bash
-env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_relevance.py tests/test_report_cli.py tests/test_compatibility_boundaries.py
+rg -n "env.example|OPENAI_API_KEY|OPENAI_MODEL|fail closed" VERSION_NOTES.zh.md docs/keyword-crawl-design.zh.md
 git diff --check
 ```
 
 风险控制：
 
-- 不一刀切删除所有 LLM 代码。
-- 不删除 `validate_llm_candidates()` 这类 evidence-gated helper，除非单独确认无调用价值。
-- 删除前先用 `rg` 确认所有 `llm_keyword_plan`、`MockKeywordPlanProvider` 和
-  `generate_keyword_plan_with_fallback` 引用。
+- 不把 OpenAI 配置标准化写成 Phase 6 structured extraction 已完成。
+- 不改变真实模型使用边界。
 
-### Step 3：默认 programme/admissions relevance profile
+### Step 5：增加配置模板安全测试
 
 修改文件：
 
-- `university_admissions_crawler/crawler/relevance.py`
-- `university_admissions_crawler/crawler/filters.py`
-- `university_admissions_crawler/crawler/discovery.py`
-- `university_admissions_crawler/config_loader.py`
-- `tests/test_relevance.py`
-- `tests/test_discovery.py`
-- `tests/test_report_cli.py`
+- `tests/test_openai_provider.py`
 
 目标：
 
-- 将 programme/admissions-aware relevance 设为默认，而不是让用户显式传
-  `--relevance-strategy bm25-like`。
-- 内置默认 source-discovery profile，覆盖：
-  - undergraduate admissions
-  - application requirements
-  - application dates / deadlines
-  - tuition / fees
-  - English / international requirements
-  - required documents
-  - contact
-  - undergraduate programmes / degrees / majors / bulletin / catalogue
-- `keyword_query` 不再是启用相关排序的前置条件。
-- 保留负面 signals：news、alumni、giving、jobs、staff、privacy、cookie、marketing、
-  postgraduate-only、executive education。
-- report 中的 relevance diagnostics 应显示使用的是内部 profile，而不是用户 keyword。
+- 增加轻量测试，确认 `.env.example` 存在并包含 `OPENAI_API_KEY=` /
+  `OPENAI_MODEL=gpt-4.1-mini`。
+- 确认 `.env.example` 不包含明显真实 key 片段，例如 `sk-`。
+- 不调用真实 OpenAI API，不读取本地 `.env`。
 
 验证方式：
 
 ```bash
-env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_relevance.py tests/test_discovery.py tests/test_report_cli.py
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_openai_provider.py
 git diff --check
 ```
 
 风险控制：
 
-- 不让 programme hints 覆盖非本科上下文 gate。
-- 不把 summer school、pre-university、news article 误判为本科专业目录。
-- 保留 `max_pages` / `max_depth` / domain policy，不做无限 crawl。
+- 测试只检查模板安全性，不依赖用户本机是否配置了真实 key。
+- 不把 git 命令作为 pytest 依赖；`.gitignore` 行为用手动验证命令确认。
 
-### Step 4：Discovery 改为全局 priority frontier
+## Phase 6：LLM Structured Extraction Fallback
 
-修改文件：
+Phase 6 的目标是在 Phase 5 homepage-first source acquisition 基础上，增加一个
+evidence-first 的 LLM structured extraction fallback。它解决的问题不是“让 LLM 编写招生
+事实”，而是在 crawler 已经抓到并保存官方 source text / markdown 后，让 LLM 帮助从这些
+source 中提出结构化候选值，再由 deterministic validation 决定候选值是否能进入结果。
 
-- `university_admissions_crawler/crawler/discovery.py`
-- `university_admissions_crawler/crawler/relevance.py`
-- `tests/test_discovery.py`
-- 必要时 `tests/test_pipeline.py`
+这一步的核心边界：
 
-目标：
+- deterministic extractor 仍是主路径。
+- LLM structured extraction 只在字段 missing、extractor no_match、context gate 不确定、
+  或 programme catalog candidate rows 需要补全时作为 fallback。
+- LLM 不能访问未抓取页面，不能根据常识补全，不能引用没有保存进 run 的 source。
+- LLM 输出不是 admissions fact，只是 candidate fact。
+- 每个 candidate fact 必须带有 `claim_path`、`value`、`evidence_snippet`、`source_url`、
+  `confidence`。
+- candidate 只有通过 deterministic validation 后，才能进入 result；否则只进入
+  diagnostics / warnings。
+- report 必须明确区分 deterministic facts、validated LLM fallback facts、rejected LLM
+  candidates。
 
-- 用全局优先队列替代当前 deque BFS。
-- 每个 candidate URL 记录 score、depth、source URL、anchor text、reason signals。
-- 每轮 fetch 当前最高分 candidate，而不是只按当前页面局部排序。
-- programme/admissions source 得分高于 about/news/corporate 页面。
-- page budget 快耗尽时，仍优先保留高价值 admissions/programme source。
+### Phase 6 数据流
 
-验证方式：
+Phase 6 的目标数据流是：
 
-```bash
-env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_discovery.py tests/test_pipeline.py
-git diff --check
+1. homepage-first crawler 获取并保存官方 source。
+2. deterministic extractors 先尝试抽取 core fields 和 programme catalog。
+3. pipeline 根据 `missing_reasons`、`extraction_diagnostics_summary` 和 programme catalog
+   completeness 选择少量高价值 source text 作为 LLM fallback 输入。
+4. LLM provider 返回 candidate facts。
+5. deterministic validator 校验每个 candidate：
+   - `source_url` 必须属于本次 run 已抓到的 official source。
+   - `source_url` 必须通过 domain policy，不是 social/forum/video/portal/login/redirect。
+   - `claim_path` 必须属于允许写入的 schema path。
+   - `evidence_snippet` 必须原文存在于 captured source text / markdown。
+   - `value` 必须原文存在于 `evidence_snippet`，或满足字段级可验证 normalization 规则。
+   - `confidence` 必须在允许范围内，例如 `0.0 <= confidence <= 1.0`。
+   - 字段上下文必须通过 deterministic gate，例如 undergraduate / international /
+     admissions / programme context。
+6. 通过 validation 的 candidate 才能进入 result，并标记 extraction method 为
+   `llm_fallback_validated`。
+7. 未通过 validation 的 candidate 写入 diagnostics / warnings，保留 reject reason。
+
+### Candidate Fact Schema
+
+LLM structured extraction 的最小 candidate fact schema：
+
+```json
+{
+  "claim_path": "admissions.application_period",
+  "value": "Applications open from 1 February to 19 March 2026",
+  "evidence_snippet": "Applications open from 1 February to 19 March 2026 for undergraduate admissions.",
+  "source_url": "https://www.example.edu/admissions/undergraduate",
+  "confidence": 0.78
+}
 ```
 
-风险控制：
+可选诊断字段：
 
-- 去重必须继续基于 canonical URL。
-- 同一个 URL 不因多个入口重复抓取。
-- 深度限制继续生效。
-- 失败 fetch 不应阻断其他 high-score candidates。
+- `reason`
+- `source_title`
+- `candidate_type`
+- `normalization_hint`
 
-### Step 5：Sitemap 与官方常见路径 probing
+这些可选字段不能作为事实依据；事实依据仍只能是 `source_url` 和 `evidence_snippet`。
 
-修改文件：
+允许写入的 `claim_path` 必须显式白名单化。第一版建议只覆盖：
 
-- `university_admissions_crawler/crawler/sitemap.py`
-- `university_admissions_crawler/crawler/discovery.py`
-- `university_admissions_crawler/crawler/filters.py`
-- `tests/test_discovery.py`
-- `tests/test_fetcher.py`
+- `admissions.application_period`
+- `admissions.application_deadline`
+- `admissions.application_entry`
+- `admissions.requirements.academic`
+- `admissions.requirements.english`
+- `admissions.required_documents`
+- `admissions.fees`
+- `admissions.scholarships`
+- `admissions.contact`
+- `programme_catalog[].name`
+- `programme_catalog[].degree`
+- `programme_catalog[].faculty_or_school`
+- `programme_catalog[].duration`
+- `programme_catalog[].entry_requirements`
+- `programme_catalog[].source_url`
 
-目标：
+不允许第一版写入：
 
-- 自动尝试公开 sitemap：
-  - `/sitemap.xml`
-  - `/sitemap_index.xml`
-- 从 sitemap 中筛选 admissions/programme relevant URL 进入 frontier。
-- 对常见官方路径做低成本 probing，例如：
-  - `/admissions`
-  - `/undergraduate`
-  - `/undergraduate-admissions`
-  - `/undergraduate-programmes`
-  - `/programmes`
-  - `/degree-programmes`
-  - `/study/undergraduate`
-  - `/catalogue`
-  - `/catalog`
-  - `/bulletin`
-- 所有 probed URL 必须经过 domain policy、low-value filter 和 fetch/evidence 流程。
+- ranking、就业率、薪资、课程评价等非招生模板字段。
+- LLM 推断出来但 source 没有明确写出的字段。
+- 需要登录 portal 才能确认的字段。
+- 需要跨页面综合推理但没有单条 snippet 支撑的字段。
 
-验证方式：
-
-```bash
-env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_discovery.py tests/test_fetcher.py
-git diff --check
-```
-
-风险控制：
-
-- 不把 404/403 path probe 当作事实失败，只作为 source acquisition diagnostics。
-- 不写死 NUS/HKU/NTU/PolyU 特例路径。
-- 不绕过 robots、登录、WAF 或验证码。
-
-### Step 6：LLM source navigation 接入 crawl frontier
+### Step 1：定义 LLM candidate fact schema 和 provider boundary
 
 修改文件：
 
-- `university_admissions_crawler/pipeline/source_planning.py`
 - `university_admissions_crawler/extractor/llm_provider.py`
-- `university_admissions_crawler/crawler/discovery.py`
-- `university_admissions_crawler/crawler/filters.py`
-- `university_admissions_crawler/reports/render_report.py`
-- `tests/test_pipeline.py`
-- `tests/test_report_cli.py`
-- `tests/test_discovery.py`
+- `tests/test_llm_provider.py`
+- 必要时新增 `university_admissions_crawler/extractor/llm_structured_extraction.py`
 
 目标：
 
-- 将 source planning 从 diagnostics-only 改成 guarded frontier input。
-- LLM 输入只包含：
-  - homepage URL
-  - 已发现的官方 links / titles / anchor text
-  - sitemap/path-probe candidates
-  - blocked/challenge diagnostics
-  - 当前 coverage / programme catalog summary
-- LLM 输出只允许：
-  - candidate official URLs
-  - candidate path patterns
-  - expected source category
-  - reason
-- deterministic validator 决定能否进入 frontier：
-  - 必须 HTTPS
-  - 必须 allowed domain
-  - 禁止 social/forum/video/redirect/tracking URL
-  - 禁止 low-value source
-  - 禁止 portal/login/application system
-- report 显示 candidate 是否 accepted、rejected、crawled、blocked 或 budget-skipped。
+- 增加 `StructuredExtractionProvider` / `MockStructuredExtractionProvider`。
+- 定义 `LLMStructuredCandidateFact` dataclass 或等价结构。
+- provider 输入只接受 captured official source 的 text / markdown 摘要和允许 claim paths。
+- provider 输出只允许 candidate facts，不允许直接修改 `result.json`。
+- mock provider 支持 deterministic fixture payload，便于测试 validation plumbing。
 
 验证方式：
 
 ```bash
-env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_pipeline.py tests/test_report_cli.py tests/test_discovery.py
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_llm_provider.py
 git diff --check
 ```
 
 风险控制：
 
-- LLM accepted candidate 只是 source URL，不是 admissions fact。
-- candidate 被 crawl 后，facts 仍必须来自 fetched source/evidence。
-- mock-first，不在本步骤接 hosted provider。
-- 如果 source planning 结果为空，crawler 应回退 deterministic frontier。
+- 不在本步骤接 hosted provider。
+- 不让 provider 接收 arbitrary URL 或未抓取 source。
+- schema 中 required keys 缺失时必须 fail closed。
 
-### Step 7：网络与 browser fallback 默认策略
-
-修改文件：
-
-- `university_admissions_crawler/cli.py`
-- `university_admissions_crawler/crawler/fetcher.py`
-- `university_admissions_crawler/pipeline/run_university_scan.py`
-- `tests/test_fetcher.py`
-- `tests/test_failure_recovery.py`
-- `tests/test_report_cli.py`
-
-目标：
-
-- 默认 live crawl 先用 HTTP fetch。
-- 如果 homepage 或 high-value source 出现 challenge/no useful links/JS-heavy signal，再 fallback
-  browser fetch。
-- browser 默认 `wait_until=domcontentloaded`，timeout 使用真实官网可用值。
-- blocked/challenge source 继续保留并进入 diagnostics。
-- 不把 browser 作为绕过 WAF 的手段；只用于正常 JS-rendered 页面。
-
-验证方式：
-
-```bash
-env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_fetcher.py tests/test_failure_recovery.py tests/test_report_cli.py
-git diff --check
-```
-
-风险控制：
-
-- Playwright 未安装时必须 fail closed，给 warning，而不是让整个 fixture suite 依赖浏览器。
-- 不把 browser fallback 引入 fixture 默认路径。
-- 不隐藏 HTTP challenge 诊断。
-
-### Step 8：模板字段 completeness diagnostics
+### Step 2：实现 deterministic candidate validator
 
 修改文件：
 
+- `university_admissions_crawler/evidence/validator.py`
 - `university_admissions_crawler/pipeline/diagnostics.py`
+- `tests/test_evidence.py`
+- `tests/test_pipeline.py`
+
+目标：
+
+- 实现 `validate_llm_candidate_fact()`。
+- 校验 captured source membership、domain policy、allowed claim path、snippet containment、
+  value containment、confidence range 和字段级 context gate。
+- 返回 accepted candidate 或 rejected diagnostic，不抛出影响整次 run 的异常。
+- reject reason 至少覆盖：
+  - `source_not_captured`
+  - `source_not_official`
+  - `claim_path_not_allowed`
+  - `snippet_not_found`
+  - `value_not_in_snippet`
+  - `context_gate_failed`
+  - `low_confidence`
+  - `malformed_candidate`
+
+验证方式：
+
+```bash
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_evidence.py tests/test_pipeline.py
+git diff --check
+```
+
+风险控制：
+
+- snippet containment 必须基于本次 run 保存的 source text / markdown，不依赖 live refetch。
+- 不因为 LLM confidence 高就跳过 deterministic validation。
+- 对 normalization 只开放字段级白名单，例如货币空格、日期标点、大小写差异。
+
+### Step 3：pipeline 中接入 fallback 触发条件
+
+修改文件：
+
 - `university_admissions_crawler/pipeline/run_university_scan.py`
-- `university_admissions_crawler/reports/render_report.py`
+- `university_admissions_crawler/pipeline/diagnostics.py`
+- `university_admissions_crawler/config_loader.py`
+- `university_admissions_crawler/cli.py`
 - `tests/test_pipeline.py`
 - `tests/test_report_cli.py`
 
 目标：
 
-- 把 diagnostics 从“字段缺失原因”扩展为“模板完成度解释”。
-- 对每个目标字段记录：
-  - source_found
-  - source_not_found
-  - source_blocked_or_challenge
-  - source_budget_skipped
-  - extractor_not_attempted
-  - attempted_no_match
-  - context_gate_failed
-  - manual_check_required
-  - portal_or_login_required
-- 对 programme catalog 额外记录：
-  - candidate_source_count
-  - crawled_catalog_source_count
-  - accepted_row_count
-  - raw_needs_review_count
-  - probable_incomplete_catalog
-- report 应告诉用户下一步该补 source discovery、LLM source navigation、extractor 还是
-  manual check，而不是只显示 missing。
+- 增加显式 guarded flag，例如 `--enable-llm-structured-extraction`。
+- 只有在 `--enable-llm` 且 provider 可用时才允许触发。
+- 触发条件基于本次 run 结果：
+  - core field missing 且有相关 official source。
+  - extractor attempted_no_match。
+  - programme catalog probable_incomplete。
+  - source 已抓到但 deterministic extractor 覆盖不足。
+- LLM fallback 输入应按 source 价值和 token budget 裁剪，优先 admissions/programme high-value
+  source。
+- fallback 不应改变 discovery、fetch、domain policy 或 source filtering。
 
 验证方式：
 
 ```bash
-env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_pipeline.py tests/test_report_cli.py tests/test_programme_catalog.py
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_pipeline.py tests/test_report_cli.py
 git diff --check
 ```
 
 风险控制：
 
-- diagnostics 仍不能表述为“官网没有提供”，只能表述为“本次 run 没有抓到或没抽出”。
-- 不把 diagnostics 写入 facts。
+- 默认不启用 hosted LLM。
+- mock-first，fixture tests 不依赖网络或付费 API。
+- fallback 只处理已经保存的 source，不新增 crawl。
 
-### Step 9：真实学校样板与 fixture-backed 回归
+### Step 4：validated candidate 写入 result 与 evidence
 
 修改文件：
 
-- `tests/fixtures/programme_catalog/nus/...`
-- `tests/fixtures/saved_sources/hku/...`
-- `tests/fixtures/saved_sources/ntu/...`
-- `tests/fixtures/saved_sources/polyu/...`
-- `tests/test_discovery.py`
-- `tests/test_programme_catalog.py`
+- `university_admissions_crawler/pipeline/run_university_scan.py`
+- `university_admissions_crawler/evidence/validator.py`
+- `university_admissions_crawler/extractor/programme_catalog.py`
 - `tests/test_pipeline.py`
+- `tests/test_programme_catalog.py`
 
 目标：
 
-- 用 NUS、HKU、NTU/PolyU 作为三类结构样板：
-  - NUS：homepage -> OAM / Bulletin / CHS / faculty programme pages。
-  - HKU：homepage/admissions -> undergraduate courses/cards。
-  - NTU 或 PolyU：homepage/admissions -> programme/admissions choice table。
-- 每个样板只提交最小官方 source fixture，不提交大批 live output。
-- 每个 fixture 都要断言 source discovery、page category、programme catalog rows 和
-  evidence path。
-- live smoke 可以作为人工验证，但不作为 deterministic test 依赖。
+- accepted candidate 写入对应 claim path。
+- 写入时保留 provenance：
+  - `source_url`
+  - `evidence_snippet`
+  - `extractor = llm_fallback_validated`
+  - `confidence`
+  - `validation_status = accepted`
+- 如果 deterministic extractor 已经给出字段值，LLM fallback 不覆盖现有值，只进入
+  diagnostics 或 alternative candidate。
+- programme catalog row 需要 row-level evidence，不允许只凭页面标题生成 row。
 
 验证方式：
 
 ```bash
-env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_discovery.py tests/test_programme_catalog.py tests/test_pipeline.py
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_pipeline.py tests/test_programme_catalog.py
 git diff --check
 ```
 
 风险控制：
 
-- 不把旧 NUS one-off CSV 当作当前 pipeline 已完全复现。
-- 不因为某校 fixture 结构写学校硬编码分支。
-- 不为了提高 row count 放宽到 marketing/about 页面误抽。
+- 不让 LLM fallback 覆盖 deterministic accepted facts。
+- 对 list 字段要去重，避免同一 snippet 生成重复 row。
+- 如果 candidate 部分通过、部分失败，只写通过部分，失败部分保留 reject diagnostics。
 
-### Step 10：文档、README 与推荐命令重写
+### Step 5：report 中增加 LLM fallback diagnostics
+
+修改文件：
+
+- `university_admissions_crawler/reports/render_report.py`
+- `tests/test_report_cli.py`
+
+目标：
+
+- 在 `Facts` 前增加或扩展 diagnostics section，显示：
+  - fallback enabled / triggered / provider。
+  - candidate count。
+  - accepted count。
+  - rejected count。
+  - reject reasons summary。
+  - accepted claim paths。
+  - source URLs used。
+- Facts 区域中如果字段来自 LLM fallback，必须标记为
+  `llm_fallback_validated`，并显示 evidence snippet。
+- rejected candidates 不进入 Facts。
+
+验证方式：
+
+```bash
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_report_cli.py
+git diff --check
+```
+
+风险控制：
+
+- report 不能把 LLM fallback 描述成“模型确认事实”。
+- diagnostics 应帮助判断是 extractor 需要补强，还是 LLM candidate 被 validator 拒绝。
+
+### Step 6：fixture-backed 学校样板
+
+修改文件：
+
+- `tests/fixtures/llm_structured_extraction/...`
+- `tests/test_pipeline.py`
+- `tests/test_programme_catalog.py`
+- `tests/test_report_cli.py`
+
+目标：
+
+- 增加最小 fixture，覆盖：
+  - deterministic extractor no_match，但 source text 中有明确字段。
+  - LLM candidate snippet 不存在，被拒绝。
+  - LLM candidate value 不在 snippet，被拒绝。
+  - LLM candidate source_url 未被本次 run 抓到，被拒绝。
+  - programme catalog row 通过 validated snippet 进入 CSV/result。
+- 优先选 NUS/NTU/HKU 中已保存过的官方 source 片段做最小 fixture，不提交大批 live output。
+
+验证方式：
+
+```bash
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_pipeline.py tests/test_programme_catalog.py tests/test_report_cli.py
+git diff --check
+```
+
+风险控制：
+
+- 不用 live network 作为测试依赖。
+- 不为了测试方便放宽 evidence validator。
+- 不加入学校特例逻辑。
+
+### Step 7：文档与用户命令边界
 
 修改文件：
 
@@ -791,50 +918,51 @@ git diff --check
 
 目标：
 
-- README 主命令改为 homepage-first 自动 crawl。
-- 删除或降级所有“用户需要 keyword query / bm25-like / LLM keyword plan”的主路径描述。
-- 明确 LLM 的新位置：source navigation，不生成 facts。
-- 明确默认参数和高级调试参数的区别。
-- VERSION_NOTES 记录 breaking/behavior change：live URL 默认 auto crawl、relevance 默认变更、
-  LLM keyword optimization 裁剪。
+- README 继续保持 homepage-first 自动 crawl 为主命令。
+- LLM structured extraction 作为高级 guarded fallback 描述，不作为默认必需能力。
+- 文档明确：
+  - LLM 不生成事实。
+  - LLM 只从 captured official source 里提出 candidates。
+  - deterministic validation 决定是否进入 result。
+  - rejected candidates 会进入 diagnostics。
+- VERSION_NOTES 记录 Phase 6 的 capability boundary 和风险控制。
 
 验证方式：
 
 ```bash
-rg -n "llm_keyword_plan|MockKeywordPlanProvider|keyword optimization|--keyword-query" README.md VERSION_NOTES.zh.md PROJECT_MAP.md
+rg -n "LLM structured|llm_fallback_validated|candidate fact|evidence-first" README.md VERSION_NOTES.zh.md PROJECT_MAP.md docs/keyword-crawl-design.zh.md
 git diff --check
 ```
 
 风险控制：
 
-- 文档不能夸大“任意大学官网完整自动化已完成”。
-- 需要把 live smoke 和 deterministic fixture-backed tests 分开描述。
-- 明确不绕过 WAF、登录、验证码或申请系统。
+- 不把 Phase 6 写成默认已完全自动化。
+- 不承诺 hosted LLM 在所有学校上稳定提升覆盖率。
+- 不弱化“无法验证则 unknown / needs_manual_check”的原则。
 
-## Phase 5 不做
+## Phase 6 不做
 
-- 不使用 LLM 生成招生事实、专业名、费用、申请时间或申请要求。
-- 不绕过 WAF、人机验证、登录、portal 或申请系统。
-- 不做无边界全站 crawl。
-- 不把 live output 作为 pytest 依赖。
-- 不一次性重写所有 extractor。
-- 不为了减少参数而删除 fixture/debug 所需的低层控制项；低层参数可以保留，但不应作为
-  推荐主路径。
-- 不引入付费 hosted LLM provider 作为默认测试或默认运行依赖。
+- 不让 LLM crawl 新页面。
+- 不让 LLM 绕过 source navigation validator、domain policy、WAF、portal、login 或验证码。
+- 不让 LLM 根据常识、搜索结果或未抓取页面生成事实。
+- 不让 LLM 覆盖 deterministic accepted facts。
+- 不把 confidence 当作 evidence。
+- 不把 rejected candidates 写入 facts 或 programme CSV。
+- 不把 hosted LLM 作为 deterministic test 依赖。
 
-## Phase 5 完成标准
+## Phase 6 完成标准
 
 本阶段可以认为完成，当且仅当：
 
-- 用户输入官网主页 URL 和 output dir 即可启动真实官网 scan。
-- 默认 domain inference、programme/admissions relevance、合理 timeout/browser wait 生效。
-- `keyword_query` 不再是主路径，LLM keyword optimization 已删除或彻底降级。
-- discovery 使用全局 priority frontier，能在 page budget 内优先抓高价值招生/专业目录
-  source。
-- sitemap/path probing 能把公开招生/专业目录候选加入 frontier。
-- LLM source navigation 的 accepted candidates 能经过 validation 后进入 frontier，并在
-  report 中可审计。
-- facts 和 programme catalog rows 仍全部 evidence-backed。
-- report 能解释模板字段和 programme catalog 的完成度及失败层级。
-- NUS/HKU/NTU 或 PolyU fixture-backed 样板通过。
+- LLM structured extraction provider 和 mock provider 有清晰 schema。
+- 每个 candidate fact 都包含 `claim_path`、`value`、`evidence_snippet`、`source_url`、
+  `confidence`。
+- deterministic validator 能拒绝 source 未抓取、snippet 不存在、value 不在 snippet、
+  claim path 不允许、context gate 失败、confidence 不合法的 candidate。
+- accepted candidate 能进入 result，并保留 `llm_fallback_validated` provenance。
+- rejected candidate 只进入 diagnostics / warnings。
+- deterministic extractor 已有值时，LLM fallback 不覆盖。
+- programme catalog row 可以通过 validated snippet 补入，但必须有 row-level evidence。
+- report 在 Facts 前显示 LLM fallback diagnostics。
+- README / VERSION_NOTES / PROJECT_MAP 对能力边界描述一致。
 - 完整 deterministic pytest 通过。

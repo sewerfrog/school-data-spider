@@ -2,14 +2,17 @@ from pathlib import Path
 from unittest.mock import patch
 
 from university_admissions_crawler.crawler.fetcher import (
+    BrowserFallbackFetcher,
     Crawl4AIFetcherStub,
     FixtureFetcher,
+    FetchResult,
     LiveHTTPFetcher,
     PlaywrightBrowserFetcher,
     ScrapeGraphFetcherStub,
     assert_fetch_contract,
 )
-from university_admissions_crawler.extractor.schema import SourceType, WarningCode
+from university_admissions_crawler.extractor.schema import SourceType, WarningCode, WarningRecord
+from university_admissions_crawler.evidence.provenance import source_from_text
 
 ROOT = Path("tests/fixtures/mini_university_site")
 
@@ -100,6 +103,15 @@ def test_live_http_fetcher_fetches_json_source():
     assert result.links == ["https://example.edu/programmes/science.html"]
 
 
+def test_live_http_fetcher_keeps_sitemap_xml_text_parseable():
+    body = b"<urlset><url><loc>https://example.edu/programmes</loc></url></urlset>"
+    with patch("university_admissions_crawler.crawler.fetcher.urlopen", return_value=_FakeHTTPResponse(body, "https://example.edu/sitemap.xml", "application/xml")):
+        result = LiveHTTPFetcher(timeout_seconds=5).fetch("https://example.edu/sitemap.xml")
+    assert_fetch_contract(result)
+    assert result.source.source_type == SourceType.OTHER
+    assert "<loc>https://example.edu/programmes</loc>" in result.text
+
+
 def test_playwright_browser_fetcher_warns_when_optional_dependency_missing():
     result = PlaywrightBrowserFetcher(timeout_seconds=1).fetch("https://example.edu")
     if result.ok:
@@ -116,6 +128,104 @@ def test_playwright_browser_fetcher_delegates_obvious_pdf_to_live_http():
     assert result.source.source_type == SourceType.PDF
     assert result.engine == "playwright-browser"
     assert result.source.engine == "playwright-browser"
+
+
+def test_browser_fallback_fetcher_keeps_regular_http_result():
+    primary = _StaticFetcher(
+        _html_result(
+            "https://example.edu/",
+            "Undergraduate Admissions",
+            "Undergraduate Admissions Applications are open. Tuition fees and programme requirements are listed.",
+            links=["https://example.edu/admissions"],
+            engine="http-test",
+        )
+    )
+    browser = _StaticFetcher(_html_result("https://example.edu/", "Browser", "Browser rendered", engine="browser-test"))
+
+    result = BrowserFallbackFetcher(primary, browser, seed_url="https://example.edu/").fetch("https://example.edu/")
+
+    assert result.engine == "http-test"
+    assert primary.calls == ["https://example.edu/"]
+    assert browser.calls == []
+
+
+def test_browser_fallback_fetcher_uses_browser_for_js_rendered_homepage():
+    primary = _StaticFetcher(
+        _html_result(
+            "https://example.edu/",
+            "Example University",
+            "<div id='__next'></div><script src='/app.js'></script><script src='/vendor.js'></script>",
+            links=[],
+            engine="http-test",
+        )
+    )
+    browser = _StaticFetcher(
+        _html_result(
+            "https://example.edu/",
+            "Example University",
+            "Undergraduate Admissions <a href='/programmes'>Programmes</a>",
+            links=["https://example.edu/programmes"],
+            engine="browser-test",
+        )
+    )
+
+    result = BrowserFallbackFetcher(primary, browser, seed_url="https://example.edu/").fetch("https://example.edu/")
+
+    assert result.engine == "browser-test"
+    assert result.links == ["https://example.edu/programmes"]
+    assert primary.calls == ["https://example.edu/"]
+    assert browser.calls == ["https://example.edu/"]
+
+
+def test_browser_fallback_fetcher_does_not_mask_challenge_pages():
+    challenge = (
+        "<title>Access Denied</title>"
+        "Access Denied. Please enable JavaScript and complete the captcha."
+    )
+    primary = _StaticFetcher(_html_result("https://example.edu/", "Access Denied", challenge, links=[], engine="http-test"))
+    browser = _StaticFetcher(_html_result("https://example.edu/", "Browser", "Rendered", engine="browser-test"))
+
+    result = BrowserFallbackFetcher(primary, browser, seed_url="https://example.edu/").fetch("https://example.edu/")
+
+    assert result.engine == "http-test"
+    assert browser.calls == []
+
+
+def test_browser_fallback_fetcher_warns_and_keeps_http_when_browser_unavailable():
+    primary = _StaticFetcher(
+        _html_result(
+            "https://example.edu/",
+            "Example University",
+            "<div id='root'></div><script src='/app.js'></script><script src='/vendor.js'></script>",
+            links=[],
+            engine="http-test",
+        )
+    )
+    browser = _StaticFetcher(
+        FetchResult(
+            url="https://example.edu/",
+            final_url="https://example.edu/",
+            status=0,
+            title=None,
+            content_type="application/octet-stream",
+            retrieved_at="2026-06-01T00:00:00+00:00",
+            engine="browser-test",
+            warnings=[
+                WarningRecord(
+                    WarningCode.OPTIONAL_DEPENDENCY_MISSING,
+                    "Playwright browser support is optional and not available.",
+                    field="https://example.edu/",
+                    source_urls=["https://example.edu/"],
+                )
+            ],
+        )
+    )
+
+    result = BrowserFallbackFetcher(primary, browser, seed_url="https://example.edu/").fetch("https://example.edu/")
+
+    assert result.engine == "http-test"
+    assert result.source is not None
+    assert any(w.code == WarningCode.OPTIONAL_DEPENDENCY_MISSING for w in result.warnings)
 
 
 class _FakeHeaders:
@@ -148,3 +258,38 @@ class _FakeHTTPResponse:
 
     def read(self):
         return self._body
+
+
+class _StaticFetcher:
+    def __init__(self, result: FetchResult) -> None:
+        self.result = result
+        self.calls: list[str] = []
+        self.engine = result.engine
+
+    def fetch(self, url: str) -> FetchResult:
+        self.calls.append(url)
+        return self.result
+
+
+def _html_result(url: str, title: str, body: str, *, links: list[str] | None = None, engine: str) -> FetchResult:
+    source = source_from_text(
+        source_url=url,
+        source_type=SourceType.HTML,
+        title=title,
+        text=body,
+        retrieved_at="2026-06-01T00:00:00+00:00",
+        engine=engine,
+    )
+    return FetchResult(
+        url=url,
+        final_url=url,
+        status=200,
+        title=title,
+        content_type="text/html",
+        retrieved_at="2026-06-01T00:00:00+00:00",
+        engine=engine,
+        text=body,
+        markdown=body,
+        links=links or [],
+        source=source,
+    )

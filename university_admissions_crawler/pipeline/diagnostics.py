@@ -59,14 +59,15 @@ def attach_run_diagnostics(data: AdmissionsData) -> AdmissionsData:
     summary = Counter(item.get("strategy", "unknown") for item in source_strategy if isinstance(item, dict))
     data.run.config["coverage"] = coverage
     data.run.config["source_strategy_summary"] = dict(sorted(summary.items()))
-    data.run.config["programme_catalog_summary"] = _programme_catalog_summary(data)
+    extraction_diagnostics = data.run.config.get("extraction_diagnostics")
+    data.run.config["programme_catalog_summary"] = _programme_catalog_summary(data, extraction_diagnostics, source_strategy)
     classification_assist = data.run.config.get("classification_assist")
     if isinstance(classification_assist, list):
         data.run.config["classification_assist_summary"] = _classification_assist_summary(classification_assist)
-    extraction_diagnostics = data.run.config.get("extraction_diagnostics")
     if isinstance(extraction_diagnostics, list):
         data.run.config["extraction_diagnostics_summary"] = _extraction_diagnostics_summary(extraction_diagnostics)
         data.run.config["missing_reasons"] = _missing_reasons(coverage, extraction_diagnostics, source_strategy)
+    attach_template_completeness(data)
     if coverage["missing"]:
         data.warnings.append(
             WarningRecord(
@@ -85,6 +86,24 @@ def attach_run_diagnostics(data: AdmissionsData) -> AdmissionsData:
                 source_urls=[url for url in blocked if url],
             )
         )
+    return data
+
+
+def attach_template_completeness(data: AdmissionsData) -> AdmissionsData:
+    """Attach template-completeness diagnostics without changing facts."""
+
+    coverage = data.run.config.get("coverage")
+    source_strategy = data.run.config.get("source_strategy", [])
+    extraction_diagnostics = data.run.config.get("extraction_diagnostics", [])
+    missing_reasons = data.run.config.get("missing_reasons", {})
+    if not isinstance(coverage, dict):
+        coverage = _coverage(data)
+        data.run.config["coverage"] = coverage
+    if not isinstance(missing_reasons, dict):
+        missing_reasons = {}
+    if not isinstance(extraction_diagnostics, list):
+        extraction_diagnostics = []
+    data.run.config["template_completeness"] = _template_completeness(data, coverage, extraction_diagnostics, source_strategy, missing_reasons)
     return data
 
 
@@ -165,7 +184,7 @@ def _extraction_diagnostics_summary(entries: list[object]) -> dict[str, object]:
     }
 
 
-def _programme_catalog_summary(data: AdmissionsData) -> dict[str, object]:
+def _programme_catalog_summary(data: AdmissionsData, extraction_entries: object = None, source_strategy: object = None) -> dict[str, object]:
     rows = data.programme_catalog
     programme_types: Counter[str] = Counter()
     faculties: Counter[str] = Counter()
@@ -174,6 +193,7 @@ def _programme_catalog_summary(data: AdmissionsData) -> dict[str, object]:
     names: dict[str, tuple[str, int]] = {}
     manual_review_count = 0
     warning_count = 0
+    raw_needs_review_count = 0
 
     for row in rows:
         programme_types[row.category or "unknown"] += 1
@@ -186,6 +206,8 @@ def _programme_catalog_summary(data: AdmissionsData) -> dict[str, object]:
             names[normalised_name] = (display_name, count + 1)
         if row.parse_status != "parsed" or row.warnings:
             manual_review_count += 1
+        if row.parse_status != "parsed":
+            raw_needs_review_count += 1
         warning_count += len(row.warnings)
 
     duplicate_names = [
@@ -194,10 +216,25 @@ def _programme_catalog_summary(data: AdmissionsData) -> dict[str, object]:
     ]
     duplicate_count = sum(item["count"] - 1 for item in duplicate_names)
     source_urls = sorted(sources)
+    candidate_source_urls = _programme_catalog_candidate_source_urls(data, extraction_entries, source_strategy)
+    crawled_catalog_source_urls = sorted(set(candidate_source_urls) & {source.source_url for source in data.sources})
+    probable_incomplete_catalog = _probable_incomplete_catalog(
+        candidate_source_count=len(candidate_source_urls),
+        accepted_row_count=len(rows),
+        raw_needs_review_count=raw_needs_review_count,
+    )
     return {
         "candidate_count": len(rows),
         "accepted_count": len(rows),
         "rejected_count": 0,
+        "candidate_source_count": len(candidate_source_urls),
+        "candidate_source_urls": candidate_source_urls,
+        "crawled_catalog_source_count": len(crawled_catalog_source_urls),
+        "crawled_catalog_source_urls": crawled_catalog_source_urls,
+        "accepted_row_count": len(rows),
+        "raw_needs_review_count": raw_needs_review_count,
+        "probable_incomplete_catalog": probable_incomplete_catalog,
+        "recommended_next_action": _programme_catalog_next_action(len(candidate_source_urls), len(rows), raw_needs_review_count, probable_incomplete_catalog),
         "duplicate_count": duplicate_count,
         "duplicate_names": duplicate_names,
         "by_programme_type": dict(sorted(programme_types.items())),
@@ -211,8 +248,257 @@ def _programme_catalog_summary(data: AdmissionsData) -> dict[str, object]:
     }
 
 
+def _template_completeness(
+    data: AdmissionsData,
+    coverage: dict[str, object],
+    extraction_entries: list[object],
+    source_strategy: object,
+    missing_reasons: dict[str, object],
+) -> dict[str, object]:
+    found_fields = {str(item) for item in coverage.get("found", []) if item}
+    missing_fields = {str(item) for item in coverage.get("missing", []) if item}
+    attempts_by_field = _attempts_by_field(extraction_entries)
+    source_plan_budget_skipped = _source_plan_budget_skipped_by_field(data.run.config.get("llm_source_plan"))
+
+    fields: dict[str, object] = {}
+    status_counts: Counter[str] = Counter()
+    next_action_counts: Counter[str] = Counter()
+    for field, _path in CORE_FIELDS:
+        is_found = field in found_fields
+        details = missing_reasons.get(field)
+        if not isinstance(details, dict):
+            details = {}
+        attempts = attempts_by_field.get(field, [])
+        status_flags = _template_status_flags(
+            field=field,
+            found=is_found,
+            missing_reason=str(details.get("reason", "")),
+            attempts=attempts,
+            source_plan_budget_skipped=source_plan_budget_skipped,
+        )
+        next_action = _template_next_action(is_found, status_flags)
+        for flag in status_flags:
+            status_counts[flag] += 1
+        next_action_counts[next_action] += 1
+        fields[field] = {
+            "found": is_found,
+            "status": "found" if is_found else "missing",
+            "status_flags": status_flags,
+            "reason": "found" if is_found else details.get("reason", "manual_check_required"),
+            "attempts": len(attempts),
+            "attempted_extractors": sorted({str(item.get("extractor", "unknown")) for item in attempts}),
+            "source_urls": _template_source_urls(field, details, attempts, source_plan_budget_skipped),
+            "next_action": next_action,
+            "note": _template_field_note(is_found, status_flags),
+        }
+
+    programme_summary = data.run.config.get("programme_catalog_summary")
+    if not isinstance(programme_summary, dict):
+        programme_summary = _programme_catalog_summary(data, extraction_entries, source_strategy)
+        data.run.config["programme_catalog_summary"] = programme_summary
+
+    return {
+        "fields_total": coverage.get("core_fields_total", len(CORE_FIELDS)),
+        "found_count": coverage.get("found_count", len(found_fields)),
+        "missing_count": coverage.get("missing_count", len(missing_fields)),
+        "status_counts": dict(sorted(status_counts.items())),
+        "next_action_counts": dict(sorted(next_action_counts.items())),
+        "fields": fields,
+        "programme_catalog": {
+            "candidate_source_count": programme_summary.get("candidate_source_count", 0),
+            "crawled_catalog_source_count": programme_summary.get("crawled_catalog_source_count", 0),
+            "accepted_row_count": programme_summary.get("accepted_row_count", programme_summary.get("accepted_count", 0)),
+            "raw_needs_review_count": programme_summary.get("raw_needs_review_count", 0),
+            "probable_incomplete_catalog": programme_summary.get("probable_incomplete_catalog", False),
+            "next_action": programme_summary.get("recommended_next_action", "none"),
+        },
+        "note": "Template completeness diagnostics describe this run's captured-source and extractor state; they do not prove the official site lacks a field.",
+    }
+
+
+def _programme_catalog_candidate_source_urls(data: AdmissionsData, extraction_entries: object, source_strategy: object) -> list[str]:
+    urls: set[str] = set()
+    for record in data.discovered_categories:
+        if record.category in {PageCategory.PROGRAMME_LIST, PageCategory.PROGRAMME_PREREQUISITES}:
+            urls.add(record.source_url)
+    if isinstance(source_strategy, list):
+        for item in source_strategy:
+            if not isinstance(item, dict):
+                continue
+            category = str(item.get("category", ""))
+            url = item.get("url")
+            if isinstance(url, str) and category in {str(PageCategory.PROGRAMME_LIST), str(PageCategory.PROGRAMME_PREREQUISITES)}:
+                urls.add(url)
+    if isinstance(extraction_entries, list):
+        for entry in extraction_entries:
+            if not isinstance(entry, dict):
+                continue
+            raw_attempts = entry.get("attempts")
+            if not isinstance(raw_attempts, list):
+                continue
+            if any(isinstance(attempt, dict) and attempt.get("field") == "programme_catalog" for attempt in raw_attempts):
+                url = entry.get("url")
+                if isinstance(url, str):
+                    urls.add(url)
+    urls.update(row.source_url for row in data.programme_catalog if row.source_url)
+    return sorted(urls)
+
+
+def _probable_incomplete_catalog(*, candidate_source_count: int, accepted_row_count: int, raw_needs_review_count: int) -> bool:
+    if candidate_source_count > 0 and accepted_row_count == 0:
+        return True
+    if accepted_row_count > 0 and raw_needs_review_count > 0:
+        return True
+    return False
+
+
+def _programme_catalog_next_action(candidate_source_count: int, accepted_row_count: int, raw_needs_review_count: int, probable_incomplete_catalog: bool) -> str:
+    if not candidate_source_count:
+        return "improve_source_discovery"
+    if not accepted_row_count:
+        return "improve_programme_catalog_extractor"
+    if raw_needs_review_count:
+        return "manual_review_or_catalog_parser"
+    if probable_incomplete_catalog:
+        return "manual_check_required"
+    return "none"
+
+
 def _normalise_programme_name(name: str) -> str:
     return " ".join(name.casefold().split())
+
+
+def _attempts_by_field(extraction_entries: list[object]) -> dict[str, list[dict[str, object]]]:
+    attempts_by_field: dict[str, list[dict[str, object]]] = {}
+    for source in extraction_entries:
+        if not isinstance(source, dict):
+            continue
+        url = source.get("url")
+        source_acquisition_status = source.get("source_acquisition_status")
+        raw_attempts = source.get("attempts")
+        if not isinstance(raw_attempts, list):
+            continue
+        for attempt in raw_attempts:
+            if not isinstance(attempt, dict):
+                continue
+            field = str(attempt.get("field", "unknown"))
+            enriched = dict(attempt)
+            if isinstance(url, str) and url:
+                enriched["source_url"] = url
+            if isinstance(source_acquisition_status, str) and source_acquisition_status:
+                enriched["source_acquisition_status"] = source_acquisition_status
+            attempts_by_field.setdefault(field, []).append(enriched)
+    return attempts_by_field
+
+
+def _template_status_flags(
+    *,
+    field: str,
+    found: bool,
+    missing_reason: str,
+    attempts: list[dict[str, object]],
+    source_plan_budget_skipped: dict[str, list[str]],
+) -> list[str]:
+    if found:
+        return ["source_found"]
+    if source_plan_budget_skipped.get(field):
+        return ["source_budget_skipped"]
+    if missing_reason == "source_not_crawled":
+        return ["source_blocked_or_challenge"]
+    if missing_reason == "application_portal_unreachable":
+        return ["portal_or_login_required"]
+    if missing_reason == "attempted_no_match":
+        return ["source_found", "attempted_no_match"]
+    if missing_reason in {"context_gate_failed", "undergraduate_context_gate_failed"}:
+        return ["source_found", "context_gate_failed"]
+    if not attempts or missing_reason == "not_attempted":
+        return ["source_not_found", "extractor_not_attempted"]
+    return ["manual_check_required"]
+
+
+def _template_next_action(found: bool, status_flags: list[str]) -> str:
+    if found:
+        return "none"
+    flags = set(status_flags)
+    if "source_blocked_or_challenge" in flags or "source_budget_skipped" in flags or "source_not_found" in flags:
+        return "improve_source_discovery_or_llm_source_navigation"
+    if "attempted_no_match" in flags or "context_gate_failed" in flags or "extractor_not_attempted" in flags:
+        return "improve_extractor_or_context_gate"
+    if "portal_or_login_required" in flags:
+        return "manual_check_required"
+    return "manual_check_required"
+
+
+def _template_source_urls(
+    field: str,
+    details: dict[str, object],
+    attempts: list[dict[str, object]],
+    source_plan_budget_skipped: dict[str, list[str]],
+) -> list[str]:
+    if source_plan_budget_skipped.get(field):
+        return source_plan_budget_skipped[field][:10]
+    urls = details.get("source_urls")
+    if isinstance(urls, list) and urls:
+        return [str(url) for url in urls[:10]]
+    return sorted({str(item.get("source_url")) for item in attempts if item.get("source_url")})[:10]
+
+
+def _template_field_note(found: bool, status_flags: list[str]) -> str:
+    if found:
+        return "A value for this template field was extracted with evidence in this run."
+    if "source_blocked_or_challenge" in status_flags:
+        return "A captured source looked blocked/challenge-like, so this run did not get usable official text for the field."
+    if "source_budget_skipped" in status_flags:
+        return "A validated candidate source was not crawled within this run's page budget."
+    if "source_not_found" in status_flags:
+        return "No captured source produced a field-specific extractor attempt in this run."
+    if "attempted_no_match" in status_flags:
+        return "A field extractor ran on captured official text but did not match a supported pattern."
+    if "context_gate_failed" in status_flags:
+        return "Captured text did not pass the deterministic context gate for this field."
+    if "portal_or_login_required" in status_flags:
+        return "Relevant diagnostics point to a portal/login flow that this crawler cannot enter."
+    return "The field remains unresolved and needs manual review."
+
+
+def _source_plan_budget_skipped_by_field(source_plan: object) -> dict[str, list[str]]:
+    if not isinstance(source_plan, dict):
+        return {}
+    budget_skipped = source_plan.get("budget_skipped_candidate_urls")
+    if not isinstance(budget_skipped, list):
+        return {}
+    skipped = {str(url) for url in budget_skipped if isinstance(url, str) and url}
+    if not skipped:
+        return {}
+    out: dict[str, list[str]] = {}
+    accepted = source_plan.get("accepted_candidate_urls")
+    if not isinstance(accepted, list):
+        return {"programmes": sorted(skipped)}
+    for item in accepted:
+        if not isinstance(item, dict):
+            continue
+        url = item.get("url")
+        if not isinstance(url, str) or url not in skipped:
+            continue
+        fields = _fields_for_candidate_category(str(item.get("expected_category", "")))
+        for field in fields:
+            out.setdefault(field, []).append(url)
+    return {field: sorted(set(urls)) for field, urls in out.items()}
+
+
+def _fields_for_candidate_category(category: str) -> tuple[str, ...]:
+    mapping = {
+        str(PageCategory.PROGRAMME_LIST): ("programmes",),
+        str(PageCategory.PROGRAMME_PREREQUISITES): ("programmes", "accepted_qualifications"),
+        str(PageCategory.UNDERGRADUATE_ADMISSIONS): ("undergraduate_application_entry", "application_periods", "required_documents"),
+        str(PageCategory.APPLICATION_DEADLINES): ("application_periods",),
+        str(PageCategory.INTERNATIONAL_REQUIREMENTS): ("english_requirements", "accepted_qualifications"),
+        str(PageCategory.ACCEPTED_QUALIFICATIONS): ("accepted_qualifications",),
+        str(PageCategory.FEES): ("fees",),
+        str(PageCategory.SCHOLARSHIPS): ("scholarships",),
+        str(PageCategory.CONTACT): ("contacts",),
+    }
+    return mapping.get(category, ("programmes",))
 
 
 def _missing_reasons(coverage: dict[str, object], extraction_entries: list[object], source_strategy: object) -> dict[str, object]:

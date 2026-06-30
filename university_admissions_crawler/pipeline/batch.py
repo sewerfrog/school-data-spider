@@ -6,11 +6,11 @@ import argparse
 from pathlib import Path
 from urllib.parse import urlparse
 
-from university_admissions_crawler.config_loader import UniversityConfig, load_university_configs
+from university_admissions_crawler.config_loader import SMOKE_MAX_DEPTH, SMOKE_MAX_PAGES, UniversityConfig, load_university_configs
 from university_admissions_crawler.crawler.discovery import DiscoveryConfig
-from university_admissions_crawler.crawler.fetcher import LiveHTTPFetcher, PlaywrightBrowserFetcher
+from university_admissions_crawler.crawler.fetcher import BrowserFallbackFetcher, LiveHTTPFetcher, PlaywrightBrowserFetcher
 from university_admissions_crawler.crawler.relevance import build_relevance_strategy
-from university_admissions_crawler.extractor.llm_provider import MockClassificationAssistProvider
+from university_admissions_crawler.extractor.llm_provider import MockClassificationAssistProvider, MockProgrammeCatalogAssistProvider, MockSourcePlanProvider, OpenAIProvider
 from university_admissions_crawler.extractor.pdf_extractor import PypdfPDFExtractor
 from university_admissions_crawler.extractor.schema import AdmissionsData, Institution, RunMetadata, attach_validation_warnings
 from university_admissions_crawler.pipeline.diagnostics import inferred_allowed_domain
@@ -46,8 +46,10 @@ def _run_university_config(args: argparse.Namespace, university: UniversityConfi
         relevance_strategy=university.relevance_strategy,
         keyword_query=university.keyword_query,
     )
+    classification_assist_provider, programme_catalog_assist_provider, source_plan_provider = _llm_providers_for_args(args)
     for seed_url in university.seed_urls:
         fetcher = _fetcher_for_mode(
+            seed_url,
             university.mode,
             timeout_seconds=args.timeout_seconds,
             wait_until=args.browser_wait_until,
@@ -67,7 +69,9 @@ def _run_university_config(args: argparse.Namespace, university: UniversityConfi
             ),
             pdf_extractor=PypdfPDFExtractor() if args.enable_pdf else None,
             source_output_dir=Path(args.output_dir) / university.id / "sources",
-            classification_assist_provider=MockClassificationAssistProvider() if args.enable_classification_assist else None,
+            classification_assist_provider=classification_assist_provider,
+            programme_catalog_assist_provider=programme_catalog_assist_provider,
+            source_plan_provider=source_plan_provider,
         )
         combined = data if combined is None else merge_data(combined, data)
     if combined is None:
@@ -80,17 +84,41 @@ def _run_university_config(args: argparse.Namespace, university: UniversityConfi
 
 
 def _scan_limits_for_config(args: argparse.Namespace, university: UniversityConfig) -> tuple[int, int]:
-    max_pages = min(args.max_pages, 20) if args.smoke else args.max_pages
-    max_depth = min(args.max_depth, 2) if args.smoke else args.max_depth
+    max_pages = min(args.max_pages, SMOKE_MAX_PAGES) if args.smoke else args.max_pages
+    max_depth = min(args.max_depth, SMOKE_MAX_DEPTH) if args.smoke else args.max_depth
     return university.max_pages or max_pages, university.max_depth or max_depth
 
 
-def _fetcher_for_mode(mode: str, *, timeout_seconds: float, wait_until: str, user_agent: str | None, headless: bool):
+def _fetcher_for_mode(seed_url: str, mode: str, *, timeout_seconds: float, wait_until: str, user_agent: str | None, headless: bool):
     if mode in {"browser", "playwright", "playwright-browser"}:
-        return PlaywrightBrowserFetcher(timeout_seconds=timeout_seconds, wait_until=wait_until, user_agent=user_agent, headless=headless)
+        return BrowserFallbackFetcher(
+            LiveHTTPFetcher(timeout_seconds=timeout_seconds, user_agent=user_agent),
+            PlaywrightBrowserFetcher(timeout_seconds=timeout_seconds, wait_until=wait_until, user_agent=user_agent, headless=headless),
+            seed_url=seed_url,
+        )
     if mode in {"live-http", "http"}:
         return LiveHTTPFetcher(timeout_seconds=timeout_seconds, user_agent=user_agent)
     raise ValueError(f"Unsupported university config mode: {mode}")
+
+
+def _llm_providers_for_args(args: argparse.Namespace):
+    if not args.enable_llm:
+        return None, None, None
+    provider_name = args.llm_provider or "mock"
+    if provider_name == "mock":
+        return (
+            MockClassificationAssistProvider() if args.enable_classification_assist else None,
+            MockProgrammeCatalogAssistProvider() if args.enable_classification_assist else None,
+            MockSourcePlanProvider() if args.enable_source_planning else None,
+        )
+    if provider_name == "openai":
+        provider = OpenAIProvider()
+        return (
+            provider if args.enable_classification_assist else None,
+            provider if args.enable_classification_assist else None,
+            provider if args.enable_source_planning else None,
+        )
+    raise ValueError(f"Unsupported LLM provider: {provider_name}")
 
 
 def _allowed_domains_for(seed_url: str, explicit_domains: list[str], infer: bool) -> set[str]:

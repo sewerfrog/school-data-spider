@@ -1,20 +1,20 @@
 # 版本说明：University Admissions Crawler MVP
 
-快照日期：2026-06-24
+快照日期：2026-06-25
 项目目录：`/Users/sewerfrog/work/智能选校/school-data-spider`
 
 本文是版本快照和变更说明。安装、运行和测试命令以 `README.md` 为准；项目结构、已知问题和清理计划以 `PROJECT_MAP.md` 为准。
 
 ## 1. 当前版本定位
 
-本项目是一个 evidence-first 的大学本科招生信息抓取与抽取 MVP。它从本地 fixture、显式开启的 live URL、公开 JSON/API 或 PDF source 中提取可追溯信息，输出 `result.json`、`report.md`、source 文件和 evidence 记录。
+本项目是一个 evidence-first 的大学本科招生信息抓取与抽取 MVP。它可以从本地 fixture 或大学官网主页 URL 出发，有限发现官方 source，从公开 HTML/JSON/API/PDF source 中提取可追溯信息，输出 `result.json`、`report.md`、source 文件和 evidence 记录。
 
 核心边界没有变化：
 
 - 不生成录取判断。
 - 不绕过登录、验证码、WAF 或申请系统。
 - 没有证据支撑的招生事实应保持 `unknown` 或进入 `needs_manual_check` warning。
-- 浏览器、真实 PDF、LLM、crawl4ai、ScrapeGraphAI 等能力必须显式开启或仍处于 guarded/stub 状态。
+- 浏览器、真实 PDF、LLM、crawl4ai、ScrapeGraphAI 等能力必须显式开启或仍处于 guarded/stub 状态；非 fixture 的普通 HTTP(S) URL 会默认走 live HTTP。
 
 ## 2. 本轮主要变化
 
@@ -24,18 +24,22 @@
 - 本科上下文过滤：对 postgraduate/graduate、hall/accommodation、search/current-students、privacy/contact form 等常见污染页面做更保守的核心字段 gate。
 - 主内容和表格文本化：HTML 处理会优先取主内容区域，并将表格转成可抽取文本；这不是完整 DOM/table schema parser。
 - 诊断输出：`run.config` 记录 coverage、source strategy 和 source strategy summary，报告中也会显示解析状态。
-- Classification assist diagnostics：guarded mock classification assist 只记录候选分类诊断；`classification_assist_summary` 会记录 entries、fallback、applied、disagreement 等计数，即使启用后 0 触发也保持可见。
+- Classification assist diagnostics：guarded classification assist 支持 deterministic `mock` 和真实 `openai` provider；只记录候选分类诊断，`classification_assist_summary` 会记录 entries、fallback、applied、disagreement 等计数，即使启用后 0 触发也保持可见。
 - Source filtering 边界：抓取前过滤明显静态资源和 privacy/GDPR/cookie/terms 类低价值文档，同时通过 admissions prospectus、entry requirements、tuition fees、programme requirements PDF 反例保护招生材料。
 - Extraction diagnostics：source-level 记录 extractor 的 `extracted`、`no_match`、`skipped` 等结果和 reason，汇总到 `extraction_diagnostics_summary`；报告在 facts 前展示。
 - Missing reasons：对 `coverage.missing` 增加字段级 `missing_reasons`，用于说明当前 crawl/extractor 链路卡在 `source_not_crawled`、`not_attempted`、`attempted_no_match`、`context_gate_failed`、`application_portal_unreachable` 等位置。同一字段同时存在 extractor `no_match` 和 context gate skipped 时，当前优先展示 `attempted_no_match`；challenge source 导致 extractor 没拿到可用文本时优先展示 `source_not_crawled`；它仍不是官网缺失证明。
 - Source acquisition diagnostics：新增明显 WAF/challenge/noindex/captcha/access denied 页面检测；相关 source 会保留供审计，但在 `source_strategy` 中标为 `blocked_or_challenge`，不会被当作普通招生 HTML 送入事实抽取。
-- LLM source planning diagnostics：新增 `--enable-source-planning` guarded mock 入口，必须配合 `--enable-llm --llm-provider mock`。它只生成候选官方 URL、query 和 category hint，写入 `run.config.llm_source_plan`；candidate URL 会经过 deterministic validation 并分成 accepted/rejected，但不会被自动 crawl，也不会写入 admissions facts。
-- Source planning report：Markdown report 在 facts 前展示 `Source Planning Diagnostics`，显示 enabled/triggered/applied、blocked source 数量、accepted/rejected candidate URLs 和 diagnostics-only note。
+- Homepage-first live 默认：非 fixture HTTP(S) 输入现在默认启用 live HTTP、推断 allowed official domain，并使用 live 默认 `max_pages=80`、`max_depth=4`、`timeout_seconds=60`。`--auto` 和 `--enable-live-network` 仍保留为兼容 flag，但普通单 URL scan 不再需要用户理解这些内部参数。
+- LLM source navigation：`--enable-source-planning` 必须配合 `--enable-llm`，支持 `--llm-provider mock` 和 `--llm-provider openai`。它只生成候选官方 URL、query 和 category hint，写入 `run.config.llm_source_plan`；candidate URL 会经过 deterministic validation 并分成 accepted/rejected，accepted URL 可作为 bounded crawl frontier hint，但不会直接写入 admissions facts。
+- Source planning report：Markdown report 在 facts 前展示 `Source Planning Diagnostics`，显示 enabled/triggered/applied、blocked source 数量、accepted/rejected/applied/budget-skipped candidate URLs 和 diagnostics-only note。
 - NTU fees saved-source 回归：NTU undergraduate tuition fee 页面已通过 fee context gate；在当前 saved text 没有金额时，extractor 只输出官方 fee table/reference raw candidate，`parse_status` 为 `raw_needs_manual_review`，不伪造结构化金额。新增 NTU-style amount-row fixture 验证 source 明确包含 `S$` 金额时会解析为结构化 `SGD` amount。
 - Saved-source 回归材料：测试依赖的 HKU/NTU/PolyU saved source 已复制到 `tests/fixtures/saved_sources/`，测试不应再读取 `outputs/`。
 - `outputs/` 语义收敛：`outputs/` 保留为生成输出和历史参考样例目录，不作为当前 deterministic test fixture 来源。
 - CLI / packaging 边界：`pyproject.toml` 提供 `university-admissions-crawler` console script；文档示例继续使用 `python -m university_admissions_crawler.cli`，避免依赖 PATH 状态。
-- Guarded LLM 边界：`--enable-llm --llm-provider mock` 现在有两条 mock-only 诊断用途：带 `--keyword-query` 时生成 keyword plan；带 `--enable-classification-assist` 时记录低置信度分类辅助诊断。真实 hosted providers 仍被 CLI 拒绝。
+- Guarded LLM 边界：LLM keyword-plan generation 已从主流程移除；`--keyword-query` 只保留为 deterministic debug input。`--enable-llm --llm-provider openai` 已接入 source planning、classification assist 和 captured programme-catalog hint 这些受限用途；Anthropic/Gemini 仍被 CLI 拒绝。当前 OpenAI provider 不直接写 admissions facts。
+- OpenAI 本地配置标准化：仓库提供 `.env.example` 模板，真实 `.env` 由本地开发者自行维护并被 `.gitignore` 忽略。代码仍通过 `OPENAI_API_KEY` / `OPENAI_MODEL` 环境变量读取凭据；`.env` 不是 crawler 输入、不是 evidence source，不会写入 facts、fixtures 或 outputs。缺少 `OPENAI_API_KEY` 时 OpenAI provider fail closed 到 diagnostics，不应中断整次 run。
+- 默认 relevance profile：`admissions_programme_profile` 已成为默认 discovery strategy，用内部 admissions/programme 信号优先本科招生、申请要求、日期、费用、英语/国际要求、材料、联系方式和专业目录 source；`rule-based` 和 `bm25-like` 仍保留为显式兼容/调试路径，不再是推荐主路径。
+- 真实学校 fixture-backed 样板：NUS、HKU、NTU、PolyU 的最小官方 saved-source 样板现在覆盖 homepage/admissions -> programme catalog source 的 discovery、page category、programme catalog rows 和 evidence path。旧 NUS one-off CSV 仍只是参考，不代表当前 pipeline 已完整复现 NUS 全量专业体系。
 - 结构清理：单次扫描和 batch 扫描已共用 `pipeline/output_writer.py` 写出 `result.json` / `report.md`。
 - crawler 边界拆分：`FetchResult` / `Fetcher` 已拆到 `crawler/types.py`，source/content-type 判断已拆到 `crawler/source_types.py`，JSON helper 已拆到 `crawler/json_content.py`，optional warning-only stubs 已拆到 `crawler/optional_stubs.py`。
 - 兼容保护：旧的 `crawler.fetcher` 导入路径、JSON underscored helper、`pipeline.merge._merge_data` 等兼容入口仍保留，并由 `tests/test_compatibility_boundaries.py` 覆盖。
@@ -46,7 +50,8 @@
 - 真实官网抽取仍不是生产级；复杂专业体系、复杂费用表、多轮申请日期和 PDF 表格需要更强的 section/table 级解析。
 - NTU fees 当前 saved source 只是找到官方 fee table/reference，不是完成真实金额结构化解析；后续需要抓到或解析实际 table 内容。
 - `missing_reasons` 描述的是当前抓取和 extractor 尝试结果，不能证明官网没有提供该字段；portal/manual-check/absence evidence 仍需要后续单独设计。
-- `llm_source_plan.accepted_candidate_urls` 是已验证的诊断候选，不是当前实现中的自动 crawl frontier；要让 crawler follow 这些 URL，需要单独设计新阶段。
+- `llm_source_plan.accepted_candidate_urls` 是已验证的 source navigation 候选；它们可以进入 bounded crawl frontier，但仍可能因 page budget 被跳过。它们不是招生事实，只有实际抓到的官方 source 和 deterministic evidence 才能支撑 result。
+- LLM keyword optimization 已移除；下一阶段的自动化应来自 homepage-first source discovery、默认 relevance profile 和 source navigation，而不是用户输入 keyword query。
 - NUS browser smoke 在可用浏览器环境下能抓到一批官方 HTML source 时，source planning 不会触发；当时 coverage 为 `2/9`，说明剩余问题主要是 extractor、context gate 和 source prioritization，而不是继续扩 LLM。
 - source filtering 有明确降噪收益，但低价值文档关键词仍可能误伤极少数招生材料，因此 admissions PDF 反例测试需要继续保留。
 - `outputs/nus-live-programmes/` 是旧的一次性 NUS 产物，不能代表当前通用 pipeline 已能稳定复现完整 NUS 专业体系。
@@ -66,7 +71,7 @@ env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovid
 .venv314/bin/python -m compileall -q university_admissions_crawler tests
 ```
 
-结果：pytest 为 `126 passed`；compileall 通过。
+结果：最近完整 pytest 为 `176 passed`；compileall 已重跑通过。
 
 与本轮 diagnostics/source-filtering/source-planning/report 相关的目标测试组：
 
@@ -74,7 +79,7 @@ env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovid
 env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_filters.py tests/test_discovery.py tests/test_pipeline.py tests/test_report_cli.py
 ```
 
-结果：`71 passed`。
+结果：最近 Phase 5 Step 9 目标组 `tests/test_discovery.py tests/test_programme_catalog.py tests/test_pipeline.py` 为 `70 passed`。
 
 完整验证命令和环境说明请看 `README.md`。
 
@@ -86,7 +91,7 @@ env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovid
 - 继续完善 `missing_reasons` 的 portal/manual-check/absence-evidence 边界；当前已优先处理 `attempted_no_match` 与 context gate 的混合场景。
 - 下一阶段优先建立 fixture-backed field repair loop：先选一个真实缺字段，确认官方 source 中有明确证据，再增加失败测试，最后做最小 extractor/context-gate 修复。
 - 第一批候选优先级：NUS `programmes`、NTU `application_periods`、NTU `fees` 的真实表格内容解析。`required_documents` 和 `undergraduate_application_entry` 暂不优先，因为它们更可能涉及 portal/checklist 或 application-entry 识别逻辑。
-- 暂不继续扩展 LLM 功能；当前 mock source planning 已足够用于诊断，下一阶段应回到 source/evidence-backed extractor 修复。
+- LLM 已进入真实模型测试阶段：OpenAI provider 可用于 source planning、classification assist 和 captured programme-catalog hint，但仍不能直接写 admissions facts。下一步如果继续扩展 LLM，应优先做 Phase 6 的 structured extraction fallback validation，而不是绕过 evidence gate。
 - 继续处理 NTU fees 的真实表格内容解析；当前应把 saved-source 行为视为 raw reference fallback，把 NTU-style amount-row fixture 视为解析能力边界测试。
 - 增强 PDF 表格解析；是否引入 `pdfplumber` 或同类依赖需要单独评估。
 - 将有价值的真实学校样例迁移到更明确的 `docs/examples/` 或记录保留清单，避免继续混用 `outputs/`。

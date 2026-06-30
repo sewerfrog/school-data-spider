@@ -8,10 +8,14 @@ __pycache__/
 .venv*/
 venv/
 
+# Local secrets
+.env
+.env.*
+!.env.example
+
 # OS and editor metadata
 .DS_Store
 .idea/
 
 # Generated crawler outputs
 outputs/
-

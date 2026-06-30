@@ -66,6 +66,17 @@ DISALLOWED_SOURCE_PLAN_PATH_TERMS: tuple[str, ...] = (
     "/track",
 )
 
+DISALLOWED_SOURCE_PLAN_PORTAL_TERMS: tuple[str, ...] = (
+    "/login",
+    "/signin",
+    "/sign-in",
+    "/sso",
+    "/portal",
+    "/applynow",
+    "/apply-now",
+    "/application-system",
+)
+
 CHALLENGE_URL_TERMS: tuple[str, ...] = (
     "_incapsula_resource",
     "captcha",
@@ -264,6 +275,8 @@ def validate_source_plan_candidate_url(url: str, policy: DomainPolicy) -> tuple[
     path = unquote(parsed.path).lower()
     if any(term in path for term in DISALLOWED_SOURCE_PLAN_PATH_TERMS):
         return False, "tracking_or_redirect_url"
+    if any(term in path for term in DISALLOWED_SOURCE_PLAN_PORTAL_TERMS):
+        return False, "portal_or_login_url"
     query_names = {key.lower() for key, _value in parse_qsl(parsed.query, keep_blank_values=True)}
     if query_names & set(TRACKING_QUERY_NAMES) or any(any(key.startswith(prefix) for prefix in TRACKING_QUERY_PREFIXES) for key in query_names):
         return False, "tracking_or_redirect_url"

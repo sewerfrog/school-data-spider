@@ -15,6 +15,7 @@ from university_admissions_crawler.crawler.admissions_context import (
 )
 from university_admissions_crawler.crawler.discovery import DiscoveryConfig, discover
 from university_admissions_crawler.crawler.fetcher import Fetcher, FixtureFetcher
+from university_admissions_crawler.crawler.filters import canonicalize_url
 from university_admissions_crawler.crawler.relevance import DEFAULT_RELEVANCE_STRATEGY, KeywordPlan, RelevanceStrategy, relevance_diagnostics
 from university_admissions_crawler.evidence.store import write_source_record
 from university_admissions_crawler.evidence.provenance import evidence_from_source
@@ -33,11 +34,12 @@ from university_admissions_crawler.extractor.html_extractor import (
     extract_scholarship,
     extract_visa,
 )
-from university_admissions_crawler.extractor.llm_provider import ClassificationAssistProvider, generate_classification_assist_diagnostic
+from university_admissions_crawler.extractor.llm_provider import ClassificationAssistProvider, ProgrammeCatalogAssistProvider, SourcePlanProvider, generate_classification_assist_diagnostic
 from university_admissions_crawler.extractor.normalizer import add_warning
 from university_admissions_crawler.extractor.pdf_extractor import FixturePDFExtractor, MissingPDFExtractor, PDFExtractor
 from university_admissions_crawler.extractor.programme_catalog import extract_programme_catalog
-from university_admissions_crawler.pipeline.diagnostics import attach_run_diagnostics, source_strategy_for
+from university_admissions_crawler.pipeline.diagnostics import attach_run_diagnostics, attach_template_completeness, source_strategy_for
+from university_admissions_crawler.pipeline.source_planning import build_source_plan_diagnostic
 from university_admissions_crawler.extractor.schema import (
     AdmissionsData,
     ClaimStatus,
@@ -68,6 +70,8 @@ def run_fixture_scan(
     relevance_strategy: RelevanceStrategy | None = None,
     source_output_dir: str | Path | None = None,
     classification_assist_provider: ClassificationAssistProvider | None = None,
+    programme_catalog_assist_provider: ProgrammeCatalogAssistProvider | None = None,
+    source_plan_provider: SourcePlanProvider | None = None,
 ) -> AdmissionsData:
     return run_scan(
         seed_url,
@@ -83,6 +87,8 @@ def run_fixture_scan(
         previous_result=previous_result,
         source_output_dir=source_output_dir,
         classification_assist_provider=classification_assist_provider,
+        programme_catalog_assist_provider=programme_catalog_assist_provider,
+        source_plan_provider=source_plan_provider,
     )
 
 
@@ -95,6 +101,103 @@ def run_scan(
     pdf_extractor: PDFExtractor | None = None,
     source_output_dir: str | Path | None = None,
     classification_assist_provider: ClassificationAssistProvider | None = None,
+    programme_catalog_assist_provider: ProgrammeCatalogAssistProvider | None = None,
+    source_plan_provider: SourcePlanProvider | None = None,
+) -> AdmissionsData:
+    data = _run_scan_once(
+        seed_url,
+        fetcher,
+        config,
+        previous_result=previous_result,
+        pdf_extractor=pdf_extractor,
+        source_output_dir=source_output_dir,
+        classification_assist_provider=classification_assist_provider,
+        programme_catalog_assist_provider=programme_catalog_assist_provider,
+    )
+    if source_plan_provider is None:
+        return data
+
+    source_plan = build_source_plan_diagnostic(data, source_plan_provider)
+    if not source_plan.get("triggered"):
+        data.run.config["llm_source_plan"] = source_plan
+        attach_template_completeness(data)
+        return data
+
+    accepted_candidates = _accepted_source_plan_urls(source_plan)
+    if not accepted_candidates:
+        source_plan["applied"] = False
+        source_plan["applied_candidate_urls"] = []
+        source_plan["budget_skipped_candidate_urls"] = []
+        data.run.config["llm_source_plan"] = source_plan
+        attach_template_completeness(data)
+        return data
+
+    second_pass_config = _config_with_extra_candidates(config or DiscoveryConfig(), accepted_candidates)
+    planned_data = _run_scan_once(
+        seed_url,
+        fetcher,
+        second_pass_config,
+        previous_result=previous_result,
+        pdf_extractor=pdf_extractor,
+        source_output_dir=source_output_dir,
+        classification_assist_provider=classification_assist_provider,
+        programme_catalog_assist_provider=programme_catalog_assist_provider,
+    )
+    crawled_urls = {canonicalize_url(source.source_url) for source in planned_data.sources}
+    applied_urls = [url for url in accepted_candidates if canonicalize_url(url) in crawled_urls]
+    for item in source_plan.get("accepted_candidate_urls", []):
+        if isinstance(item, dict):
+            url = item.get("url")
+            item["crawl_status"] = "crawled" if isinstance(url, str) and canonicalize_url(url) in crawled_urls else "budget_skipped"
+    source_plan["applied"] = bool(applied_urls)
+    source_plan["applied_candidate_urls"] = applied_urls
+    source_plan["budget_skipped_candidate_urls"] = [url for url in accepted_candidates if url not in crawled_urls]
+    planned_data.run.config["llm_source_plan"] = source_plan
+    attach_template_completeness(planned_data)
+    return planned_data
+
+
+def _accepted_source_plan_urls(source_plan: dict[str, object]) -> tuple[str, ...]:
+    accepted = source_plan.get("accepted_candidate_urls")
+    if not isinstance(accepted, list):
+        return ()
+    urls: list[str] = []
+    seen: set[str] = set()
+    for item in accepted:
+        if not isinstance(item, dict):
+            continue
+        url = item.get("url")
+        if not isinstance(url, str) or not url or url in seen:
+            continue
+        urls.append(url)
+        seen.add(url)
+    return tuple(urls)
+
+
+def _config_with_extra_candidates(config: DiscoveryConfig, extra_candidates: tuple[str, ...]) -> DiscoveryConfig:
+    return DiscoveryConfig(
+        max_depth=config.max_depth,
+        max_pages=config.max_pages,
+        allowed_hosts=set(config.allowed_hosts),
+        allowed_domains=set(config.allowed_domains),
+        allow_official_subdomains=config.allow_official_subdomains,
+        retries=config.retries,
+        relevance_strategy=config.relevance_strategy,
+        keyword_plan=config.keyword_plan,
+        extra_candidates=tuple(dict.fromkeys((*config.extra_candidates, *extra_candidates))),
+    )
+
+
+def _run_scan_once(
+    seed_url: str,
+    fetcher: Fetcher,
+    config: DiscoveryConfig | None = None,
+    *,
+    previous_result: dict[str, Any] | None = None,
+    pdf_extractor: PDFExtractor | None = None,
+    source_output_dir: str | Path | None = None,
+    classification_assist_provider: ClassificationAssistProvider | None = None,
+    programme_catalog_assist_provider: ProgrammeCatalogAssistProvider | None = None,
 ) -> AdmissionsData:
     discovery_config = config or DiscoveryConfig()
     pages = discover(seed_url, fetcher, discovery_config)
@@ -330,7 +433,7 @@ def run_scan(
                 data.admissions.accepted_qualifications.append(record)
                 data.evidence.extend(evidence)
         elif classification.category in {PageCategory.PROGRAMME_LIST, PageCategory.PROGRAMME_PREREQUISITES}:
-            _append_programme_catalog(data, text, result.source, extraction_recorder, reason="category_route")
+            _append_programme_catalog(data, text, result.source, extraction_recorder, reason="category_route", assist_provider=programme_catalog_assist_provider)
             programme_start = len(data.programmes)
             programme_claim = f"/programmes/{programme_start}/name"
             programme_records = extract_programmes(text, result.source, "/programmes", programme_start)
@@ -538,8 +641,16 @@ def _default_pdf_extractor(fetcher: Fetcher) -> PDFExtractor:
     return MissingPDFExtractor()
 
 
-def _append_programme_catalog(data: AdmissionsData, text: str, source, recorder: "_ExtractionDiagnosticsRecorder", *, reason: str) -> None:
-    catalog_records = extract_programme_catalog(text, source, start_index=len(data.programme_catalog))
+def _append_programme_catalog(
+    data: AdmissionsData,
+    text: str,
+    source,
+    recorder: "_ExtractionDiagnosticsRecorder",
+    *,
+    reason: str,
+    assist_provider: ProgrammeCatalogAssistProvider | None = None,
+) -> None:
+    catalog_records = extract_programme_catalog(text, source, start_index=len(data.programme_catalog), assist_provider=assist_provider)
     for record, evidence in catalog_records:
         data.programme_catalog.append(record)
         data.evidence.extend(evidence)

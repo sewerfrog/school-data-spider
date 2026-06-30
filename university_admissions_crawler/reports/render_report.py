@@ -22,10 +22,10 @@ def render_markdown_report(data: AdmissionsData) -> str:
     lines.append("")
     _coverage(lines, data)
     _keyword_plan(lines, data)
-    _llm_keyword_plan(lines, data)
     _classification_assist(lines, data)
     _source_strategy(lines, data)
     _source_planning(lines, data)
+    _template_completeness(lines, data)
     _programme_catalog_diagnostics(lines, data)
     _extraction_diagnostics(lines, data)
     _missing_reasons(lines, data)
@@ -127,21 +127,6 @@ def _keyword_plan(lines: list[str], data: AdmissionsData) -> None:
     lines.append("")
 
 
-def _llm_keyword_plan(lines: list[str], data: AdmissionsData) -> None:
-    diagnostics = data.run.config.get("llm_keyword_plan")
-    if not isinstance(diagnostics, dict):
-        return
-    lines.append("## LLM Keyword Plan Diagnostics")
-    lines.append("")
-    lines.append(f"- Provider: `{diagnostics.get('provider', 'unknown')}`")
-    lines.append(f"- Fallback: {diagnostics.get('fallback', False)}")
-    lines.append(f"- Elapsed ms: {diagnostics.get('elapsed_ms', 0)}")
-    warnings = diagnostics.get("warnings") or []
-    if warnings:
-        lines.append(f"- Warnings: {', '.join(str(item) for item in warnings)}")
-    lines.append("")
-
-
 def _classification_assist(lines: list[str], data: AdmissionsData) -> None:
     diagnostics = data.run.config.get("classification_assist")
     if not isinstance(diagnostics, list) or not diagnostics:
@@ -232,8 +217,21 @@ def _source_planning(lines: list[str], data: AdmissionsData) -> None:
     triggers = diagnostics.get("trigger_reasons") or []
     if isinstance(triggers, list) and triggers:
         lines.append(f"- Trigger reasons: {', '.join(f'`{trigger}`' for trigger in triggers)}")
+    applied_urls = diagnostics.get("applied_candidate_urls") or []
+    budget_skipped_urls = diagnostics.get("budget_skipped_candidate_urls") or []
+    if isinstance(applied_urls, list):
+        lines.append(f"- Crawled accepted candidate URLs: {len(applied_urls)}")
+    if isinstance(budget_skipped_urls, list):
+        lines.append(f"- Budget-skipped accepted candidate URLs: {len(budget_skipped_urls)}")
     _source_plan_candidates(lines, "Accepted candidate URLs", diagnostics.get("accepted_candidate_urls") or [])
     _source_plan_candidates(lines, "Rejected candidate URLs", diagnostics.get("rejected_candidate_urls") or [])
+    path_patterns = diagnostics.get("candidate_path_patterns") or []
+    if isinstance(path_patterns, list) and path_patterns:
+        lines.append("- Candidate path patterns:")
+        for pattern in path_patterns[:10]:
+            lines.append(f"  - {pattern}")
+        if len(path_patterns) > 10:
+            lines.append(f"  - Omitted path patterns: {len(path_patterns) - 10}")
     queries = diagnostics.get("candidate_queries") or []
     if isinstance(queries, list) and queries:
         lines.append("- Candidate queries:")
@@ -261,6 +259,8 @@ def _source_plan_candidates(lines: list[str], title: str, candidates: object) ->
         line = f"  - {url} (`{category}`)"
         if title.startswith("Rejected"):
             line += f" rejected `{item.get('rejection_reason', 'unknown')}`"
+        elif item.get("crawl_status"):
+            line += f" crawl `{item.get('crawl_status')}`"
         if reason:
             line += f": {reason}"
         lines.append(line)
@@ -282,6 +282,12 @@ def _programme_catalog_diagnostics(lines: list[str], data: AdmissionsData) -> No
     lines.append(f"- Candidate rows: {candidate_count}")
     lines.append(f"- Accepted rows: {summary.get('accepted_count', 0)}")
     lines.append(f"- Rejected rows: {rejected_count}")
+    lines.append(f"- Candidate sources: {summary.get('candidate_source_count', 0)}")
+    lines.append(f"- Crawled catalog sources: {summary.get('crawled_catalog_source_count', 0)}")
+    lines.append(f"- Accepted row count: {summary.get('accepted_row_count', summary.get('accepted_count', 0))}")
+    lines.append(f"- Raw-needs-review rows: {summary.get('raw_needs_review_count', 0)}")
+    lines.append(f"- Probable incomplete catalog: {summary.get('probable_incomplete_catalog', False)}")
+    lines.append(f"- Recommended next action: `{summary.get('recommended_next_action', 'none')}`")
     lines.append(f"- Duplicate rows: {summary.get('duplicate_count', 0)}")
     lines.append(f"- Manual-review rows: {summary.get('manual_review_count', 0)}")
     lines.append(f"- Row warnings: {summary.get('warning_count', 0)}")
@@ -314,6 +320,53 @@ def _programme_catalog_diagnostics(lines: list[str], data: AdmissionsData) -> No
     if note:
         lines.append(f"- Note: {note}")
     lines.append("- Note: programme catalog diagnostics summarize table extraction and are not admissions facts.")
+    lines.append("")
+
+
+def _template_completeness(lines: list[str], data: AdmissionsData) -> None:
+    diagnostics = data.run.config.get("template_completeness")
+    if not isinstance(diagnostics, dict) or not diagnostics:
+        return
+    fields = diagnostics.get("fields")
+    if not isinstance(fields, dict) or not fields:
+        return
+
+    lines.append("## Template Completeness Diagnostics")
+    lines.append("")
+    lines.append(f"- Found: {diagnostics.get('found_count', 0)}/{diagnostics.get('fields_total', 0)}")
+    status_counts = diagnostics.get("status_counts")
+    if isinstance(status_counts, dict) and status_counts:
+        lines.append(f"- Status flags: {_format_counts(status_counts)}")
+    next_action_counts = diagnostics.get("next_action_counts")
+    if isinstance(next_action_counts, dict) and next_action_counts:
+        lines.append(f"- Next actions: {_format_counts(next_action_counts)}")
+    programme_catalog = diagnostics.get("programme_catalog")
+    if isinstance(programme_catalog, dict):
+        lines.append(
+            "- Programme catalog: "
+            f"candidate sources {programme_catalog.get('candidate_source_count', 0)}, "
+            f"crawled catalog sources {programme_catalog.get('crawled_catalog_source_count', 0)}, "
+            f"accepted rows {programme_catalog.get('accepted_row_count', 0)}, "
+            f"raw-needs-review rows {programme_catalog.get('raw_needs_review_count', 0)}, "
+            f"probable incomplete {programme_catalog.get('probable_incomplete_catalog', False)}, "
+            f"next action `{programme_catalog.get('next_action', 'none')}`"
+        )
+    lines.append("- Fields:")
+    for field, details in fields.items():
+        if not isinstance(details, dict):
+            continue
+        flags = details.get("status_flags") or []
+        flags_text = ", ".join(f"`{flag}`" for flag in flags) if isinstance(flags, list) and flags else "`unknown`"
+        lines.append(
+            f"  - `{field}`: {details.get('status', 'unknown')} "
+            f"({flags_text}); next `{details.get('next_action', 'manual_check_required')}`"
+        )
+        source_urls = details.get("source_urls") or []
+        if isinstance(source_urls, list) and source_urls:
+            lines.append(f"    - sources: {', '.join(str(url) for url in source_urls[:5])}")
+    note = diagnostics.get("note")
+    if note:
+        lines.append(f"- Note: {note}")
     lines.append("")
 
 

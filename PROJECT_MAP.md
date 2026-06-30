@@ -2,15 +2,16 @@
 
 ## 1. 这个项目是做什么的
 
-本项目是一个 Python 3.11+ 的大学本科招生信息抓取与抽取 MVP。它从本地 fixture 或显式开启的 live URL 出发，有限发现招生相关页面，抽取能被 source/evidence 支持的结构化字段，并生成 `result.json`、`report.md` 和 source 文件。
+本项目是一个 Python 3.11+ 的大学本科招生信息抓取与抽取 MVP。它从本地 fixture 或大学官网主页 URL 出发，有限发现招生相关页面，抽取能被 source/evidence 支持的结构化字段，并生成 `result.json`、`report.md` 和 source 文件。
 
 当前设计重点是 evidence-first：没有证据的招生事实应保持 `unknown` 或进入 `needs_manual_check` warning。项目不做录取判断、不做推荐、不做无边界爬取，也不绕过登录、验证码、WAF 或申请系统。
 
 ## 2. 当前已经能工作的功能
 
 - Fixture 端到端扫描：`--fixture` 可跑 `tests/fixtures/mini_university_site/`。
-- Live HTTP 扫描：`--enable-live-network` 或 `--auto` 显式开启。
-- 可选 Playwright browser 扫描：`--enable-browser`，依赖未安装时返回 warning。
+- Live HTTP 扫描：非 fixture HTTP(S) URL 默认启用，`--auto` / `--enable-live-network` 仅作为兼容 flag 保留。
+- Homepage-first 默认参数：live URL 默认 `max_pages=80`、`max_depth=4`、`timeout_seconds=60`，并从输入 URL 推断 allowed official domain。
+- 可选 Playwright browser fallback：`--enable-browser`，HTTP-first，仅在需要渲染的 homepage/high-value 页面上 fallback；依赖未安装时返回 warning。
 - 可选 PDF 文本解析：`--enable-pdf` 使用 `pypdf`，失败时返回 warning；未启用时 live PDF 只记录 warning，不再按 fixture PDF 文本解析。
 - 批量配置扫描：`--config` 读取 JSON 配置并按大学 ID 输出子目录。
 - bounded discovery：通过 `max_pages`、`max_depth` 控制范围。
@@ -22,16 +23,16 @@
 - 报告输出：生成 Markdown evidence report。
 - 增量 diff：传入 previous result 时记录 source hash 和字段变化。
 - source filtering：抓取前过滤明显静态资源和 privacy/GDPR/cookie/terms 类低价值文档，并用 admissions prospectus、entry requirements、tuition fees、programme requirements PDF 反例保护误删边界。
-- diagnostics：`classification_assist_summary`、`extraction_diagnostics_summary` 和 `missing_reasons` 已写入 `run.config`，报告会在 facts 前展示相关诊断；这些内容不改变事实字段。字段级缺失原因和抽取器修复细节见 `docs/keyword-crawl-design.zh.md`。
-- saved-source 回归：HKU/NTU/PolyU 相关回归 fixture 已迁到 `tests/fixtures/saved_sources/`；NTU fee 当前能力边界见 `docs/keyword-crawl-design.zh.md`。
-- 测试：`.venv314` 环境下当前完整 pytest 结果为 `114 passed`；本轮 diagnostics/source-filtering/report 目标测试组为 `59 passed`。
+- diagnostics：`classification_assist_summary`、`extraction_diagnostics_summary`、`missing_reasons` 和 `template_completeness` 已写入 `run.config`，报告会在 facts 前展示相关诊断；这些内容不改变事实字段。字段级缺失原因和抽取器修复细节见 `docs/keyword-crawl-design.zh.md`。
+- saved-source 回归：HKU/NTU/PolyU 相关回归 fixture 已迁到 `tests/fixtures/saved_sources/`；NUS/HKU/NTU/PolyU 已有 homepage/admissions -> programme catalog source 的 fixture-backed pipeline 样板。NTU fee 当前能力边界见 `docs/keyword-crawl-design.zh.md`。
+- 测试：`.venv314` 环境下最近完整 pytest 结果为 `172 passed`；Phase 5 Step 9 目标组 `tests/test_discovery.py tests/test_programme_catalog.py tests/test_pipeline.py` 为 `70 passed`。
 
 ## 3. 未完成或实验性功能
 
-- LLM：`--enable-llm --llm-provider mock` 当前只支持 mock keyword plan 和 mock classification assist 诊断链路；hosted providers 仍 fail closed。LLM candidate facts 仍只能走 evidence-gated 校验 helper，不是 pipeline 默认事实来源。
+- LLM：`--enable-llm --llm-provider mock` 当前支持 mock classification assist 和 mock source navigation；hosted providers 仍 fail closed。LLM keyword-plan generation 已移除，LLM candidate facts 仍只能走 evidence-gated 校验 helper，不是 pipeline 默认事实来源。
 - ScrapeGraphAI：CLI 有 `--enable-scrapegraph`，但当前直接报错；`ScrapeGraphFetcherStub` 只是 warning stub。
 - crawl4ai：`Crawl4AIFetcherStub` 只是 warning stub，没有真实 adapter。
-- Sitemap：`parse_sitemap_urls()` 存在，但当前 discovery 主流程未使用。用途 unclear。
+- Sitemap：discovery 会探测 sitemap 并把相关招生/专业目录 URL 加入 priority frontier；`parse_sitemap_urls()` 仍由兼容/边界测试覆盖。
 - 复杂专业体系抽取：当前主要是 regex，无法稳定区分 degree、major、minor、second major、special programme 等。
 - 复杂表格/PDF 表格：HTML table 只转文本，`pypdf` 只抽文本；不是结构化表格解析。
 - 部分 schema 字段未填充：`international_requirements`、`standardized_tests`、`selection_tests_or_interviews` 当前基本未由 pipeline 写入。用途 partially unclear。
@@ -49,16 +50,15 @@ Fixture smoke：
   --max-depth 3
 ```
 
-Live HTTP：
+Homepage-first live HTTP：
 
 ```bash
-.venv314/bin/python -m university_admissions_crawler.cli https://www.example.edu/admissions \
-  --enable-live-network \
-  --allowed-domain example.edu \
-  --output-dir outputs/example-live \
-  --max-pages 30 \
-  --max-depth 2
+.venv314/bin/python -m university_admissions_crawler.cli https://www.example.edu/ \
+  --output-dir outputs/example-live
 ```
+
+需要收窄范围时再显式传 `--max-pages`、`--max-depth`、`--allowed-domain` 或
+`--timeout-seconds`。
 
 Batch config：
 
@@ -118,7 +118,7 @@ python3 -m compileall university_admissions_crawler tests
 - `pipeline.output_writer.write_result_files()`：创建输出目录并写出 `result.json` 与 `report.md`，返回两个输出路径。
 - `run_fixture_scan()` / `run_scan()`：fixture 和通用扫描主入口。
 - `pipeline.run_university_scan._default_pdf_extractor()`：默认 PDF extractor 策略；fixture fetcher 使用 `FixturePDFExtractor`，其他 fetcher 使用 `MissingPDFExtractor`，除非调用方显式传入 parser。
-- `DiscoveryConfig` / `discover()`：扫描范围配置和 bounded discovery。
+- `DiscoveryConfig` / `discover()`：扫描范围配置、全局 priority frontier、sitemap/path probing、extra candidates 和 bounded discovery。
 - `DomainPolicy` / `canonicalize_url()` / `score_url()`：域名允许规则、URL 规范化、链接排序。
 - `FetchResult` / `Fetcher`：抓取结果和 fetcher protocol。
 - `FixtureFetcher` / `LiveHTTPFetcher` / `PlaywrightBrowserFetcher`：三种实际抓取实现。
@@ -129,6 +129,7 @@ python3 -m compileall university_admissions_crawler tests
 - `parse_english_tests()` / `parse_money_candidates()` / `parse_application_dates()`：轻量结构化解析。
 - `FixturePDFExtractor` / `MissingPDFExtractor` / `PypdfPDFExtractor`：fixture PDF、未启用 PDF parser 的 warning guard、可选真实 PDF 文本解析。
 - `validate_llm_candidates()`：只接受能匹配已有 evidence 的 LLM 候选。
+- `pipeline.source_planning`：校验 mock LLM source navigation 输出，accepted URL candidates 可作为 bounded crawl frontier hints；facts 仍必须来自抓到的官方 source 和 evidence。
 - `attach_run_diagnostics()`：写入 coverage、source strategy、classification assist summary、extraction diagnostics summary 和 missing reasons。
 - `attach_validation_warnings()` / `normalize_admissions_data()`：证据、冲突、过期、非官方来源等 warning policy。
 - `render_markdown_report()`：生成 Markdown 报告。

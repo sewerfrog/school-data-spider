@@ -1,4 +1,4 @@
-"""Diagnostics-only source planning triggers."""
+"""Guarded source planning helpers."""
 
 from __future__ import annotations
 
@@ -10,14 +10,22 @@ from university_admissions_crawler.extractor.schema import AdmissionsData
 def attach_source_plan_diagnostics(data: AdmissionsData, provider: SourcePlanProvider) -> AdmissionsData:
     """Attach an optional source plan without changing crawl results or facts."""
 
+    diagnostic = build_source_plan_diagnostic(data, provider)
+    diagnostic["applied"] = False
+    data.run.config["llm_source_plan"] = diagnostic
+    return data
+
+
+def build_source_plan_diagnostic(data: AdmissionsData, provider: SourcePlanProvider) -> dict[str, object]:
     context = source_planning_context(data)
     if not context["trigger_reasons"]:
-        data.run.config["llm_source_plan"] = {
+        return {
             "enabled": True,
             "triggered": False,
             "provider": getattr(provider, "name", type(provider).__name__),
             "trigger_reasons": [],
             "candidate_urls": [],
+            "candidate_path_patterns": [],
             "accepted_candidate_urls": [],
             "rejected_candidate_urls": [],
             "candidate_queries": [],
@@ -25,15 +33,13 @@ def attach_source_plan_diagnostics(data: AdmissionsData, provider: SourcePlanPro
             "applied": False,
             "note": "Source planning was enabled but no blocked source or all-missing core-field condition was detected.",
         }
-        return data
     diagnostic = generate_source_plan_diagnostic(context, provider)
     accepted, rejected = validate_source_plan_candidates(diagnostic.get("candidate_urls"), data)
     diagnostic["accepted_candidate_urls"] = accepted
     diagnostic["rejected_candidate_urls"] = rejected
     diagnostic["enabled"] = True
     diagnostic["triggered"] = True
-    data.run.config["llm_source_plan"] = diagnostic
-    return data
+    return diagnostic
 
 
 def validate_source_plan_candidates(candidates: object, data: AdmissionsData) -> tuple[list[dict[str, object]], list[dict[str, object]]]:

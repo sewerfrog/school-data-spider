@@ -5,6 +5,7 @@ from university_admissions_crawler.classifier.page_classifier import classify_pa
 from university_admissions_crawler.crawler.admissions_context import has_admissions_contact_context, has_undergraduate_admissions_context, has_undergraduate_fee_context
 from university_admissions_crawler.crawler.discovery import DiscoveryConfig
 from university_admissions_crawler.crawler.fetcher import FetchResult, FixtureFetcher
+from university_admissions_crawler.crawler.filters import canonicalize_url
 from university_admissions_crawler.extractor.schema import WarningCode
 from university_admissions_crawler.extractor.llm_provider import MockClassificationAssistProvider
 from university_admissions_crawler.extractor.html_extractor import extract_contact, extract_english_requirement, extract_fee
@@ -17,6 +18,7 @@ from university_admissions_crawler.extractor.llm_provider import MockSourcePlanP
 
 ROOT = Path("tests/fixtures/mini_university_site")
 SAVED = Path("tests/fixtures/saved_sources")
+NUS_CATALOG_SAMPLES = Path("tests/fixtures/programme_catalog/nus/source_samples.json")
 
 
 def test_offline_fixture_pipeline_discovers_extracts_and_warns():
@@ -164,6 +166,10 @@ def test_pipeline_marks_nus_incapsula_page_as_blocked_challenge():
     assert blocked_diagnostics["attempts"] == []
     assert data.run.config["missing_reasons"]["programmes"]["reason"] == "source_not_crawled"
     assert blocked_url in data.run.config["missing_reasons"]["programmes"]["source_urls"]
+    template = data.run.config["template_completeness"]
+    assert template["fields"]["programmes"]["status_flags"] == ["source_blocked_or_challenge"]
+    assert template["fields"]["programmes"]["next_action"] == "improve_source_discovery_or_llm_source_navigation"
+    assert blocked_url in template["fields"]["programmes"]["source_urls"]
 
 
 def test_pipeline_mock_source_planning_triggers_on_blocked_source_without_changing_facts():
@@ -275,6 +281,87 @@ def test_pipeline_nus_mock_source_planning_regression_keeps_candidates_diagnosti
     assert set(accepted_urls).isdisjoint(source_urls)
 
 
+def test_pipeline_source_planning_crawls_validated_candidate_without_creating_model_facts():
+    seed_url = "https://example.edu/"
+    programme_url = "https://example.edu/programmes"
+    fetcher = SourcePlanningFrontierFetcher(
+        {
+            seed_url: ("Access Denied", "Access denied. Please enable JavaScript and complete the captcha.", []),
+            programme_url: ("Undergraduate Programmes", "Bachelor of Science\nBachelor of Engineering", []),
+        }
+    )
+
+    data = run_scan(
+        seed_url,
+        fetcher,
+        DiscoveryConfig(max_pages=3, max_depth=1, allowed_hosts={"example.edu"}),
+        source_plan_provider=MockSourcePlanProvider(
+            {
+                "candidate_urls": [
+                    {
+                        "url": programme_url,
+                        "reason": "Official programmes page candidate.",
+                        "expected_category": "programme_list",
+                    }
+                ],
+                "candidate_path_patterns": ["/programmes"],
+                "candidate_queries": [],
+                "warnings": [],
+            }
+        ),
+    )
+
+    source_plan = data.run.config["llm_source_plan"]
+    assert source_plan["triggered"] is True
+    assert source_plan["applied"] is True
+    assert source_plan["applied_candidate_urls"] == [programme_url]
+    assert source_plan["budget_skipped_candidate_urls"] == []
+    assert source_plan["accepted_candidate_urls"][0]["crawl_status"] == "crawled"
+    assert programme_url in fetcher.fetched
+    assert any(source.source_url == programme_url for source in data.sources)
+    assert {programme.name.value for programme in data.programmes} >= {"Bachelor of Science", "Bachelor of Engineering"}
+    assert all(item.source_url == programme_url for item in data.evidence if item.claim_path.startswith("/programmes/"))
+
+
+def test_pipeline_source_planning_reports_budget_skipped_candidate():
+    seed_url = "https://example.edu/"
+    programme_url = "https://example.edu/programmes"
+    fetcher = SourcePlanningFrontierFetcher(
+        {
+            seed_url: ("Access Denied", "Access denied. Please enable JavaScript and complete the captcha.", []),
+            programme_url: ("Undergraduate Programmes", "Bachelor of Science", []),
+        }
+    )
+
+    data = run_scan(
+        seed_url,
+        fetcher,
+        DiscoveryConfig(max_pages=1, max_depth=1, allowed_hosts={"example.edu"}),
+        source_plan_provider=MockSourcePlanProvider(
+            {
+                "candidate_urls": [
+                    {
+                        "url": programme_url,
+                        "reason": "Official programmes page candidate.",
+                        "expected_category": "programme_list",
+                    }
+                ],
+                "candidate_queries": [],
+                "warnings": [],
+            }
+        ),
+    )
+
+    source_plan = data.run.config["llm_source_plan"]
+    assert source_plan["triggered"] is True
+    assert source_plan["applied"] is False
+    assert source_plan["applied_candidate_urls"] == []
+    assert source_plan["budget_skipped_candidate_urls"] == [programme_url]
+    assert source_plan["accepted_candidate_urls"][0]["crawl_status"] == "budget_skipped"
+    assert programme_url not in fetcher.fetched
+    assert not data.programmes
+
+
 def test_pipeline_uses_html_table_text_for_extraction():
     result = FixtureFetcher(ROOT).fetch("https://fixture.test/table-fees.html")
     assert "International undergraduate | Tuition is SGD 45000 per year." in result.markdown
@@ -290,8 +377,14 @@ def test_pipeline_attaches_core_coverage_and_source_strategy():
     coverage = data.run.config["coverage"]
     extraction_summary = data.run.config["extraction_diagnostics_summary"]
     missing_reasons = data.run.config["missing_reasons"]
+    template = data.run.config["template_completeness"]
     assert coverage["found_count"] > 0
     assert "coverage_ratio" in coverage
+    assert template["fields_total"] == coverage["core_fields_total"]
+    assert template["found_count"] == coverage["found_count"]
+    assert set(template["fields"]) == set(coverage["found"]) | set(coverage["missing"])
+    assert template["fields"]["application_periods"]["status_flags"] == ["source_found"]
+    assert template["fields"]["application_periods"]["next_action"] == "none"
     assert data.run.config["source_strategy_summary"]["html_page"] >= 1
     assert extraction_summary["sources_count"] == len(data.run.config["extraction_diagnostics"])
     assert extraction_summary["attempts_count"] > 0
@@ -315,13 +408,25 @@ def test_pipeline_attaches_core_coverage_and_source_strategy():
         }
         for details in missing_reasons.values()
     )
-    assert data.run.config["relevance_strategy"] == "rule_based"
+    assert all(
+        details["next_action"]
+        in {
+            "none",
+            "improve_source_discovery_or_llm_source_navigation",
+            "improve_extractor_or_context_gate",
+            "manual_check_required",
+        }
+        for details in template["fields"].values()
+    )
+    assert "probable_incomplete_catalog" in template["programme_catalog"]
+    assert data.run.config["relevance_strategy"] == "admissions_programme_profile"
     strategy_entries = data.run.config["source_strategy"]
     admissions_entry = next(item for item in strategy_entries if item["url"] == "https://fixture.test/admissions/index.html")
     assert isinstance(admissions_entry["discovery_score"], int)
-    assert admissions_entry["relevance_strategy"] == "rule_based"
+    assert admissions_entry["relevance_strategy"] == "admissions_programme_profile"
     assert "positive_keyword:admission" in admissions_entry["discovery_signals"]
     assert "path_relevance_hint:/admission" in admissions_entry["discovery_signals"]
+    assert "profile_positive:/admission" in admissions_entry["discovery_signals"]
 
 
 def test_missing_reasons_prefers_no_match_over_context_gate_when_both_exist():
@@ -422,6 +527,189 @@ def test_missing_reasons_prefers_source_acquisition_failure_for_blocked_source_a
     assert reasons["programmes"]["attempts"] == 1
     assert reasons["programmes"]["attempted_extractors"] == ["extract_programmes"]
     assert reasons["programmes"]["source_urls"] == [blocked_url]
+
+
+def test_template_completeness_marks_budget_skipped_source_plan_candidate():
+    seed_url = "https://example.edu/"
+    programme_url = "https://example.edu/programmes"
+    fetcher = SourcePlanningFrontierFetcher(
+        {
+            seed_url: ("Access Denied", "Access denied. Please enable JavaScript and complete the captcha.", []),
+            programme_url: ("Undergraduate Programmes", "Bachelor of Science", []),
+        }
+    )
+
+    data = run_scan(
+        seed_url,
+        fetcher,
+        DiscoveryConfig(max_pages=1, max_depth=1, allowed_hosts={"example.edu"}),
+        source_plan_provider=MockSourcePlanProvider(
+            {
+                "candidate_urls": [
+                    {
+                        "url": programme_url,
+                        "reason": "Official programmes page candidate.",
+                        "expected_category": "programme_list",
+                    }
+                ],
+                "candidate_queries": [],
+                "warnings": [],
+            }
+        ),
+    )
+
+    template = data.run.config["template_completeness"]
+    assert template["fields"]["programmes"]["status_flags"] == ["source_budget_skipped"]
+    assert template["fields"]["programmes"]["source_urls"] == [programme_url]
+    assert template["fields"]["programmes"]["next_action"] == "improve_source_discovery_or_llm_source_navigation"
+
+
+def test_pipeline_nus_saved_catalog_sample_discovers_official_sources_and_evidence_paths():
+    fixture = json.loads(NUS_CATALOG_SAMPLES.read_text(encoding="utf-8"))
+    homepage = fixture["university"]["homepage_url"] + "/"
+    sources = fixture["sources"]
+    sample_pages = {
+        canonicalize_url(sample["source_url"]): (sample["source_title"], sample["text"], [])
+        for sample in sources
+    }
+    business_url = sources[0]["source_url"]
+    chs_url = "https://chs.nus.edu.sg/programmes"
+    fetcher = _SavedOfficialSiteFetcher(
+        {
+            homepage: (
+                "National University of Singapore",
+                "NUS undergraduate admissions and programmes",
+                [
+                    "https://nus.edu.sg/oam/undergraduate-programmes",
+                    business_url,
+                    chs_url,
+                    "https://www.nus.edu.sg/about",
+                ],
+            ),
+            **sample_pages,
+            "https://www.nus.edu.sg/about": ("About NUS", "About NUS research and campus life", []),
+        }
+    )
+
+    data = run_scan(
+        homepage,
+        fetcher,
+        DiscoveryConfig(max_pages=4, max_depth=1, allowed_domains={"nus.edu.sg"}),
+    )
+
+    fetched_urls = {source.source_url for source in data.sources}
+    assert business_url in fetched_urls
+    assert chs_url in fetched_urls
+    assert "https://www.nus.edu.sg/about" not in fetcher.fetched
+    assert _category_for(data, business_url) == SourceType.HTML
+    assert _page_category_for(data, business_url) == "programme_list"
+    _assert_catalog_row_with_evidence(data, "Bachelor of Business Administration with Honours", business_url)
+    _assert_catalog_row_with_evidence(data, "CHS Primary Major: Chinese Languages and Cultures", chs_url)
+
+
+def test_pipeline_hku_saved_catalog_sample_discovers_cards_and_evidence_paths():
+    programme_url = "https://admissions.hku.hk/programmes/undergraduate-programmes"
+    fetcher = _SavedOfficialSiteFetcher(
+        {
+            "https://www.hku.hk/": (
+                "HKU",
+                "HKU admissions undergraduate courses",
+                [
+                    "https://admissions.hku.hk/",
+                    programme_url,
+                    "https://www.hku.hk/about",
+                ],
+            ),
+            "https://admissions.hku.hk/": (
+                "Admissions Office",
+                "Undergraduate admissions apply to HKU.",
+                [programme_url],
+            ),
+            programme_url: _saved_source_page("hku", "programme_catalog_undergraduate_courses", title="Undergraduate Courses"),
+            "https://www.hku.hk/about": ("About HKU", "Research excellence and campus history", []),
+        }
+    )
+
+    data = run_scan(
+        "https://www.hku.hk/",
+        fetcher,
+        DiscoveryConfig(max_pages=4, max_depth=2, allowed_domains={"hku.hk"}),
+    )
+
+    assert programme_url in {source.source_url for source in data.sources}
+    assert _page_category_for(data, programme_url) == "programme_list"
+    _assert_catalog_row_with_evidence(data, "Bachelor of Arts in Architectural Studies", programme_url)
+    _assert_catalog_row_with_evidence(data, "Bachelor of Business Administration", programme_url)
+
+
+def test_pipeline_ntu_saved_catalog_sample_discovers_programmes_and_evidence_paths():
+    programme_url = "https://www.ntu.edu.sg/hass/admissions/programmes"
+    fetcher = _SavedOfficialSiteFetcher(
+        {
+            "https://www.ntu.edu.sg/": (
+                "NTU Singapore",
+                "NTU undergraduate admissions",
+                [
+                    "https://www.ntu.edu.sg/admissions/undergraduate",
+                    programme_url,
+                    "https://www.ntu.edu.sg/news",
+                ],
+            ),
+            "https://www.ntu.edu.sg/admissions/undergraduate": (
+                "Undergraduate Admissions",
+                "Undergraduate admissions application guide and programmes.",
+                [programme_url],
+            ),
+            programme_url: _saved_source_page("ntu", "programme_catalog_hass"),
+            "https://www.ntu.edu.sg/news": ("NTU News", "Alumni and research news", []),
+        }
+    )
+
+    data = run_scan(
+        "https://www.ntu.edu.sg/",
+        fetcher,
+        DiscoveryConfig(max_pages=4, max_depth=2, allowed_domains={"ntu.edu.sg"}),
+    )
+
+    assert programme_url in {source.source_url for source in data.sources}
+    assert _page_category_for(data, programme_url) == "programme_list"
+    _assert_catalog_row_with_evidence(data, "Bachelor of Fine Arts (BFA) in Design Art", programme_url)
+    _assert_catalog_row_with_evidence(data, "Bachelor of Social Sciences (Hons)", programme_url)
+
+
+def test_pipeline_polyu_saved_catalog_sample_discovers_choice_table_and_evidence_paths():
+    programme_url = "https://www.polyu.edu.hk/study/ug/admissions/jupas"
+    fetcher = _SavedOfficialSiteFetcher(
+        {
+            "https://www.polyu.edu.hk/": (
+                "PolyU",
+                "PolyU undergraduate admissions and study options",
+                [
+                    "https://www.polyu.edu.hk/study/ug/",
+                    programme_url,
+                    "https://www.polyu.edu.hk/contact-us/form.php",
+                ],
+            ),
+            "https://www.polyu.edu.hk/study/ug/": (
+                "Undergraduate Study",
+                "Undergraduate admissions programme choices.",
+                [programme_url],
+            ),
+            programme_url: _saved_source_page("polyu", "programme_catalog_jupas", title="JUPAS Undergraduate Programmes"),
+            "https://www.polyu.edu.hk/contact-us/form.php": ("Contact Us", "General enquiry form", []),
+        }
+    )
+
+    data = run_scan(
+        "https://www.polyu.edu.hk/",
+        fetcher,
+        DiscoveryConfig(max_pages=4, max_depth=2, allowed_domains={"polyu.edu.hk"}),
+    )
+
+    assert programme_url in {source.source_url for source in data.sources}
+    assert _page_category_for(data, programme_url) == "programme_list"
+    _assert_catalog_row_with_evidence(data, "Architectural Studies", programme_url)
+    _assert_catalog_row_with_evidence(data, "Computing and AI", programme_url)
 
 
 def test_classification_assist_records_low_confidence_diagnostics_without_changing_rule_category():
@@ -684,5 +972,107 @@ class _SavedSinglePageFetcher:
             text=text,
             markdown=text,
             links=links,
+            source=source,
+        )
+
+
+class _SavedOfficialSiteFetcher:
+    engine = "saved-official-site"
+
+    def __init__(self, pages):
+        self.pages = pages
+        self.fetched = []
+
+    def fetch(self, url: str) -> FetchResult:
+        self.fetched.append(url)
+        if url not in self.pages:
+            return FetchResult(
+                url=url,
+                final_url=url,
+                status=404,
+                title="Not Found",
+                content_type="text/plain",
+                retrieved_at="2026-06-01T00:00:00+00:00",
+                engine=self.engine,
+            )
+        title, text, links = self.pages[url]
+        source = source_from_text(source_url=url, title=title, source_type=SourceType.HTML, text=text, retrieved_at="2026-06-01T00:00:00+00:00", engine=self.engine)
+        return FetchResult(
+            url=url,
+            final_url=url,
+            status=200,
+            title=title,
+            content_type="text/html",
+            retrieved_at="2026-06-01T00:00:00+00:00",
+            engine=self.engine,
+            text=text,
+            markdown=text,
+            links=list(links),
+            source=source,
+        )
+
+
+def _saved_source_page(school: str, slug: str, *, title: str | None = None) -> tuple[str, str, list[str]]:
+    base = SAVED / school / slug
+    meta = json.loads(base.with_suffix(".json").read_text(encoding="utf-8"))
+    text = base.with_suffix(".txt").read_text(encoding="utf-8")
+    return title or meta["title"], text, []
+
+
+def _page_category_for(data, url: str) -> str:
+    record = next(item for item in data.discovered_categories if item.source_url == url)
+    return str(record.category)
+
+
+def _category_for(data, url: str) -> SourceType:
+    source = next(item for item in data.sources if item.source_url == url)
+    return source.source_type
+
+
+def _assert_catalog_row_with_evidence(data, name: str, source_url: str) -> None:
+    from university_admissions_crawler.extractor.schema import resolve_claim_path
+
+    row = next(item for item in data.programme_catalog if item.name == name)
+    assert row.source_url == source_url
+    assert row.evidence_path.startswith("/programme_catalog/")
+    assert row.evidence_path.endswith("/name")
+    assert resolve_claim_path(data, row.evidence_path) == row.name
+    evidence = next(item for item in data.evidence if item.claim_path == row.evidence_path)
+    assert evidence.source_url == source_url
+    assert row.name in evidence.snippet
+
+
+class SourcePlanningFrontierFetcher:
+    engine = "source-planning-frontier"
+
+    def __init__(self, pages):
+        self.pages = pages
+        self.fetched = []
+
+    def fetch(self, url: str) -> FetchResult:
+        self.fetched.append(url)
+        if url not in self.pages:
+            return FetchResult(
+                url=url,
+                final_url=url,
+                status=404,
+                title="Not Found",
+                content_type="text/plain",
+                retrieved_at="2026-06-01T00:00:00+00:00",
+                engine=self.engine,
+            )
+        title, text, links = self.pages[url]
+        source = source_from_text(source_url=url, title=title, source_type=SourceType.HTML, text=text, retrieved_at="2026-06-01T00:00:00+00:00", engine=self.engine)
+        return FetchResult(
+            url=url,
+            final_url=url,
+            status=200,
+            title=title,
+            content_type="text/html",
+            retrieved_at="2026-06-01T00:00:00+00:00",
+            engine=self.engine,
+            text=text,
+            markdown=text,
+            links=list(links),
             source=source,
         )

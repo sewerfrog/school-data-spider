@@ -6,17 +6,25 @@ import argparse
 from pathlib import Path
 from urllib.parse import urlparse
 
+from university_admissions_crawler.config_loader import (
+    DEFAULT_TIMEOUT_SECONDS,
+    FIXTURE_DEFAULT_MAX_DEPTH,
+    FIXTURE_DEFAULT_MAX_PAGES,
+    LIVE_DEFAULT_MAX_DEPTH,
+    LIVE_DEFAULT_MAX_PAGES,
+    SMOKE_MAX_DEPTH,
+    SMOKE_MAX_PAGES,
+)
 from university_admissions_crawler.crawler.discovery import DiscoveryConfig
-from university_admissions_crawler.crawler.fetcher import LiveHTTPFetcher, PlaywrightBrowserFetcher
+from university_admissions_crawler.crawler.fetcher import BrowserFallbackFetcher, LiveHTTPFetcher, PlaywrightBrowserFetcher
 from university_admissions_crawler.crawler.relevance import build_relevance_strategy
 from university_admissions_crawler.evidence.store import load_previous_result
-from university_admissions_crawler.extractor.llm_provider import MockClassificationAssistProvider, MockKeywordPlanProvider, MockSourcePlanProvider, generate_keyword_plan_with_fallback
+from university_admissions_crawler.extractor.llm_provider import MockClassificationAssistProvider, MockProgrammeCatalogAssistProvider, MockSourcePlanProvider, OpenAIProvider
 from university_admissions_crawler.extractor.pdf_extractor import PypdfPDFExtractor
 from university_admissions_crawler.pipeline.batch import _run_batch
 from university_admissions_crawler.pipeline.diagnostics import inferred_allowed_domain
 from university_admissions_crawler.pipeline.output_writer import write_result_files
 from university_admissions_crawler.pipeline.run_university_scan import run_fixture_scan, run_scan
-from university_admissions_crawler.pipeline.source_planning import attach_source_plan_diagnostics
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -26,25 +34,30 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--fixture", action="store_true", help="Run against a local fixture directory")
     parser.add_argument("--seed-url", default="https://fixture.test/", help="Seed URL for fixture mode")
     parser.add_argument("--output-dir", default="outputs/university-scan", help="Directory for result.json and report.md")
-    parser.add_argument("--max-pages", type=int, default=20)
-    parser.add_argument("--max-depth", type=int, default=3)
+    parser.add_argument("--max-pages", type=int, help="Maximum pages to crawl; defaults to 80 for live scans and 20 for fixtures")
+    parser.add_argument("--max-depth", type=int, help="Maximum link depth; defaults to 4 for live scans and 3 for fixtures")
     parser.add_argument("--allowed-host", action="append", default=[], help="Additional allowed host; repeatable")
     parser.add_argument("--allowed-domain", action="append", default=[], help="Additional allowed domain; repeatable")
     parser.add_argument("--previous-result", help="Optional prior result.json for incremental diff warnings")
-    parser.add_argument("--auto", action="store_true", help="Infer live crawl domain policy from the input URL; intended for one-URL university scans")
-    parser.add_argument("--enable-live-network", action="store_true", help="Enable guarded live HTTP crawling for the input URL")
+    parser.add_argument("--auto", action="store_true", help="Compatibility flag; live one-URL scans now infer domain policy by default")
+    parser.add_argument("--enable-live-network", action="store_true", help="Compatibility flag; live HTTP crawling is the default for non-fixture URLs")
     parser.add_argument("--smoke", action="store_true", help="Use conservative smoke caps unless explicit max values are supplied")
-    parser.add_argument("--enable-llm", action="store_true", help="Guarded future LLM mode; unsupported in this offline MVP")
-    parser.add_argument("--llm-provider", choices=["mock", "openai", "anthropic", "gemini"], help="Reserved provider selector for future guarded LLM mode")
+    parser.add_argument("--enable-llm", action="store_true", help="Enable guarded LLM diagnostics/source planning for supported features")
+    parser.add_argument("--llm-provider", choices=["mock", "openai", "anthropic", "gemini"], help="LLM provider for guarded assist/planning features")
     parser.add_argument("--enable-classification-assist", action="store_true", help="Record mock LLM diagnostics for low-confidence page classifications; does not change extraction")
-    parser.add_argument("--enable-source-planning", action="store_true", help="Record mock LLM diagnostics with candidate official source hints; does not crawl candidates or change facts")
-    parser.add_argument("--keyword-query", help="Optional user keyword query recorded as a reviewable keyword plan; does not change crawl behavior yet")
-    parser.add_argument("--relevance-strategy", default="rule-based", choices=["rule-based", "bm25-like"], help="Opt-in discovery relevance strategy; default preserves existing rule-based scoring")
-    parser.add_argument("--enable-browser", action="store_true", help="Use Playwright browser-backed live crawling for JavaScript-rendered pages")
+    parser.add_argument("--enable-source-planning", action="store_true", help="Use guarded mock LLM source candidates as crawl frontier hints; facts still require fetched evidence")
+    parser.add_argument("--keyword-query", help="Optional deterministic debug keyword query for keyword-assisted relevance diagnostics")
+    parser.add_argument(
+        "--relevance-strategy",
+        default="admissions-programme",
+        choices=["admissions-programme", "rule-based", "bm25-like"],
+        help="Discovery relevance strategy; default uses the built-in admissions/programme profile",
+    )
+    parser.add_argument("--enable-browser", action="store_true", help="Enable HTTP-first Playwright fallback for JavaScript-rendered live pages")
     parser.add_argument("--enable-pdf", action="store_true", help="Use optional pypdf parser for live PDF sources")
-    parser.add_argument("--browser-wait-until", default="networkidle", choices=["commit", "domcontentloaded", "load", "networkidle"], help="Playwright page.goto wait condition")
+    parser.add_argument("--browser-wait-until", default="domcontentloaded", choices=["commit", "domcontentloaded", "load", "networkidle"], help="Playwright page.goto wait condition")
     parser.add_argument("--browser-headed", action="store_true", help="Run the Playwright browser visibly instead of headless")
-    parser.add_argument("--timeout-seconds", type=float, default=15.0, help="Per-page fetch timeout")
+    parser.add_argument("--timeout-seconds", type=float, help="Per-page fetch timeout; defaults to 60 seconds for live scans")
     parser.add_argument("--user-agent", help="Optional user-agent string for live fetchers")
     parser.add_argument("--enable-scrapegraph", action="store_true", help="Guarded future ScrapeGraphAI mode; unsupported in this offline MVP")
     return parser
@@ -53,16 +66,17 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    _resolve_runtime_defaults(args)
     if args.llm_provider and not args.enable_llm:
         parser.error("--llm-provider requires --enable-llm.")
     if args.enable_classification_assist and not args.enable_llm:
         parser.error("--enable-classification-assist requires --enable-llm.")
     if args.enable_source_planning and not args.enable_llm:
         parser.error("--enable-source-planning requires --enable-llm.")
-    if args.enable_llm and args.llm_provider != "mock":
-        parser.error("Only --llm-provider mock is supported for guarded keyword-plan generation.")
-    if args.enable_llm and not args.keyword_query and not args.enable_classification_assist and not args.enable_source_planning:
-        parser.error("--enable-llm requires --keyword-query, --enable-classification-assist, or --enable-source-planning.")
+    if args.enable_llm and args.llm_provider in {"anthropic", "gemini"}:
+        parser.error("--llm-provider anthropic/gemini are reserved and not implemented.")
+    if args.enable_llm and not args.enable_classification_assist and not args.enable_source_planning:
+        parser.error("--enable-llm requires --enable-classification-assist or --enable-source-planning.")
     if args.enable_scrapegraph:
         parser.error("ScrapeGraphAI mode is guarded and not implemented in this offline MVP.")
     if args.config:
@@ -71,29 +85,19 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("input is required unless --config is supplied.")
     if args.fixture and (args.enable_live_network or args.enable_browser):
         parser.error("--fixture cannot be combined with live network/browser modes.")
-    if args.auto and not args.fixture:
+    if not args.fixture and (args.auto or not args.enable_browser):
         args.enable_live_network = True
-    if not args.fixture and not (args.enable_live_network or args.enable_browser):
-        parser.error("Use --fixture for a local fixture scan, or explicitly pass --enable-live-network / --enable-browser for live crawling.")
-    max_pages = min(args.max_pages, 20) if args.smoke else args.max_pages
-    max_depth = min(args.max_depth, 2) if args.smoke else args.max_depth
+    max_pages = min(args.max_pages, SMOKE_MAX_PAGES) if args.smoke else args.max_pages
+    max_depth = min(args.max_depth, SMOKE_MAX_DEPTH) if args.smoke else args.max_depth
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     previous_result = load_previous_result(args.previous_result)
     source_output_dir = output_dir / "sources"
-    llm_keyword_plan_diagnostics = None
-    keyword_plan_override = None
-    classification_assist_provider = MockClassificationAssistProvider() if args.enable_classification_assist else None
-    source_plan_provider = MockSourcePlanProvider() if args.enable_source_planning else None
-    if args.enable_llm and args.keyword_query:
-        llm_result = generate_keyword_plan_with_fallback(args.keyword_query, MockKeywordPlanProvider())
-        keyword_plan_override = llm_result.keyword_plan
-        llm_keyword_plan_diagnostics = llm_result.diagnostics
+    classification_assist_provider, programme_catalog_assist_provider, source_plan_provider = _llm_providers_for(args)
     try:
         keyword_plan, relevance_strategy = build_relevance_strategy(
             relevance_strategy=args.relevance_strategy,
             keyword_query=args.keyword_query,
-            keyword_plan=keyword_plan_override,
         )
     except ValueError as exc:
         parser.error(str(exc))
@@ -110,20 +114,13 @@ def main(argv: list[str] | None = None) -> int:
             relevance_strategy=relevance_strategy,
             source_output_dir=source_output_dir,
             classification_assist_provider=classification_assist_provider,
+            programme_catalog_assist_provider=programme_catalog_assist_provider,
+            source_plan_provider=source_plan_provider,
         )
-        if llm_keyword_plan_diagnostics is not None:
-            data.run.config["llm_keyword_plan"] = llm_keyword_plan_diagnostics
-        if source_plan_provider is not None:
-            attach_source_plan_diagnostics(data, source_plan_provider)
     else:
         seed_url = _require_live_url(parser, args.input)
         fetcher = (
-            PlaywrightBrowserFetcher(
-                timeout_seconds=args.timeout_seconds,
-                wait_until=args.browser_wait_until,
-                user_agent=args.user_agent,
-                headless=not args.browser_headed,
-            )
+            _browser_fallback_fetcher(seed_url, args)
             if args.enable_browser
             else LiveHTTPFetcher(timeout_seconds=args.timeout_seconds, user_agent=args.user_agent)
         )
@@ -134,7 +131,7 @@ def main(argv: list[str] | None = None) -> int:
                 max_pages=max_pages,
                 max_depth=max_depth,
                 allowed_hosts=set(args.allowed_host),
-                allowed_domains=_allowed_domains_for(seed_url, args.allowed_domain, args.auto),
+                allowed_domains=_allowed_domains_for(seed_url, args.allowed_domain, True),
                 keyword_plan=keyword_plan,
                 relevance_strategy=relevance_strategy,
             ),
@@ -142,15 +139,26 @@ def main(argv: list[str] | None = None) -> int:
             pdf_extractor=PypdfPDFExtractor() if args.enable_pdf else None,
             source_output_dir=source_output_dir,
             classification_assist_provider=classification_assist_provider,
+            programme_catalog_assist_provider=programme_catalog_assist_provider,
+            source_plan_provider=source_plan_provider,
         )
-        if llm_keyword_plan_diagnostics is not None:
-            data.run.config["llm_keyword_plan"] = llm_keyword_plan_diagnostics
-        if source_plan_provider is not None:
-            attach_source_plan_diagnostics(data, source_plan_provider)
     result_path, report_path = write_result_files(data, output_dir)
     print(f"Wrote {result_path}")
     print(f"Wrote {report_path}")
     return 0
+
+
+def _browser_fallback_fetcher(seed_url: str, args: argparse.Namespace) -> BrowserFallbackFetcher:
+    return BrowserFallbackFetcher(
+        LiveHTTPFetcher(timeout_seconds=args.timeout_seconds, user_agent=args.user_agent),
+        PlaywrightBrowserFetcher(
+            timeout_seconds=args.timeout_seconds,
+            wait_until=args.browser_wait_until,
+            user_agent=args.user_agent,
+            headless=not args.browser_headed,
+        ),
+        seed_url=seed_url,
+    )
 
 
 def _allowed_domains_for(seed_url: str, explicit_domains: list[str], infer: bool) -> set[str]:
@@ -160,6 +168,36 @@ def _allowed_domains_for(seed_url: str, explicit_domains: list[str], infer: bool
         if inferred:
             domains.add(inferred)
     return domains
+
+
+def _llm_providers_for(args: argparse.Namespace):
+    if not args.enable_llm:
+        return None, None, None
+    provider_name = args.llm_provider or "mock"
+    if provider_name == "mock":
+        return (
+            MockClassificationAssistProvider() if args.enable_classification_assist else None,
+            MockProgrammeCatalogAssistProvider() if args.enable_classification_assist else None,
+            MockSourcePlanProvider() if args.enable_source_planning else None,
+        )
+    if provider_name == "openai":
+        provider = OpenAIProvider()
+        return (
+            provider if args.enable_classification_assist else None,
+            provider if args.enable_classification_assist else None,
+            provider if args.enable_source_planning else None,
+        )
+    raise ValueError(f"Unsupported LLM provider: {provider_name}")
+
+
+def _resolve_runtime_defaults(args: argparse.Namespace) -> None:
+    live_profile = not args.fixture
+    if args.max_pages is None:
+        args.max_pages = LIVE_DEFAULT_MAX_PAGES if live_profile else FIXTURE_DEFAULT_MAX_PAGES
+    if args.max_depth is None:
+        args.max_depth = LIVE_DEFAULT_MAX_DEPTH if live_profile else FIXTURE_DEFAULT_MAX_DEPTH
+    if args.timeout_seconds is None:
+        args.timeout_seconds = DEFAULT_TIMEOUT_SECONDS
 
 
 def _require_live_url(parser: argparse.ArgumentParser, value: str) -> str:

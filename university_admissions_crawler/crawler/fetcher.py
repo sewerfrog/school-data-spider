@@ -17,6 +17,7 @@ from university_admissions_crawler.crawler.json_content import (
     walk_json_values,
 )
 from university_admissions_crawler.crawler.optional_stubs import Crawl4AIFetcherStub, ScrapeGraphFetcherStub
+from university_admissions_crawler.crawler.filters import canonicalize_url, score_url
 from university_admissions_crawler.crawler.source_types import (
     content_type_for_source_type,
     looks_like_pdf_url,
@@ -356,6 +357,27 @@ class PlaywrightBrowserFetcher:
         return result
 
 
+class BrowserFallbackFetcher:
+    """HTTP-first fetcher with guarded browser fallback for JS-rendered pages."""
+
+    engine = "browser-fallback"
+
+    def __init__(self, primary_fetcher: Fetcher, browser_fetcher: Fetcher, seed_url: str | None = None) -> None:
+        self.primary_fetcher = primary_fetcher
+        self.browser_fetcher = browser_fetcher
+        self.seed_url = canonicalize_url(seed_url) if seed_url else None
+
+    def fetch(self, url: str) -> FetchResult:
+        primary_result = self.primary_fetcher.fetch(url)
+        reason = _browser_fallback_reason(primary_result, self.seed_url)
+        if reason is None:
+            return primary_result
+        browser_result = self.browser_fetcher.fetch(url)
+        if browser_result.ok:
+            return browser_result
+        return _primary_with_browser_fallback_warning(primary_result, browser_result, reason)
+
+
 def assert_fetch_contract(result: FetchResult) -> None:
     assert result.url is not None
     assert result.final_url is not None
@@ -445,3 +467,97 @@ def _looks_like_api_url(url: str) -> bool:
     parsed = urlparse(url)
     path = parsed.path.lower()
     return "/api/" in path or path.endswith(".json") or "/graphql" in path or "/odata/" in path
+
+
+def _browser_fallback_reason(result: FetchResult, seed_url: str | None) -> str | None:
+    if not result.ok or _source_type_for_url_or_content(result.final_url, result.content_type) != SourceType.HTML:
+        return None
+    if _looks_like_hard_block_or_challenge(result):
+        return None
+    if not _is_homepage_or_high_value(result, seed_url):
+        return None
+    if _looks_like_browser_renderable_shell(result):
+        return "js_rendered_shell"
+    if _has_no_useful_links(result) and _has_thin_text(result):
+        return "no_useful_links"
+    return None
+
+
+def _is_homepage_or_high_value(result: FetchResult, seed_url: str | None) -> bool:
+    if seed_url and canonicalize_url(result.final_url) == seed_url:
+        return True
+    text = result.markdown or _html_to_text(result.text)
+    return score_url(result.final_url, result.title, text) >= 6
+
+
+def _looks_like_browser_renderable_shell(result: FetchResult) -> bool:
+    raw = result.text.lower()
+    plain = (result.markdown or _html_to_text(result.text)).lower()
+    if len(result.links) > 1:
+        return False
+    has_app_root = bool(re.search(r"id=[\"'](?:__next|root|app|nuxt|gatsby-focus-wrapper)[\"']", raw))
+    has_framework_state = any(
+        signal in raw
+        for signal in (
+            "__next_data__",
+            "window.__nuxt__",
+            "ng-version",
+            "data-reactroot",
+            "webpackjsonp",
+            "vite/client",
+        )
+    )
+    asks_for_javascript = "enable javascript" in plain or "javascript is required" in plain or "you need javascript" in plain
+    script_heavy_shell = raw.count("<script") >= 4 and _has_thin_text(result)
+    return has_app_root or has_framework_state or (asks_for_javascript and "<script" in raw) or script_heavy_shell
+
+
+def _looks_like_hard_block_or_challenge(result: FetchResult) -> bool:
+    haystack = f"{result.final_url} {result.title or ''} {(result.markdown or result.text)[:4000]}".lower()
+    hard_terms = (
+        "_incapsula_resource",
+        "incapsula incident id",
+        "captcha",
+        "cloudflare",
+        "access denied",
+        "verify you are human",
+        "bot detection",
+    )
+    if any(term in haystack for term in hard_terms):
+        return True
+    return "noindex" in haystack and "nofollow" in haystack and ("robots" in haystack or "<meta" in haystack)
+
+
+def _has_no_useful_links(result: FetchResult) -> bool:
+    return len(result.links) == 0
+
+
+def _has_thin_text(result: FetchResult) -> bool:
+    plain = re.sub(r"\s+", " ", result.markdown or _html_to_text(result.text)).strip()
+    return len(plain) < 500
+
+
+def _primary_with_browser_fallback_warning(primary: FetchResult, browser: FetchResult, reason: str) -> FetchResult:
+    warnings = list(primary.warnings)
+    browser_warnings = browser.warnings or [
+        WarningRecord(
+            WarningCode.NEEDS_MANUAL_CHECK,
+            f"Browser fallback was attempted for {reason} but did not return usable content.",
+            field=primary.final_url,
+            source_urls=[primary.final_url],
+        )
+    ]
+    for warning in browser_warnings:
+        if warning.code == WarningCode.FETCH_FAILED:
+            warnings.append(
+                WarningRecord(
+                    WarningCode.NEEDS_MANUAL_CHECK,
+                    f"Browser fallback failed after HTTP source looked like {reason}: {warning.message}",
+                    field=warning.field or primary.final_url,
+                    source_urls=warning.source_urls or [primary.final_url],
+                )
+            )
+        else:
+            warnings.append(warning)
+    primary.warnings = warnings
+    return primary

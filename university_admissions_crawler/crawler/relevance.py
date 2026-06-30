@@ -14,29 +14,123 @@ from university_admissions_crawler.crawler.filters import PROGRAMME_SOURCE_PATH_
 
 
 MAX_KEYWORD_QUERY_LENGTH = 500
-MAX_KEYWORD_ITEMS = 50
-MAX_KEYWORD_LENGTH = 80
-KEYWORD_PLAN_SOURCES = {"default", "user", "llm"}
+KEYWORD_PLAN_SOURCES = {"default", "user"}
 RELEVANCE_STRATEGY_ALIASES = {
+    "admissions-programme": "admissions-programme",
+    "admissions_programme": "admissions-programme",
+    "admissions-programme-profile": "admissions-programme",
+    "admissions_programme_profile": "admissions-programme",
+    "default": "admissions-programme",
     "rule-based": "rule-based",
     "rule_based": "rule-based",
     "bm25-like": "bm25-like",
     "bm25_like": "bm25-like",
 }
 
-KEYWORD_PLAN_OUTPUT_SCHEMA: dict[str, object] = {
-    "type": "object",
-    "required": ["query", "positive_keywords", "negative_keywords", "url_hints", "source", "warnings"],
-    "properties": {
-        "query": {"type": "string", "maxLength": MAX_KEYWORD_QUERY_LENGTH},
-        "positive_keywords": {"type": "array", "items": {"type": "string", "maxLength": MAX_KEYWORD_LENGTH}, "maxItems": MAX_KEYWORD_ITEMS},
-        "negative_keywords": {"type": "array", "items": {"type": "string", "maxLength": MAX_KEYWORD_LENGTH}, "maxItems": MAX_KEYWORD_ITEMS},
-        "url_hints": {"type": "array", "items": {"type": "string", "maxLength": MAX_KEYWORD_LENGTH}, "maxItems": MAX_KEYWORD_ITEMS},
-        "source": {"type": "string", "enum": sorted(KEYWORD_PLAN_SOURCES)},
-        "warnings": {"type": "array", "items": {"type": "string", "maxLength": MAX_KEYWORD_LENGTH}, "maxItems": MAX_KEYWORD_ITEMS},
-    },
-    "additionalProperties": False,
-}
+ADMISSIONS_PROGRAMME_PATH_HINTS: tuple[str, ...] = (
+    "/admission",
+    "/admissions",
+    "/apply",
+    "/application",
+    "/deadline",
+    "/dates",
+    "/requirements",
+    "/requirement",
+    "/qualifications",
+    "/qualification",
+    "/english",
+    "/international",
+    "/documents",
+    "/fees",
+    "/fee",
+    "/tuition",
+    "/scholarship",
+    "/scholarships",
+    "/financial-aid",
+    "/contact",
+    "/enquiry",
+    "/undergraduate",
+    "/study/ug",
+    "/ug/",
+    "/programme",
+    "/program",
+    "/degree",
+    "/major",
+    "/minor",
+    "/bulletin",
+    "/catalogue",
+    "/catalog",
+)
+
+ADMISSIONS_PROGRAMME_TEXT_HINTS: tuple[str, ...] = (
+    "undergraduate admissions",
+    "undergraduate admission",
+    "undergraduate programmes",
+    "undergraduate programs",
+    "degree programmes",
+    "degree programs",
+    "bachelor",
+    "major",
+    "minor",
+    "application requirements",
+    "entry requirements",
+    "admission requirements",
+    "application period",
+    "application deadline",
+    "closing date",
+    "required documents",
+    "supporting documents",
+    "english language requirements",
+    "english proficiency",
+    "international qualifications",
+    "tuition fees",
+    "admissions office",
+)
+
+ADMISSIONS_PROGRAMME_NOISE_HINTS: tuple[str, ...] = (
+    "/news",
+    "/alumni",
+    "/giving",
+    "/donate",
+    "/staff",
+    "/jobs",
+    "/career",
+    "/careers",
+    "/privacy",
+    "/cookie",
+    "/cookies",
+    "/marketing",
+    "/press",
+    "/media",
+    "/summer",
+    "/pre-university",
+    "/preuniversity",
+    "/continuing-education",
+    "/executive-education",
+    "/professional-education",
+    "/postgraduate",
+    "/graduate",
+)
+
+ADMISSIONS_PROGRAMME_TEXT_NOISE_HINTS: tuple[str, ...] = (
+    "alumni",
+    "giving",
+    "donate",
+    "staff",
+    "job vacancy",
+    "career opportunities",
+    "privacy notice",
+    "cookie policy",
+    "marketing",
+    "news article",
+    "press release",
+    "summer school",
+    "pre-university",
+    "executive education",
+    "continuing education",
+    "postgraduate admissions",
+    "graduate admissions",
+)
 
 PATH_RELEVANCE_HINTS: tuple[str, ...] = (
     "/admission",
@@ -157,42 +251,21 @@ def keyword_plan_from_query(query: str, *, source: str = "user") -> KeywordPlan:
     )
 
 
-def keyword_plan_from_payload(payload: dict[str, object], *, source: str | None = None) -> KeywordPlan:
-    """Validate a structured keyword plan payload before it reaches a scorer."""
-
-    allowed_keys = {"query", "positive_keywords", "negative_keywords", "url_hints", "source", "warnings"}
-    extra_keys = set(payload) - allowed_keys
-    if extra_keys:
-        raise ValueError(f"Unsupported keyword plan fields: {', '.join(sorted(extra_keys))}")
-    missing_keys = allowed_keys - set(payload)
-    if missing_keys:
-        raise ValueError(f"Keyword plan missing required fields: {', '.join(sorted(missing_keys))}")
-    plan_source = source or _required_text(payload.get("source"), field="source")
-    if plan_source not in KEYWORD_PLAN_SOURCES:
-        raise ValueError(f"Unsupported keyword plan source: {plan_source}")
-    return KeywordPlan(
-        query=_bounded_text(_required_text(payload.get("query"), field="query"), field="query", max_length=MAX_KEYWORD_QUERY_LENGTH),
-        positive_keywords=tuple(_bounded_text_list(payload.get("positive_keywords", []), field="positive_keywords")),
-        negative_keywords=tuple(_bounded_text_list(payload.get("negative_keywords", []), field="negative_keywords")),
-        url_hints=tuple(_bounded_text_list(payload.get("url_hints", []), field="url_hints")),
-        source=plan_source,
-        warnings=tuple(_bounded_text_list(payload.get("warnings", []), field="warnings")),
-    )
-
-
 def build_relevance_strategy(
     *,
-    relevance_strategy: str = "rule-based",
+    relevance_strategy: str = "admissions-programme",
     keyword_query: str | None = None,
     keyword_plan: KeywordPlan | None = None,
     source: str = "user",
 ) -> tuple[KeywordPlan | None, RelevanceStrategy]:
-    """Build a validated relevance strategy while preserving rule-based defaults."""
+    """Build a validated relevance strategy for discovery."""
 
     normalized_strategy = _normalize_strategy_name(relevance_strategy)
     plan = keyword_plan or (keyword_plan_from_query(keyword_query, source=source) if keyword_query else None)
-    if normalized_strategy == "rule-based":
+    if normalized_strategy == "admissions-programme":
         return plan, DEFAULT_RELEVANCE_STRATEGY
+    if normalized_strategy == "rule-based":
+        return plan, RuleBasedRelevanceStrategy()
     if normalized_strategy == "bm25-like":
         if plan is None:
             raise ValueError("bm25-like relevance strategy requires a keyword query or keyword plan.")
@@ -214,7 +287,7 @@ class RelevanceStrategy(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class RuleBasedRelevanceStrategy:
-    """Default strategy that preserves the existing rule-based scoring behavior."""
+    """Legacy rule-based scorer retained for compatibility and tests."""
 
     name: str = "rule_based"
 
@@ -226,6 +299,53 @@ class RuleBasedRelevanceStrategy:
 
     def diagnose(self, url: str, title: str | None = None, text: str | None = None) -> RelevanceDiagnostics:
         return RelevanceDiagnostics(strategy=self.name, score=self.score(url, title, text), signals=_rule_based_signals(url, title, text))
+
+
+@dataclass(frozen=True, slots=True)
+class AdmissionsProgrammeRelevanceStrategy:
+    """Default internal source-discovery profile for homepage-first admissions scans."""
+
+    baseline_strategy: RelevanceStrategy = field(default_factory=RuleBasedRelevanceStrategy)
+    name: str = "admissions_programme_profile"
+
+    def score(self, url: str, title: str | None = None, text: str | None = None) -> int:
+        baseline = self.baseline_strategy.score(url, title, text)
+        positive_hits, noise_hits, has_programme_source = self._matched_profile_signals(url, title, text)
+        score = baseline + (len(positive_hits) * 5)
+        if has_programme_source:
+            score += 8
+        score -= len(noise_hits) * 8
+        path = urlparse(url).path.lower()
+        if any(token in path for token in NON_ADMISSIONS_PATH_HINTS) and not any(token in path for token in UNDERGRAD_ADMISSIONS_PATH_HINTS):
+            score -= 12
+        return score
+
+    def should_follow(self, url: str, policy: DomainPolicy) -> bool:
+        if not policy.is_allowed(url):
+            return False
+        if is_low_value_source_url(url):
+            return False
+        return self.score(url) >= -2
+
+    def diagnose(self, url: str, title: str | None = None, text: str | None = None) -> RelevanceDiagnostics:
+        baseline = relevance_diagnostics(self.baseline_strategy, url, title, text)
+        positive_hits, noise_hits, has_programme_source = self._matched_profile_signals(url, title, text)
+        signals = list(baseline.signals)
+        signals.extend(f"profile_positive:{item}" for item in positive_hits)
+        signals.extend(f"profile_noise:{item}" for item in noise_hits)
+        if has_programme_source:
+            signals.append("profile_programme_catalog_source")
+        return RelevanceDiagnostics(strategy=self.name, score=self.score(url, title, text), signals=tuple(_dedupe(signals)))
+
+    def _matched_profile_signals(self, url: str, title: str | None, text: str | None) -> tuple[list[str], list[str], bool]:
+        haystack = " ".join(v for v in [url, title or "", text or ""] if v).lower()
+        path = urlparse(url).path.lower()
+        positive_hits = [hint for hint in ADMISSIONS_PROGRAMME_PATH_HINTS if hint in path]
+        positive_hits.extend(hint for hint in ADMISSIONS_PROGRAMME_TEXT_HINTS if hint in haystack)
+        noise_hits = [hint for hint in ADMISSIONS_PROGRAMME_NOISE_HINTS if hint in path]
+        noise_hits.extend(hint for hint in ADMISSIONS_PROGRAMME_TEXT_NOISE_HINTS if hint in haystack)
+        has_programme_source = any(hint in path for hint in PROGRAMME_SOURCE_PATH_HINTS) and not any(token in path for token in ("/summer", "/pre-university", "/preuniversity"))
+        return _dedupe(positive_hits), _dedupe(noise_hits), has_programme_source
 
 
 @dataclass(frozen=True, slots=True)
@@ -341,32 +461,11 @@ def _normalize_strategy_name(value: str) -> str:
     return normalized
 
 
-def _required_text(value: object, *, field: str) -> str:
-    if not isinstance(value, str):
-        raise ValueError(f"Keyword plan field {field} must be a string.")
-    return value
-
-
 def _bounded_text(value: str, *, field: str, max_length: int) -> str:
     stripped = value.strip()
     if len(stripped) > max_length:
         raise ValueError(f"Keyword plan field {field} exceeds {max_length} characters.")
     return stripped
-
-
-def _bounded_text_list(value: object, *, field: str) -> list[str]:
-    if not isinstance(value, list | tuple):
-        raise ValueError(f"Keyword plan field {field} must be a list of strings.")
-    if len(value) > MAX_KEYWORD_ITEMS:
-        raise ValueError(f"Keyword plan field {field} exceeds {MAX_KEYWORD_ITEMS} items.")
-    out: list[str] = []
-    for item in value:
-        if not isinstance(item, str):
-            raise ValueError(f"Keyword plan field {field} must contain only strings.")
-        bounded = _bounded_text(item, field=field, max_length=MAX_KEYWORD_LENGTH)
-        if bounded:
-            out.append(bounded.lower() if field.endswith("keywords") else bounded)
-    return _dedupe(out)
 
 
 def _dedupe(values: list[str]) -> list[str]:
@@ -379,4 +478,4 @@ def _dedupe(values: list[str]) -> list[str]:
     return out
 
 
-DEFAULT_RELEVANCE_STRATEGY = RuleBasedRelevanceStrategy()
+DEFAULT_RELEVANCE_STRATEGY = AdmissionsProgrammeRelevanceStrategy()

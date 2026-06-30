@@ -128,4 +128,5 @@ def test_source_plan_candidate_url_validation_rejects_unsafe_or_unofficial_urls(
     assert validate_source_plan_candidate_url("https://example.com/nus/admissions", policy) == (False, "outside_allowed_domain")
     assert validate_source_plan_candidate_url("https://facebook.com/nusadmissions", policy) == (False, "outside_allowed_domain")
     assert validate_source_plan_candidate_url("https://www.nus.edu.sg/redirect?target=https://example.com", policy) == (False, "tracking_or_redirect_url")
+    assert validate_source_plan_candidate_url("https://www.nus.edu.sg/apply-now/login", policy) == (False, "portal_or_login_url")
     assert validate_source_plan_candidate_url("https://www.nus.edu.sg/files/privacy-notice.pdf", policy) == (False, "low_value_source_url")

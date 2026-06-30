@@ -1,20 +1,17 @@
 import pytest
 
 from university_admissions_crawler.crawler.relevance import (
+    AdmissionsProgrammeRelevanceStrategy,
     BM25LikeRelevanceStrategy,
-    KEYWORD_PLAN_OUTPUT_SCHEMA,
     RuleBasedRelevanceStrategy,
     build_relevance_strategy,
-    keyword_plan_from_payload,
     keyword_plan_from_query,
 )
 from university_admissions_crawler.extractor.llm_provider import (
     CLASSIFICATION_ASSIST_OUTPUT_SCHEMA,
     MockClassificationAssistProvider,
-    MockKeywordPlanProvider,
     classification_assist_from_payload,
     generate_classification_assist_diagnostic,
-    generate_keyword_plan_with_fallback,
 )
 from university_admissions_crawler.extractor.schema import PageCategory
 
@@ -30,38 +27,22 @@ def test_keyword_plan_from_query_normalizes_tokens_and_url_hints():
     assert plan.warnings == ()
 
 
-def test_keyword_plan_from_payload_validates_negative_keywords_and_schema_shape():
-    plan = keyword_plan_from_payload(
-        {
-            "query": "undergraduate admission plan",
-            "positive_keywords": ["admission", "fees"],
-            "negative_keywords": ["alumni", "postgraduate"],
-            "url_hints": ["/admissions"],
-            "source": "llm",
-            "warnings": ["low_confidence"],
-        }
-    )
-
-    assert KEYWORD_PLAN_OUTPUT_SCHEMA["required"] == ["query", "positive_keywords", "negative_keywords", "url_hints", "source", "warnings"]
-    assert plan.negative_keywords == ("alumni", "postgraduate")
-    assert plan.to_dict()["source"] == "llm"
-
-
-def test_keyword_plan_from_payload_rejects_extra_fields_and_long_query():
-    with pytest.raises(ValueError, match="Unsupported keyword plan fields"):
-        keyword_plan_from_payload({"query": "x", "positive_keywords": [], "negative_keywords": [], "url_hints": [], "source": "llm", "warnings": [], "extra": True})
-
-    with pytest.raises(ValueError, match="missing required fields"):
-        keyword_plan_from_payload({"query": "x", "positive_keywords": []})
-
+def test_keyword_plan_debug_query_rejects_llm_source_and_long_query():
+    with pytest.raises(ValueError, match="Unsupported keyword plan source"):
+        keyword_plan_from_query("fees tuition", source="llm")
     with pytest.raises(ValueError, match="exceeds"):
-        keyword_plan_from_payload({"query": "x" * 501, "positive_keywords": [], "negative_keywords": [], "url_hints": [], "source": "llm", "warnings": []})
+        keyword_plan_from_query("x" * 501)
 
 
-def test_build_relevance_strategy_preserves_default_and_requires_keyword_plan_for_bm25():
+def test_build_relevance_strategy_uses_admissions_programme_profile_by_default():
     keyword_plan, strategy = build_relevance_strategy()
     assert keyword_plan is None
-    assert isinstance(strategy, RuleBasedRelevanceStrategy)
+    assert isinstance(strategy, AdmissionsProgrammeRelevanceStrategy)
+    assert strategy.name == "admissions_programme_profile"
+
+    keyword_plan, explicit_rule_strategy = build_relevance_strategy(relevance_strategy="rule-based")
+    assert keyword_plan is None
+    assert isinstance(explicit_rule_strategy, RuleBasedRelevanceStrategy)
 
     with pytest.raises(ValueError, match="requires"):
         build_relevance_strategy(relevance_strategy="bm25-like")
@@ -79,33 +60,22 @@ def test_build_relevance_strategy_rejects_non_string_config_values():
         build_relevance_strategy(keyword_query=["fees"])  # type: ignore[arg-type]
 
 
-def test_mock_keyword_plan_provider_validates_payload_and_records_diagnostics():
-    result = generate_keyword_plan_with_fallback(
-        "fees tuition",
-        MockKeywordPlanProvider(
-            {
-                "query": "fees tuition",
-                "positive_keywords": ["fees", "tuition"],
-                "negative_keywords": [],
-                "url_hints": ["/fees"],
-                "source": "llm",
-                "warnings": [],
-            }
-        ),
-    )
+def test_admissions_programme_profile_prioritizes_template_sources_without_keyword_query():
+    strategy = AdmissionsProgrammeRelevanceStrategy()
+    programme_url = "https://example.edu/catalogue/undergraduate/majors"
+    programme_text = "Undergraduate degree programmes, majors and minors."
+    news_url = "https://example.edu/news/alumni-programmes"
+    news_text = "Alumni news article about giving and staff updates."
 
-    assert result.keyword_plan.source == "llm"
-    assert result.keyword_plan.positive_keywords == ("fees", "tuition")
-    assert result.diagnostics["provider"] == "mock"
-    assert result.diagnostics["fallback"] is False
+    programme_score = strategy.score(programme_url, "Undergraduate Majors", programme_text)
+    news_score = strategy.score(news_url, "Alumni Programmes News", news_text)
+    diagnostics = strategy.diagnose(programme_url, "Undergraduate Majors", programme_text)
 
-
-def test_keyword_plan_provider_falls_back_to_user_query_on_invalid_payload():
-    result = generate_keyword_plan_with_fallback("fees tuition", MockKeywordPlanProvider({"query": "fees tuition"}))
-
-    assert result.keyword_plan.source == "user"
-    assert result.diagnostics["fallback"] is True
-    assert "llm_keyword_plan_fallback" in result.keyword_plan.warnings
+    assert programme_score > news_score
+    assert programme_score > 0
+    assert diagnostics.strategy == "admissions_programme_profile"
+    assert "profile_programme_catalog_source" in diagnostics.signals
+    assert "profile_positive:/catalogue" in diagnostics.signals
 
 
 def test_classification_assist_payload_is_schema_bounded_and_diagnostic_only():

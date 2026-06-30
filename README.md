@@ -1,10 +1,13 @@
 # University Admissions Crawler
 
-Evidence-first MVP for extracting undergraduate admissions information from official university websites. The current implementation is a deterministic Python CLI/library that can run end-to-end on local fixtures and produce structured JSON plus a Markdown evidence report.
+Evidence-first MVP for extracting undergraduate admissions information from official university websites. The current implementation is a deterministic Python CLI/library that can start from a university homepage, run bounded official-source discovery, and produce structured JSON plus a Markdown evidence report.
 
 ## What it does now
 
-- Starts from fixture roots, guarded live URLs, or batch-configured seed URLs.
+- Starts from fixture roots, live university homepages, or batch-configured seed URLs.
+- For non-fixture URLs, live HTTP crawling, default scan limits, fetch timeout,
+  and allowed-domain inference are applied by default; `--auto` and
+  `--enable-live-network` remain compatibility flags.
 - Discovers bounded official links with `max_pages` / `max_depth` limits.
 - Classifies admissions-related pages into undergraduate admissions, international requirements, deadlines, accepted qualifications, programme lists/prerequisites, fees, scholarships, visa, housing, contact, and irrelevant pages.
 - Extracts only claims that can be tied to source evidence snippets.
@@ -20,7 +23,7 @@ Evidence-first MVP for extracting undergraduate admissions information from offi
   prospectus, requirements, fee, and programme PDFs.
 - Strips common navigation/header/footer/cookie noise before extraction and records core-field coverage diagnostics.
 - Records optional classification-assist diagnostics and a summary when guarded
-  mock classification assist is enabled; zero-trigger runs remain visible, and
+  classification assist is enabled; zero-trigger runs remain visible, and
   candidates are not applied to facts.
 - Records source-level extraction diagnostics plus field-level
   `missing_reasons` for missing core fields. Mixed extractor failures now
@@ -30,10 +33,10 @@ Evidence-first MVP for extracting undergraduate admissions information from offi
 - Detects obvious WAF/challenge/noindex/access-denied sources and records them
   as `blocked_or_challenge` diagnostics. These sources remain reviewable but
   are not treated as usable admissions text for fact extraction.
-- Supports opt-in mock LLM source-planning diagnostics through
-  `--enable-source-planning`. Candidate URLs and queries are validated and
-  reported under diagnostics only; they are not crawled automatically and never
-  become admissions facts.
+- Supports opt-in guarded LLM source navigation through `--enable-source-planning`.
+  Candidate URLs and queries are validated, reported under diagnostics, and
+  accepted URL candidates can enter the bounded crawl frontier; they never
+  become admissions facts without fetched official-source evidence.
 - Adds a lightweight cleaned-candidate layer for key fields: `raw_text`, `parsed`, and `parse_status`.
 - Parses common English test scores, fee amounts, and application dates when the raw text is specific enough; otherwise the raw candidate remains visible for manual review.
 - Keeps raw fee-table/reference candidates when an official undergraduate fee
@@ -42,12 +45,18 @@ Evidence-first MVP for extracting undergraduate admissions information from offi
   NTU-style amount-row case verifies that explicit `S$` values parse as
   structured `SGD` amounts when the source actually contains them.
 - Filters undergraduate core extraction away from common pollution pages such as postgraduate/graduate pages, hall/accommodation pages, search pages, current-students pages, privacy/contact forms, and generic marketing pages unless they have strong undergraduate admissions context.
-- Records discovery relevance diagnostics under `run.config`, including per-source discovery score, relevance signals, and strategy name.
-- Supports reviewable keyword plans for discovery diagnostics through `--keyword-query`; by default these plans do not change crawl ordering.
-- Provides an opt-in deterministic `bm25-like` relevance strategy for keyword-assisted discovery ranking. It must be explicitly selected and requires a keyword query.
-- Supports guarded mock LLM keyword-plan generation, classification-assist
-  diagnostics, and source-planning diagnostics for plumbing tests only; hosted
-  LLM providers remain disabled.
+- Records discovery relevance diagnostics under `run.config`, including
+  per-source discovery score, relevance signals, and strategy name.
+- Uses a built-in `admissions_programme_profile` relevance strategy by default,
+  so undergraduate admissions, requirements, dates, fees, English requirements,
+  documents, contacts, and programme catalogue pages are prioritized without a
+  user keyword query.
+- Keeps deterministic `--keyword-query` and `bm25-like` as legacy debug
+  surfaces; they are no longer the recommended route for ordinary scans.
+- Supports guarded mock and OpenAI LLM classification-assist diagnostics,
+  source navigation, and captured programme-catalog row category/mode hints;
+  Anthropic and Gemini remain reserved and fail closed. LLM keyword-plan
+  generation has been removed from the user-facing workflow.
 - Guards optional live/browser/PDF/LLM/crawl4ai/ScrapeGraphAI capabilities behind interfaces; they are not required for core tests.
 - Writes `result.json` and `report.md`.
 
@@ -59,7 +68,7 @@ Optional capabilities are represented as dependency groups / guarded execution m
 
 - `browser`: Playwright browser-backed live crawling support
 - `pdf`: optional pypdf parsing support for live PDF sources
-- `llm`: guarded mock keyword-plan plumbing, mock classification-assist diagnostics, mock source-planning diagnostics, and future hosted LLM provider surface
+- `llm`: guarded mock/OpenAI classification-assist diagnostics, source-navigation frontier hints, and captured programme-catalog row hints
 - `crawl4ai`: future crawl4ai adapter surface, currently warning-only stub
 - `scrapegraph`: future ScrapeGraphAI adapter support
 
@@ -118,7 +127,21 @@ For extracted key fields, `result.json` now keeps both the original candidate an
 
 If a field cannot be safely parsed, it is left as a raw candidate with `parse_status` such as `unparsed` or `raw_needs_manual_review`; it should not be treated as a cleaned business field.
 
-For a smaller smoke run, add `--smoke`; it caps the run at `max_pages<=20` and `max_depth<=2` even if larger values are supplied. In batch mode, a university config's own `max_pages` or `max_depth` still overrides the CLI smoke cap for that university. `--enable-scrapegraph` remains a guarded future surface and fails closed. `--enable-llm` is guarded as well: only `--llm-provider mock` is currently accepted. With `--keyword-query`, it can generate a reviewable keyword plan; with `--enable-classification-assist`, it records low-confidence classification diagnostics; with `--enable-source-planning`, it records candidate official source diagnostics. Hosted providers remain rejected.
+Recommended live scan from a university homepage:
+
+```bash
+python -m university_admissions_crawler.cli https://www.example.edu/ \
+  --output-dir outputs/example-homepage
+```
+
+For live URLs, the CLI enables HTTP crawling by default, infers the allowed
+official domain from the input URL, uses the built-in
+`admissions_programme_profile` relevance strategy, and applies live defaults of
+`max_pages=80`, `max_depth=4`, and `timeout_seconds=60`. Use `--enable-browser`
+only when a site needs JavaScript rendering; it keeps HTTP-first fetching and
+uses Playwright as a fallback for high-value rendered pages.
+
+For a smaller smoke run, add `--smoke`; it caps the run at `max_pages<=20` and `max_depth<=2` even if larger values are supplied. In batch mode, a university config's own `max_pages` or `max_depth` still overrides the CLI smoke cap for that university. `--enable-scrapegraph` remains a guarded future surface and fails closed. `--enable-llm` is guarded as well: `--llm-provider mock` remains the deterministic test provider, while `--llm-provider openai` is available for guarded `--enable-classification-assist` and `--enable-source-planning` runs. `--keyword-query` is deterministic debug input and no longer enables LLM keyword-plan generation. Anthropic and Gemini provider names remain reserved and fail closed.
 
 To compare with a previous run:
 
@@ -147,24 +170,24 @@ Saved-source regression fixtures live under `tests/fixtures/saved_sources/`.
 The `outputs/` directory is for generated run output and should not be required
 by deterministic tests.
 
-Current feature-branch validation after diagnostics, source-planning, missing
-reason priority, and NTU fee boundary updates:
+Current feature-branch validation after Phase 5 homepage-first discovery,
+source navigation, template completeness diagnostics, and real-school
+fixture-backed programme catalog samples:
 
 ```bash
 env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider
-python -m compileall -q university_admissions_crawler tests
 ```
 
-The latest local pytest run passed `126` tests.
+The latest local pytest run passed `175` tests.
 
-The focused target group used during the diagnostics/source-filtering/source
-planning/report work is:
+The focused target group used during the Phase 5 real-school fixture-backed
+programme catalog work is:
 
 ```bash
-env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_filters.py tests/test_discovery.py tests/test_pipeline.py tests/test_report_cli.py
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_discovery.py tests/test_programme_catalog.py tests/test_pipeline.py
 ```
 
-The latest target-group run passed `71` tests.
+The latest target-group run passed `70` tests.
 
 ## Evidence and safety policy
 
@@ -174,10 +197,12 @@ The latest target-group run passed `71` tests.
 - Stale academic-year sources are warning-producing.
 - Non-official supporting sources and ambiguous applicant-group requirements are warning-producing.
 - Unsupported LLM candidate claims are rejected unless claim path, source text, evidence snippet, and candidate value all line up.
-- LLM keyword-plan output is never promoted into admissions facts. It is validated into a `KeywordPlan`, recorded as run diagnostics, and can only affect discovery ordering when an explicit relevance strategy uses it.
+- Keyword-plan debug input is deterministic and not LLM-generated. It is
+  recorded only when supplied and can only affect discovery ordering when an
+  explicit relevance strategy uses it.
 - LLM source-plan output is never promoted into admissions facts. It is
-  schema-validated, URL-validated, recorded as diagnostics, and not followed by
-  the crawler in the current implementation.
+  schema-validated, URL-validated, recorded as diagnostics, and accepted source
+  URL candidates may be used only as bounded crawl frontier hints.
 - Fetch/bad-status/parse/PDF failures produce warnings and the scan continues when other usable sources remain.
 
 ## Non-goals
@@ -187,46 +212,47 @@ The latest target-group run passed `71` tests.
 - No unbounded crawl.
 - No unsupported factual inference.
 - No required paid API credentials or hosted-provider calls in core tests.
-- No hosted LLM keyword-plan or source-plan generation in the current implementation.
+- No LLM keyword-plan generation.
+- No required hosted LLM calls in core tests or default runs; OpenAI is an
+  opt-in guarded provider for source navigation, classification assist, and
+  captured programme-catalog row hints only.
 
 ## Live crawling status
 
-Live crawling is guarded and opt-in. Static pages can use the stdlib HTTP
-fetcher:
+Live crawling is the default for non-fixture HTTP(S) URLs. Start from the
+official university homepage whenever possible:
 
 ```bash
-python -m university_admissions_crawler.cli https://www.nus.edu.sg/oam/undergraduate-programmes \
-  --enable-live-network \
-  --output-dir outputs/nus-live-test \
-  --allowed-domain nus.edu.sg \
-  --max-pages 30 \
-  --max-depth 2
+python -m university_admissions_crawler.cli https://www.nus.edu.sg/ \
+  --output-dir outputs/nus-homepage
 ```
 
-For a new university where you only have one admissions URL, use `--auto`.
-It enables live HTTP mode and infers the allowed official domain from the URL:
+Advanced live controls remain available when you need tighter boundaries:
 
 ```bash
-python -m university_admissions_crawler.cli https://www.example.edu/admissions \
-  --auto \
+python -m university_admissions_crawler.cli https://www.example.edu/ \
   --output-dir outputs/example-auto \
   --max-pages 40 \
-  --max-depth 2
+  --max-depth 3 \
+  --allowed-domain example.edu \
+  --timeout-seconds 45
 ```
+
+`--auto` and `--enable-live-network` are still accepted for compatibility, but
+they are no longer required for ordinary one-URL live scans.
 
 JavaScript-rendered pages can use the optional Playwright browser fetcher:
 
 ```bash
 python -m pip install -e '.[browser]'
 python -m playwright install chromium
-python -m university_admissions_crawler.cli https://www.nus.edu.sg/oam/undergraduate-programmes \
+python -m university_admissions_crawler.cli https://www.nus.edu.sg/ \
   --enable-browser \
   --output-dir outputs/nus-browser-test \
-  --allowed-domain nus.edu.sg \
   --browser-wait-until domcontentloaded \
   --timeout-seconds 45 \
-  --max-pages 30 \
-  --max-depth 2
+  --max-pages 80 \
+  --max-depth 4
 ```
 
 All modes write the same output shape:
@@ -251,35 +277,44 @@ All modes write the same output shape:
   extractor attempts, skips, matches, and reason counts. These diagnostics do
   not write admissions facts.
 - `relevance_strategy` — the discovery scoring strategy used for the scan.
-- `keyword_plan` — present only when a user or mock LLM keyword plan was
-  supplied.
-- `llm_keyword_plan` — present only when guarded mock LLM keyword-plan
-  generation was used; records provider, schema, fallback status, elapsed time,
-  warnings, and error details.
+- `keyword_plan` — present only when deterministic `--keyword-query` debug
+  input was supplied.
 - `classification_assist` and `classification_assist_summary` — present only
-  when guarded mock classification assist is enabled; suggestions are
+  when guarded classification assist is enabled; suggestions are
   diagnostics-only and remain unapplied.
-- `llm_source_plan` — present only when guarded mock source planning is
-  enabled. It records trigger state, provider/schema/fallback status,
-  candidate queries, accepted/rejected candidate URLs, warnings, and an
-  explicit `applied: false` boundary. Accepted candidates are reviewable source
-  hints, not automatically crawled sources.
+- `llm_source_plan` — present only when guarded source planning is enabled. It
+  records trigger state, provider/schema/fallback status,
+  candidate queries, accepted/rejected candidate URLs, applied candidate URLs,
+  budget-skipped candidate URLs, warnings, and the diagnostic boundary. Accepted
+  candidates are crawl frontier hints, not admissions facts.
 
 The report also marks parsed versus raw-only values. For example, parsed fee
 rows appear with structured `currency`, `amount`, `student_group`,
 `academic_year`/`cohort`, `billing_period`, `fee_type`, and `raw_text` when
-those parts can be inferred. When present, keyword plans, mock LLM keyword
-diagnostics, classification assist, source planning, extraction diagnostics,
-and missing reasons are shown in diagnostic sections before facts; they are not
-admissions facts.
+those parts can be inferred. When present, keyword plans, classification
+assist, source planning, extraction diagnostics, and missing reasons are shown
+in diagnostic sections before facts; they are not admissions facts.
 
-## Keyword-assisted discovery
+## Relevance and Legacy Keyword Debug
 
-Keyword-assisted discovery is opt-in and evidence-safe. It changes discovery
-diagnostics, and can change crawl ordering only when a non-default relevance
-strategy is explicitly selected. It does not write admissions facts.
+Discovery now uses the built-in `admissions_programme_profile` strategy by
+default. This profile favors official undergraduate admissions and programme
+catalogue sources, including requirements, dates, tuition/fees, English or
+international requirements, required documents, contacts, degrees, majors,
+bulletins, catalogues, and undergraduate programme pages. It also keeps negative
+signals for low-value or off-target pages such as news, alumni, giving, jobs,
+staff, privacy/cookie pages, summer/pre-university material, postgraduate-only
+pages, and executive/continuing education.
 
-To record a reviewable keyword plan without changing discovery ranking:
+The profile is still bounded by `max_pages`, `max_depth`, and allowed
+host/domain policy. It only affects source discovery priority and diagnostics;
+it does not write admissions facts.
+
+The following options are legacy diagnostics for developers comparing discovery
+behavior. They are not part of the recommended homepage-first path.
+
+`--keyword-query` remains available only as deterministic debug input. To record
+a reviewable keyword plan without switching away from the default profile:
 
 ```bash
 python -m university_admissions_crawler.cli tests/fixtures/mini_university_site \
@@ -288,10 +323,10 @@ python -m university_admissions_crawler.cli tests/fixtures/mini_university_site 
   --output-dir /tmp/uac-keyword-plan
 ```
 
-The run keeps `rule_based` discovery scoring and writes
+The run keeps `admissions_programme_profile` discovery scoring and writes
 `run.config.keyword_plan`.
 
-To opt in to deterministic keyword-assisted ranking:
+To opt in to the legacy deterministic keyword-assisted ranking path:
 
 ```bash
 python -m university_admissions_crawler.cli tests/fixtures/mini_university_site \
@@ -302,29 +337,78 @@ python -m university_admissions_crawler.cli tests/fixtures/mini_university_site 
 ```
 
 `bm25-like` is a lightweight token/url-hint overlap scorer layered on top of
-the existing rule-based score. It is not a full BM25 implementation. It remains
-bounded by `max_pages`, `max_depth`, allowed hosts/domains, and the follow
-threshold.
+the legacy rule-based score. It is not a full BM25 implementation, is never the
+default, and remains bounded by `max_pages`, `max_depth`, allowed hosts/domains,
+and the follow threshold.
 
-Guarded mock LLM keyword-plan generation can be used to test the plumbing
-without a hosted model:
+LLM keyword-plan generation is no longer supported. `--keyword-query` remains a
+deterministic debug input for explicit keyword-plan diagnostics and the legacy
+`bm25-like` path.
+
+Guarded source navigation can be enabled when you need to test the LLM
+candidate frontier plumbing. Use `mock` for deterministic offline tests:
 
 ```bash
-python -m university_admissions_crawler.cli tests/fixtures/mini_university_site \
-  --fixture \
-  --keyword-query "undergraduate admissions IELTS fees" \
+python -m university_admissions_crawler.cli https://www.example.edu/ \
   --enable-llm \
   --llm-provider mock \
-  --output-dir /tmp/uac-mock-llm-keywords
+  --enable-source-planning \
+  --output-dir outputs/example-source-navigation
 ```
 
-Only `mock` is currently supported. Requests for hosted providers such as
-`openai`, `anthropic`, or `gemini` fail closed. The mock provider returns a
-schema-validated `KeywordPlan` and records `run.config.llm_keyword_plan`; it is
-not evidence extraction and does not call a network API.
+The provider can only suggest source candidates. Candidate URLs must pass
+deterministic domain/source-value validation before they can enter the bounded
+crawl frontier, and extracted facts still require captured official-source
+evidence.
 
-Guarded mock classification assist can also be enabled for low-confidence page
-classifications:
+For a real OpenAI-backed source planning run, provide credentials through
+environment variables; keys are never read from fixture files or written to
+outputs. For team/local development, copy the tracked template to an ignored
+local `.env` file:
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` locally:
+
+```bash
+OPENAI_API_KEY=your-real-key
+OPENAI_MODEL=gpt-4.1-mini
+```
+
+Load it into the current shell before running the crawler:
+
+```bash
+set -a
+source .env
+set +a
+```
+
+Verify that the variables are present without printing the key:
+
+```bash
+python -c 'import os; print("OPENAI_API_KEY set:", bool(os.environ.get("OPENAI_API_KEY"))); print("OPENAI_MODEL:", os.environ.get("OPENAI_MODEL"))'
+```
+
+Then run the guarded OpenAI provider:
+
+```bash
+python -m university_admissions_crawler.cli https://www.example.edu/ \
+  --enable-llm \
+  --llm-provider openai \
+  --enable-source-planning \
+  --output-dir outputs/example-openai-source-navigation
+```
+
+`.env` is ignored by git; `.env.example` is the only credential-related file
+that should be committed, and it must not contain real keys. The CLI does not
+auto-load `.env`; it reads `OPENAI_API_KEY` and `OPENAI_MODEL` from the process
+environment.
+
+Guarded classification assist can also be enabled for low-confidence page
+classifications. The same flag enables bounded programme-catalog category/mode
+hints for ambiguous captured candidate rows:
 
 ```bash
 python -m university_admissions_crawler.cli tests/fixtures/mini_university_site \
@@ -336,9 +420,11 @@ python -m university_admissions_crawler.cli tests/fixtures/mini_university_site 
 ```
 
 This writes `classification_assist` and `classification_assist_summary` under
-`run.config` when the mock assist path is enabled. Even when no low-confidence
-page triggers assist, the summary records a zero-trigger state. Assist
+`run.config` when assist is enabled. Even when no low-confidence page triggers
+assist, the summary records a zero-trigger state. Page-classification assist
 candidates are never applied to `PageCategory`, extractor routing, or facts.
+Programme-catalog hints can only classify already captured candidate rows; they
+cannot create programme names or admissions facts.
 
 Some university sites use WAF/anti-bot protection. When that happens, the
 captured source may be a challenge page rather than the admissions content; the
@@ -389,7 +475,23 @@ Each configured university writes to its own folder:
 - `outputs/batch/<university-id>/report.md`
 - `outputs/batch/<university-id>/sources/`
 
-Batch configs may also opt in to keyword-assisted discovery per university:
+Batch configs normally only need a homepage seed and optional domain/limit
+controls:
+
+```json
+{
+  "id": "example-u",
+  "name": "Example University",
+  "seed_urls": ["https://example.edu/"],
+  "allowed_domains": ["example.edu"],
+  "mode": "live-http",
+  "max_pages": 80,
+  "max_depth": 4
+}
+```
+
+Batch configs may still opt in to the legacy keyword-assisted discovery path per
+university for debugging:
 
 ```json
 {
@@ -406,8 +508,8 @@ Batch configs may also opt in to keyword-assisted discovery per university:
 ```
 
 Both fields are optional. If omitted, batch scans keep the default
-`rule_based` strategy. If `relevance_strategy` is `bm25-like`, `keyword_query`
-is required.
+`admissions_programme_profile` strategy. If `relevance_strategy` is
+`bm25-like`, `keyword_query` is required.
 
 The current extractors are conservative and still rule-based. For real sites,
 `overall confidence` reflects evidence/conflict status for extracted claims; it

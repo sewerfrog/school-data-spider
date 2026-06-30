@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import json
+import os
+import urllib.error
+import urllib.request
 from dataclasses import dataclass, field
 from time import perf_counter
-from typing import Protocol
+from typing import Any, Protocol
 
-from university_admissions_crawler.crawler.relevance import KEYWORD_PLAN_OUTPUT_SCHEMA, KeywordPlan, keyword_plan_from_payload, keyword_plan_from_query
 from university_admissions_crawler.extractor.schema import EvidenceItem, PageCategory, WarningCode, WarningRecord
 
 
@@ -16,17 +19,21 @@ MAX_SOURCE_PLAN_REASON_LENGTH = 240
 MAX_SOURCE_PLAN_QUERY_LENGTH = 160
 MAX_SOURCE_PLAN_URL_LENGTH = 300
 MAX_SOURCE_PLAN_CATEGORY_LENGTH = 80
+MAX_SOURCE_PLAN_PATH_PATTERNS = 20
+MAX_SOURCE_PLAN_PATH_PATTERN_LENGTH = 160
 MAX_CLASSIFICATION_REASON_LENGTH = 300
 MAX_CLASSIFICATION_SIGNAL_LENGTH = 80
 MAX_CLASSIFICATION_SIGNALS = 20
 MAX_PROGRAMME_HINT_REASON_LENGTH = 300
 MAX_PROGRAMME_HINT_SIGNAL_LENGTH = 80
 MAX_PROGRAMME_HINT_SIGNALS = 20
+OPENAI_DEFAULT_MODEL = "gpt-4.1-mini"
+OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
 PROGRAMME_CATALOG_CATEGORY_VALUES = ("degree_programme", "major", "minor", "special_programme", "dual_degree", "unknown")
 PROGRAMME_CATALOG_MODE_VALUES = ("full-time", "part-time", "unknown")
 SOURCE_PLAN_OUTPUT_SCHEMA: dict[str, object] = {
     "type": "object",
-    "required": ["candidate_urls", "candidate_queries", "warnings"],
+    "required": ["candidate_urls", "candidate_path_patterns", "candidate_queries", "warnings"],
     "properties": {
         "candidate_urls": {
             "type": "array",
@@ -41,6 +48,11 @@ SOURCE_PLAN_OUTPUT_SCHEMA: dict[str, object] = {
                 },
                 "additionalProperties": False,
             },
+        },
+        "candidate_path_patterns": {
+            "type": "array",
+            "items": {"type": "string", "maxLength": MAX_SOURCE_PLAN_PATH_PATTERN_LENGTH},
+            "maxItems": MAX_SOURCE_PLAN_PATH_PATTERNS,
         },
         "candidate_queries": {"type": "array", "items": {"type": "string", "maxLength": MAX_SOURCE_PLAN_QUERY_LENGTH}, "maxItems": MAX_SOURCE_PLAN_QUERIES},
         "warnings": {"type": "array", "items": {"type": "string", "maxLength": MAX_SOURCE_PLAN_REASON_LENGTH}, "maxItems": MAX_SOURCE_PLAN_QUERIES},
@@ -87,12 +99,6 @@ class LLMValidationResult:
     warnings: list[WarningRecord] = field(default_factory=list)
 
 
-@dataclass(slots=True)
-class KeywordPlanGenerationResult:
-    keyword_plan: KeywordPlan
-    diagnostics: dict[str, object] = field(default_factory=dict)
-
-
 @dataclass(frozen=True, slots=True)
 class SourcePlanCandidateURL:
     url: str
@@ -110,12 +116,14 @@ class SourcePlanCandidateURL:
 @dataclass(frozen=True, slots=True)
 class SourcePlanResult:
     candidate_urls: tuple[SourcePlanCandidateURL, ...] = ()
+    candidate_path_patterns: tuple[str, ...] = ()
     candidate_queries: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, object]:
         return {
             "candidate_urls": [item.to_dict() for item in self.candidate_urls],
+            "candidate_path_patterns": list(self.candidate_path_patterns),
             "candidate_queries": list(self.candidate_queries),
             "warnings": list(self.warnings),
         }
@@ -172,13 +180,6 @@ class LLMProvider(Protocol):
         ...
 
 
-class KeywordPlanProvider(Protocol):
-    name: str
-
-    def generate_keyword_plan_payload(self, query: str, schema: dict[str, object]) -> dict[str, object]:
-        ...
-
-
 class ClassificationAssistProvider(Protocol):
     name: str
 
@@ -208,23 +209,6 @@ class MockLLMProvider:
 
     def extract_candidates(self, source_text: str, schema_hint: str) -> list[LLMCandidateClaim]:
         return list(self._candidates)
-
-
-class MockKeywordPlanProvider:
-    """Deterministic keyword-plan provider for guarded LLM plumbing tests."""
-
-    name = "mock"
-
-    def __init__(self, payload: dict[str, object] | None = None, error: Exception | None = None) -> None:
-        self._payload = dict(payload) if payload is not None else None
-        self._error = error
-
-    def generate_keyword_plan_payload(self, query: str, schema: dict[str, object]) -> dict[str, object]:
-        if self._error is not None:
-            raise self._error
-        if self._payload is not None:
-            return dict(self._payload)
-        return keyword_plan_from_query(query, source="llm").to_dict()
 
 
 class MockClassificationAssistProvider:
@@ -301,6 +285,10 @@ class MockSourcePlanProvider:
                 f"site:{host_hint} undergraduate admissions",
                 f"site:{host_hint} undergraduate programmes",
             ],
+            "candidate_path_patterns": [
+                "/admissions",
+                "/programmes",
+            ],
             "warnings": [],
         }
 
@@ -339,48 +327,125 @@ class MockProgrammeCatalogAssistProvider:
         }
 
 
-def generate_keyword_plan_with_fallback(query: str, provider: KeywordPlanProvider) -> KeywordPlanGenerationResult:
-    """Generate a keyword plan via an optional provider and fall back to rule parsing."""
+class OpenAIProvider:
+    """OpenAI-backed provider for guarded source/classification/programme assist.
 
-    provider_name = getattr(provider, "name", type(provider).__name__)
-    started = perf_counter()
-    try:
-        payload = provider.generate_keyword_plan_payload(query, KEYWORD_PLAN_OUTPUT_SCHEMA)
-        keyword_plan = keyword_plan_from_payload(payload)
-        diagnostics = {
-            "provider": provider_name,
-            "schema": "KEYWORD_PLAN_OUTPUT_SCHEMA",
-            "fallback": False,
-            "elapsed_ms": _elapsed_ms(started),
-            "warnings": list(keyword_plan.warnings),
-        }
-        return KeywordPlanGenerationResult(keyword_plan=keyword_plan, diagnostics=diagnostics)
-    except Exception as exc:
-        fallback_plan = keyword_plan_from_query(query, source="user")
-        fallback_plan = KeywordPlan(
-            query=fallback_plan.query,
-            positive_keywords=fallback_plan.positive_keywords,
-            negative_keywords=fallback_plan.negative_keywords,
-            url_hints=fallback_plan.url_hints,
-            source=fallback_plan.source,
-            warnings=tuple(list(fallback_plan.warnings) + ["llm_keyword_plan_fallback"]),
+    This provider returns bounded JSON payloads only.  It does not create facts
+    directly; callers still run the existing deterministic validators.
+    """
+
+    name = "openai"
+
+    def __init__(
+        self,
+        *,
+        api_key: str | None = None,
+        model: str | None = None,
+        timeout_seconds: float = 45.0,
+        url: str = OPENAI_RESPONSES_URL,
+        transport: Any | None = None,
+    ) -> None:
+        self.api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
+        self.model = model or os.environ.get("OPENAI_MODEL", OPENAI_DEFAULT_MODEL)
+        self.timeout_seconds = timeout_seconds
+        self.url = url
+        self._transport = transport
+
+    def generate_source_plan_payload(self, context: dict[str, object], schema: dict[str, object]) -> dict[str, object]:
+        return self._json_schema_response(
+            schema_name="source_plan",
+            schema=schema,
+            instructions=(
+                "You help a university admissions crawler find official source pages. "
+                "Return only candidate official HTTPS URLs, path patterns, queries, and warnings. "
+                "Do not invent admissions facts. Prefer undergraduate admissions, programmes, fees, "
+                "requirements, scholarships, and official bulletin/catalog pages. Stay within the "
+                "same official university site context."
+            ),
+            user_payload=context,
         )
-        return KeywordPlanGenerationResult(
-            keyword_plan=fallback_plan,
-            diagnostics={
-                "provider": provider_name,
-                "schema": "KEYWORD_PLAN_OUTPUT_SCHEMA",
-                "fallback": True,
-                "elapsed_ms": _elapsed_ms(started),
-                "error_type": type(exc).__name__,
-                "error": str(exc),
-                "warnings": list(fallback_plan.warnings),
+
+    def classify_page_payload(self, url: str, title: str | None, text: str, schema: dict[str, object]) -> dict[str, object]:
+        return self._json_schema_response(
+            schema_name="classification_assist",
+            schema=schema,
+            instructions=(
+                "Classify one captured official university web page for diagnostics only. "
+                "Use only the supplied URL, title, and text. Return the closest allowed category, "
+                "confidence, short reason, and compact signals. Do not extract admissions facts."
+            ),
+            user_payload={
+                "url": url,
+                "title": title,
+                "text": text[:4000],
             },
         )
 
+    def classify_programme_candidate_payload(self, candidate_text: str, source_url: str, title: str | None, schema: dict[str, object]) -> dict[str, object]:
+        return self._json_schema_response(
+            schema_name="programme_catalog_hint",
+            schema=schema,
+            instructions=(
+                "Classify one captured programme catalog candidate row. "
+                "Use only the supplied candidate row, source URL, and page title. "
+                "Return a category and mode hint only. Do not add programme names, requirements, or facts."
+            ),
+            user_payload={
+                "candidate_text": candidate_text[:1200],
+                "source_url": source_url,
+                "title": title,
+            },
+        )
+
+    def _json_schema_response(self, *, schema_name: str, schema: dict[str, object], instructions: str, user_payload: dict[str, object]) -> dict[str, object]:
+        if not self.api_key:
+            raise RuntimeError("OPENAI_API_KEY is required for --llm-provider openai.")
+        request_payload = {
+            "model": self.model,
+            "store": False,
+            "instructions": instructions,
+            "input": json.dumps(user_payload, ensure_ascii=False, sort_keys=True),
+            "text": {
+                "format": {
+                    "type": "json_schema",
+                    "name": schema_name,
+                    "strict": True,
+                    "schema": schema,
+                }
+            },
+        }
+        raw = self._post_json(request_payload)
+        return _extract_openai_json_payload(raw)
+
+    def _post_json(self, payload: dict[str, object]) -> dict[str, object]:
+        if self._transport is not None:
+            return self._transport(payload)
+        body = json.dumps(payload).encode("utf-8")
+        request = urllib.request.Request(
+            self.url,
+            data=body,
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            },
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
+                response_body = response.read().decode("utf-8")
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"OpenAI API request failed with HTTP {exc.code}: {detail[:500]}") from exc
+        except urllib.error.URLError as exc:
+            raise RuntimeError(f"OpenAI API request failed: {exc.reason}") from exc
+        parsed = json.loads(response_body)
+        if not isinstance(parsed, dict):
+            raise ValueError("OpenAI API response must be a JSON object.")
+        return parsed
+
 
 def generate_source_plan_diagnostic(context: dict[str, object], provider: SourcePlanProvider) -> dict[str, object]:
-    """Return source-planning diagnostics without adding URLs to the crawl."""
+    """Return source-planning diagnostics before deterministic URL validation."""
 
     provider_name = getattr(provider, "name", type(provider).__name__)
     started = perf_counter()
@@ -394,10 +459,11 @@ def generate_source_plan_diagnostic(context: dict[str, object], provider: Source
             "elapsed_ms": _elapsed_ms(started),
             "trigger_reasons": _bounded_text_list(context.get("trigger_reasons", []), field="trigger_reasons", max_items=MAX_SOURCE_PLAN_QUERIES, max_length=MAX_SOURCE_PLAN_REASON_LENGTH),
             "candidate_urls": [item.to_dict() for item in source_plan.candidate_urls],
+            "candidate_path_patterns": list(source_plan.candidate_path_patterns),
             "candidate_queries": list(source_plan.candidate_queries),
             "warnings": list(source_plan.warnings),
             "applied": False,
-            "note": "Source planning is diagnostics-only; candidate URLs are not crawled and do not create admissions facts.",
+            "note": "Source planning only proposes candidates. Deterministically accepted URLs may be used as bounded crawl frontier hints, but they never create admissions facts directly.",
         }
     except Exception as exc:
         return {
@@ -407,12 +473,13 @@ def generate_source_plan_diagnostic(context: dict[str, object], provider: Source
             "elapsed_ms": _elapsed_ms(started),
             "trigger_reasons": _bounded_text_list(context.get("trigger_reasons", []), field="trigger_reasons", max_items=MAX_SOURCE_PLAN_QUERIES, max_length=MAX_SOURCE_PLAN_REASON_LENGTH),
             "candidate_urls": [],
+            "candidate_path_patterns": [],
             "candidate_queries": [],
             "warnings": ["llm_source_plan_fallback"],
             "applied": False,
             "error_type": type(exc).__name__,
             "error": str(exc),
-            "note": "Source planning is diagnostics-only; candidate URLs are not crawled and do not create admissions facts.",
+            "note": "Source planning only proposes candidates. Deterministically accepted URLs may be used as bounded crawl frontier hints, but they never create admissions facts directly.",
         }
 
 
@@ -583,17 +650,26 @@ def validate_llm_candidates(candidates: list[LLMCandidateClaim], evidence: list[
 
 
 def source_plan_from_payload(payload: dict[str, object]) -> SourcePlanResult:
-    allowed_keys = {"candidate_urls", "candidate_queries", "warnings"}
+    allowed_keys = {"candidate_urls", "candidate_path_patterns", "candidate_queries", "warnings"}
     extra_keys = set(payload) - allowed_keys
     if extra_keys:
         raise ValueError(f"Unsupported source plan fields: {', '.join(sorted(extra_keys))}")
-    missing_keys = allowed_keys - set(payload)
+    required_keys = {"candidate_urls", "candidate_queries", "warnings"}
+    missing_keys = required_keys - set(payload)
     if missing_keys:
         raise ValueError(f"Source plan missing required fields: {', '.join(sorted(missing_keys))}")
     candidate_urls = tuple(_source_plan_candidate_from_payload(item) for item in _required_dict_list(payload.get("candidate_urls"), field="candidate_urls", max_items=MAX_SOURCE_PLAN_URLS))
+    candidate_path_patterns = tuple(
+        _bounded_text_list(
+            payload.get("candidate_path_patterns", []),
+            field="candidate_path_patterns",
+            max_items=MAX_SOURCE_PLAN_PATH_PATTERNS,
+            max_length=MAX_SOURCE_PLAN_PATH_PATTERN_LENGTH,
+        )
+    )
     candidate_queries = tuple(_bounded_text_list(payload.get("candidate_queries", []), field="candidate_queries", max_items=MAX_SOURCE_PLAN_QUERIES, max_length=MAX_SOURCE_PLAN_QUERY_LENGTH))
     warnings = tuple(_bounded_text_list(payload.get("warnings", []), field="warnings", max_items=MAX_SOURCE_PLAN_QUERIES, max_length=MAX_SOURCE_PLAN_REASON_LENGTH))
-    return SourcePlanResult(candidate_urls=candidate_urls, candidate_queries=candidate_queries, warnings=warnings)
+    return SourcePlanResult(candidate_urls=candidate_urls, candidate_path_patterns=candidate_path_patterns, candidate_queries=candidate_queries, warnings=warnings)
 
 
 def _source_plan_candidate_from_payload(payload: dict[str, object]) -> SourcePlanCandidateURL:
@@ -609,6 +685,34 @@ def _source_plan_candidate_from_payload(payload: dict[str, object]) -> SourcePla
         reason=_bounded_text(_required_text(payload.get("reason"), field="reason"), field="reason", max_length=MAX_SOURCE_PLAN_REASON_LENGTH),
         expected_category=_bounded_text(_required_text(payload.get("expected_category"), field="expected_category"), field="expected_category", max_length=MAX_SOURCE_PLAN_CATEGORY_LENGTH),
     )
+
+
+def _extract_openai_json_payload(response: dict[str, object]) -> dict[str, object]:
+    output_text = response.get("output_text")
+    if isinstance(output_text, str) and output_text.strip():
+        return _loads_json_object(output_text)
+    output = response.get("output")
+    if isinstance(output, list):
+        for item in output:
+            if not isinstance(item, dict):
+                continue
+            content = item.get("content")
+            if not isinstance(content, list):
+                continue
+            for content_item in content:
+                if not isinstance(content_item, dict):
+                    continue
+                text = content_item.get("text")
+                if isinstance(text, str) and text.strip():
+                    return _loads_json_object(text)
+    raise ValueError("OpenAI response did not include JSON output text.")
+
+
+def _loads_json_object(text: str) -> dict[str, object]:
+    payload = json.loads(text)
+    if not isinstance(payload, dict):
+        raise ValueError("OpenAI structured output must be a JSON object.")
+    return payload
 
 
 def _required_dict_list(value: object, *, field: str, max_items: int) -> list[dict[str, object]]:
