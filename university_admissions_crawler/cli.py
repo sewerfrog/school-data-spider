@@ -19,10 +19,10 @@ from university_admissions_crawler.crawler.discovery import DiscoveryConfig
 from university_admissions_crawler.crawler.fetcher import BrowserFallbackFetcher, LiveHTTPFetcher, PlaywrightBrowserFetcher
 from university_admissions_crawler.crawler.relevance import build_relevance_strategy
 from university_admissions_crawler.evidence.store import load_previous_result
-from university_admissions_crawler.extractor.llm_provider import MockClassificationAssistProvider, MockProgrammeCatalogAssistProvider, MockSourcePlanProvider, OpenAIProvider
 from university_admissions_crawler.extractor.pdf_extractor import PypdfPDFExtractor
 from university_admissions_crawler.pipeline.batch import _run_batch
 from university_admissions_crawler.pipeline.diagnostics import inferred_allowed_domain
+from university_admissions_crawler.pipeline.llm_runtime import attach_llm_runtime_config, llm_providers_for_args, resolve_llm_provider_name
 from university_admissions_crawler.pipeline.output_writer import write_result_files
 from university_admissions_crawler.pipeline.run_university_scan import run_fixture_scan, run_scan
 
@@ -42,10 +42,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--auto", action="store_true", help="Compatibility flag; live one-URL scans now infer domain policy by default")
     parser.add_argument("--enable-live-network", action="store_true", help="Compatibility flag; live HTTP crawling is the default for non-fixture URLs")
     parser.add_argument("--smoke", action="store_true", help="Use conservative smoke caps unless explicit max values are supplied")
-    parser.add_argument("--enable-llm", action="store_true", help="Enable guarded LLM diagnostics/source planning for supported features")
-    parser.add_argument("--llm-provider", choices=["mock", "openai", "anthropic", "gemini"], help="LLM provider for guarded assist/planning features")
+    parser.add_argument("--enable-llm", action="store_true", help="Compatibility flag; live scans enable LLM-assisted crawling by default unless --no-llm is supplied")
+    parser.add_argument("--no-llm", action="store_true", help="Disable default LLM-assisted crawling for live scans")
+    parser.add_argument("--deterministic-only", action="store_true", help="Alias for --no-llm; run without hosted or mock LLM providers")
+    parser.add_argument("--llm-provider", choices=["auto", "mock", "openai", "anthropic", "gemini", "none"], help="LLM provider; default auto uses UAC_LLM_PROVIDER or OPENAI_API_KEY when available")
     parser.add_argument("--enable-classification-assist", action="store_true", help="Record mock LLM diagnostics for low-confidence page classifications; does not change extraction")
     parser.add_argument("--enable-source-planning", action="store_true", help="Use guarded mock LLM source candidates as crawl frontier hints; facts still require fetched evidence")
+    parser.add_argument("--enable-llm-structured-extraction", action="store_true", help="Run guarded LLM structured extraction fallback on captured sources; only validated candidates may write missing facts")
     parser.add_argument("--keyword-query", help="Optional deterministic debug keyword query for keyword-assisted relevance diagnostics")
     parser.add_argument(
         "--relevance-strategy",
@@ -67,16 +70,22 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     _resolve_runtime_defaults(args)
-    if args.llm_provider and not args.enable_llm:
+    if (args.no_llm or args.deterministic_only) and (
+        args.enable_llm or args.llm_provider or args.enable_classification_assist or args.enable_source_planning or args.enable_llm_structured_extraction
+    ):
+        parser.error("--no-llm/--deterministic-only cannot be combined with LLM provider or feature flags.")
+    if args.llm_provider and args.llm_provider != "none" and not args.enable_llm:
         parser.error("--llm-provider requires --enable-llm.")
     if args.enable_classification_assist and not args.enable_llm:
         parser.error("--enable-classification-assist requires --enable-llm.")
     if args.enable_source_planning and not args.enable_llm:
         parser.error("--enable-source-planning requires --enable-llm.")
-    if args.enable_llm and args.llm_provider in {"anthropic", "gemini"}:
+    if args.enable_llm_structured_extraction and not args.enable_llm:
+        parser.error("--enable-llm-structured-extraction requires --enable-llm.")
+    if args.enable_llm and args.resolved_llm_provider in {"anthropic", "gemini"}:
         parser.error("--llm-provider anthropic/gemini are reserved and not implemented.")
-    if args.enable_llm and not args.enable_classification_assist and not args.enable_source_planning:
-        parser.error("--enable-llm requires --enable-classification-assist or --enable-source-planning.")
+    if args.enable_llm and not args.enable_classification_assist and not args.enable_source_planning and not args.enable_llm_structured_extraction:
+        parser.error("--enable-llm requires --enable-classification-assist, --enable-source-planning, or --enable-llm-structured-extraction.")
     if args.enable_scrapegraph:
         parser.error("ScrapeGraphAI mode is guarded and not implemented in this offline MVP.")
     if args.config:
@@ -93,7 +102,7 @@ def main(argv: list[str] | None = None) -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
     previous_result = load_previous_result(args.previous_result)
     source_output_dir = output_dir / "sources"
-    classification_assist_provider, programme_catalog_assist_provider, source_plan_provider = _llm_providers_for(args)
+    classification_assist_provider, programme_catalog_assist_provider, source_plan_provider, structured_extraction_provider = llm_providers_for_args(args)
     try:
         keyword_plan, relevance_strategy = build_relevance_strategy(
             relevance_strategy=args.relevance_strategy,
@@ -116,6 +125,7 @@ def main(argv: list[str] | None = None) -> int:
             classification_assist_provider=classification_assist_provider,
             programme_catalog_assist_provider=programme_catalog_assist_provider,
             source_plan_provider=source_plan_provider,
+            structured_extraction_provider=structured_extraction_provider,
         )
     else:
         seed_url = _require_live_url(parser, args.input)
@@ -141,7 +151,9 @@ def main(argv: list[str] | None = None) -> int:
             classification_assist_provider=classification_assist_provider,
             programme_catalog_assist_provider=programme_catalog_assist_provider,
             source_plan_provider=source_plan_provider,
+            structured_extraction_provider=structured_extraction_provider,
         )
+    attach_llm_runtime_config(data, args)
     result_path, report_path = write_result_files(data, output_dir)
     print(f"Wrote {result_path}")
     print(f"Wrote {report_path}")
@@ -170,26 +182,6 @@ def _allowed_domains_for(seed_url: str, explicit_domains: list[str], infer: bool
     return domains
 
 
-def _llm_providers_for(args: argparse.Namespace):
-    if not args.enable_llm:
-        return None, None, None
-    provider_name = args.llm_provider or "mock"
-    if provider_name == "mock":
-        return (
-            MockClassificationAssistProvider() if args.enable_classification_assist else None,
-            MockProgrammeCatalogAssistProvider() if args.enable_classification_assist else None,
-            MockSourcePlanProvider() if args.enable_source_planning else None,
-        )
-    if provider_name == "openai":
-        provider = OpenAIProvider()
-        return (
-            provider if args.enable_classification_assist else None,
-            provider if args.enable_classification_assist else None,
-            provider if args.enable_source_planning else None,
-        )
-    raise ValueError(f"Unsupported LLM provider: {provider_name}")
-
-
 def _resolve_runtime_defaults(args: argparse.Namespace) -> None:
     live_profile = not args.fixture
     if args.max_pages is None:
@@ -198,6 +190,12 @@ def _resolve_runtime_defaults(args: argparse.Namespace) -> None:
         args.max_depth = LIVE_DEFAULT_MAX_DEPTH if live_profile else FIXTURE_DEFAULT_MAX_DEPTH
     if args.timeout_seconds is None:
         args.timeout_seconds = DEFAULT_TIMEOUT_SECONDS
+    if live_profile and not args.no_llm and not args.deterministic_only:
+        args.enable_llm = True
+        args.enable_classification_assist = True
+        args.enable_source_planning = True
+        args.enable_llm_structured_extraction = True
+    args.resolved_llm_provider = resolve_llm_provider_name(args.llm_provider) if args.enable_llm else None
 
 
 def _require_live_url(parser: argparse.ArgumentParser, value: str) -> str:

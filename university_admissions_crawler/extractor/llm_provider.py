@@ -27,10 +27,34 @@ MAX_CLASSIFICATION_SIGNALS = 20
 MAX_PROGRAMME_HINT_REASON_LENGTH = 300
 MAX_PROGRAMME_HINT_SIGNAL_LENGTH = 80
 MAX_PROGRAMME_HINT_SIGNALS = 20
+MAX_STRUCTURED_CANDIDATE_FACTS = 30
+MAX_STRUCTURED_CLAIM_PATH_LENGTH = 160
+MAX_STRUCTURED_VALUE_LENGTH = 2000
+MAX_STRUCTURED_SNIPPET_LENGTH = 4000
+MAX_STRUCTURED_SOURCE_URL_LENGTH = 300
+MAX_STRUCTURED_OPTIONAL_TEXT_LENGTH = 300
+MAX_STRUCTURED_WARNINGS = 20
 OPENAI_DEFAULT_MODEL = "gpt-4.1-mini"
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
 PROGRAMME_CATALOG_CATEGORY_VALUES = ("degree_programme", "major", "minor", "special_programme", "dual_degree", "unknown")
 PROGRAMME_CATALOG_MODE_VALUES = ("full-time", "part-time", "unknown")
+STRUCTURED_EXTRACTION_ALLOWED_CLAIM_PATHS = (
+    "admissions.application_period",
+    "admissions.application_deadline",
+    "admissions.application_entry",
+    "admissions.requirements.academic",
+    "admissions.requirements.english",
+    "admissions.required_documents",
+    "admissions.fees",
+    "admissions.scholarships",
+    "admissions.contact",
+    "programme_catalog[].name",
+    "programme_catalog[].degree",
+    "programme_catalog[].faculty_or_school",
+    "programme_catalog[].duration",
+    "programme_catalog[].entry_requirements",
+    "programme_catalog[].source_url",
+)
 SOURCE_PLAN_OUTPUT_SCHEMA: dict[str, object] = {
     "type": "object",
     "required": ["candidate_urls", "candidate_path_patterns", "candidate_queries", "warnings"],
@@ -79,6 +103,38 @@ PROGRAMME_CATALOG_CLASSIFICATION_OUTPUT_SCHEMA: dict[str, object] = {
         "reason": {"type": "string", "maxLength": MAX_PROGRAMME_HINT_REASON_LENGTH},
         "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
         "signals": {"type": "array", "items": {"type": "string", "maxLength": MAX_PROGRAMME_HINT_SIGNAL_LENGTH}, "maxItems": MAX_PROGRAMME_HINT_SIGNALS},
+    },
+    "additionalProperties": False,
+}
+STRUCTURED_EXTRACTION_OUTPUT_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "required": ["candidate_facts", "warnings"],
+    "properties": {
+        "candidate_facts": {
+            "type": "array",
+            "maxItems": MAX_STRUCTURED_CANDIDATE_FACTS,
+            "items": {
+                "type": "object",
+                "required": ["claim_path", "value", "evidence_snippet", "source_url", "confidence"],
+                "properties": {
+                    "claim_path": {"type": "string", "maxLength": MAX_STRUCTURED_CLAIM_PATH_LENGTH},
+                    "value": {"type": "string", "maxLength": MAX_STRUCTURED_VALUE_LENGTH},
+                    "evidence_snippet": {"type": "string", "maxLength": MAX_STRUCTURED_SNIPPET_LENGTH},
+                    "source_url": {"type": "string", "maxLength": MAX_STRUCTURED_SOURCE_URL_LENGTH},
+                    "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+                    "reason": {"type": "string", "maxLength": MAX_STRUCTURED_OPTIONAL_TEXT_LENGTH},
+                    "source_title": {"type": "string", "maxLength": MAX_STRUCTURED_OPTIONAL_TEXT_LENGTH},
+                    "candidate_type": {"type": "string", "maxLength": MAX_STRUCTURED_OPTIONAL_TEXT_LENGTH},
+                    "normalization_hint": {"type": "string", "maxLength": MAX_STRUCTURED_OPTIONAL_TEXT_LENGTH},
+                },
+                "additionalProperties": False,
+            },
+        },
+        "warnings": {
+            "type": "array",
+            "items": {"type": "string", "maxLength": MAX_STRUCTURED_OPTIONAL_TEXT_LENGTH},
+            "maxItems": MAX_STRUCTURED_WARNINGS,
+        },
     },
     "additionalProperties": False,
 }
@@ -175,6 +231,57 @@ class ProgrammeCatalogClassificationHintResult:
     diagnostics: dict[str, object] = field(default_factory=dict)
 
 
+@dataclass(frozen=True, slots=True)
+class LLMStructuredExtractionSource:
+    source_url: str
+    text: str
+    title: str | None = None
+    source_type: str = "html"
+
+
+@dataclass(frozen=True, slots=True)
+class LLMStructuredCandidateFact:
+    claim_path: str
+    value: str
+    evidence_snippet: str
+    source_url: str
+    confidence: float
+    reason: str | None = None
+    source_title: str | None = None
+    candidate_type: str | None = None
+    normalization_hint: str | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        out: dict[str, object] = {
+            "claim_path": self.claim_path,
+            "value": self.value,
+            "evidence_snippet": self.evidence_snippet,
+            "source_url": self.source_url,
+            "confidence": self.confidence,
+        }
+        if self.reason is not None:
+            out["reason"] = self.reason
+        if self.source_title is not None:
+            out["source_title"] = self.source_title
+        if self.candidate_type is not None:
+            out["candidate_type"] = self.candidate_type
+        if self.normalization_hint is not None:
+            out["normalization_hint"] = self.normalization_hint
+        return out
+
+
+@dataclass(frozen=True, slots=True)
+class LLMStructuredExtractionResult:
+    candidate_facts: tuple[LLMStructuredCandidateFact, ...] = ()
+    warnings: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "candidate_facts": [item.to_dict() for item in self.candidate_facts],
+            "warnings": list(self.warnings),
+        }
+
+
 class LLMProvider(Protocol):
     def extract_candidates(self, source_text: str, schema_hint: str) -> list[LLMCandidateClaim]:
         ...
@@ -198,6 +305,18 @@ class ProgrammeCatalogAssistProvider(Protocol):
     name: str
 
     def classify_programme_candidate_payload(self, candidate_text: str, source_url: str, title: str | None, schema: dict[str, object]) -> dict[str, object]:
+        ...
+
+
+class StructuredExtractionProvider(Protocol):
+    name: str
+
+    def extract_structured_candidate_payload(
+        self,
+        source: LLMStructuredExtractionSource,
+        allowed_claim_paths: tuple[str, ...],
+        schema: dict[str, object],
+    ) -> dict[str, object]:
         ...
 
 
@@ -327,6 +446,39 @@ class MockProgrammeCatalogAssistProvider:
         }
 
 
+class MockStructuredExtractionProvider:
+    """Deterministic structured-candidate provider for Phase 6 plumbing tests."""
+
+    name = "mock"
+
+    def __init__(self, payload: dict[str, object] | None = None, error: Exception | None = None) -> None:
+        self._payload = dict(payload) if payload is not None else None
+        self._error = error
+        self.requests: list[dict[str, object]] = []
+
+    def extract_structured_candidate_payload(
+        self,
+        source: LLMStructuredExtractionSource,
+        allowed_claim_paths: tuple[str, ...],
+        schema: dict[str, object],
+    ) -> dict[str, object]:
+        self.requests.append(
+            {
+                "source_url": source.source_url,
+                "title": source.title,
+                "text": source.text,
+                "source_type": source.source_type,
+                "allowed_claim_paths": allowed_claim_paths,
+                "schema": schema,
+            }
+        )
+        if self._error is not None:
+            raise self._error
+        if self._payload is not None:
+            return dict(self._payload)
+        return {"candidate_facts": [], "warnings": []}
+
+
 class OpenAIProvider:
     """OpenAI-backed provider for guarded source/classification/programme assist.
 
@@ -394,6 +546,33 @@ class OpenAIProvider:
                 "candidate_text": candidate_text[:1200],
                 "source_url": source_url,
                 "title": title,
+            },
+        )
+
+    def extract_structured_candidate_payload(
+        self,
+        source: LLMStructuredExtractionSource,
+        allowed_claim_paths: tuple[str, ...],
+        schema: dict[str, object],
+    ) -> dict[str, object]:
+        return self._json_schema_response(
+            schema_name="structured_extraction",
+            schema=schema,
+            instructions=(
+                "Extract candidate undergraduate admissions facts only from the supplied captured official source text. "
+                "Return candidate facts, not final facts. Do not infer, summarize, complete, or invent missing values. "
+                "Every evidence_snippet must be a contiguous verbatim substring of the supplied source text. "
+                "Every value must be a contiguous verbatim substring inside its evidence_snippet. "
+                "Every source_url must equal the supplied source URL. Every claim_path must be one of the allowed claim paths. "
+                "If the supplied text does not explicitly contain a supported fact with direct evidence, return an empty candidate_facts list. "
+                "Do not return admissions advice, eligibility verdicts, or facts from outside the captured source."
+            ),
+            user_payload={
+                "source_url": source.source_url,
+                "title": source.title,
+                "source_type": source.source_type,
+                "text": source.text[:6000],
+                "allowed_claim_paths": list(allowed_claim_paths),
             },
         )
 
@@ -615,6 +794,55 @@ def classification_assist_from_payload(payload: dict[str, object]) -> Classifica
     )
 
 
+def structured_extraction_result_from_payload(payload: dict[str, object]) -> LLMStructuredExtractionResult:
+    allowed_keys = {"candidate_facts", "warnings"}
+    extra_keys = set(payload) - allowed_keys
+    if extra_keys:
+        raise ValueError(f"Unsupported structured extraction fields: {', '.join(sorted(extra_keys))}")
+    missing_keys = allowed_keys - set(payload)
+    if missing_keys:
+        raise ValueError(f"Structured extraction payload missing required fields: {', '.join(sorted(missing_keys))}")
+    candidate_facts = tuple(
+        _structured_candidate_fact_from_payload(item)
+        for item in _required_generic_dict_list(
+            payload.get("candidate_facts"),
+            field="candidate_facts",
+            max_items=MAX_STRUCTURED_CANDIDATE_FACTS,
+        )
+    )
+    warnings = tuple(
+        _bounded_text_list(
+            payload.get("warnings", []),
+            field="warnings",
+            max_items=MAX_STRUCTURED_WARNINGS,
+            max_length=MAX_STRUCTURED_OPTIONAL_TEXT_LENGTH,
+        )
+    )
+    return LLMStructuredExtractionResult(candidate_facts=candidate_facts, warnings=warnings)
+
+
+def _structured_candidate_fact_from_payload(payload: dict[str, object]) -> LLMStructuredCandidateFact:
+    required_keys = {"claim_path", "value", "evidence_snippet", "source_url", "confidence"}
+    allowed_keys = required_keys | {"reason", "source_title", "candidate_type", "normalization_hint"}
+    extra_keys = set(payload) - allowed_keys
+    if extra_keys:
+        raise ValueError(f"Unsupported structured candidate fields: {', '.join(sorted(extra_keys))}")
+    missing_keys = required_keys - set(payload)
+    if missing_keys:
+        raise ValueError(f"Structured candidate missing required fields: {', '.join(sorted(missing_keys))}")
+    return LLMStructuredCandidateFact(
+        claim_path=_required_non_empty_bounded_text(payload.get("claim_path"), field="claim_path", max_length=MAX_STRUCTURED_CLAIM_PATH_LENGTH),
+        value=_required_non_empty_bounded_text(payload.get("value"), field="value", max_length=MAX_STRUCTURED_VALUE_LENGTH),
+        evidence_snippet=_required_non_empty_bounded_text(payload.get("evidence_snippet"), field="evidence_snippet", max_length=MAX_STRUCTURED_SNIPPET_LENGTH),
+        source_url=_required_non_empty_bounded_text(payload.get("source_url"), field="source_url", max_length=MAX_STRUCTURED_SOURCE_URL_LENGTH),
+        confidence=_required_confidence(payload.get("confidence"), field="confidence"),
+        reason=_optional_bounded_text(payload.get("reason"), field="reason", max_length=MAX_STRUCTURED_OPTIONAL_TEXT_LENGTH),
+        source_title=_optional_bounded_text(payload.get("source_title"), field="source_title", max_length=MAX_STRUCTURED_OPTIONAL_TEXT_LENGTH),
+        candidate_type=_optional_bounded_text(payload.get("candidate_type"), field="candidate_type", max_length=MAX_STRUCTURED_OPTIONAL_TEXT_LENGTH),
+        normalization_hint=_optional_bounded_text(payload.get("normalization_hint"), field="normalization_hint", max_length=MAX_STRUCTURED_OPTIONAL_TEXT_LENGTH),
+    )
+
+
 def validate_llm_candidates(candidates: list[LLMCandidateClaim], evidence: list[EvidenceItem], source_text: str) -> LLMValidationResult:
     """Accept only candidates whose snippet is grounded in captured source text.
 
@@ -728,6 +956,19 @@ def _required_dict_list(value: object, *, field: str, max_items: int) -> list[di
     return out
 
 
+def _required_generic_dict_list(value: object, *, field: str, max_items: int) -> list[dict[str, object]]:
+    if not isinstance(value, list | tuple):
+        raise ValueError(f"Field {field} must be a list.")
+    if len(value) > max_items:
+        raise ValueError(f"Field {field} exceeds {max_items} items.")
+    out: list[dict[str, object]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            raise ValueError(f"Field {field} must contain only objects.")
+        out.append(item)
+    return out
+
+
 def _elapsed_ms(started: float) -> int:
     return max(0, round((perf_counter() - started) * 1000))
 
@@ -743,6 +984,29 @@ def _bounded_text(value: str, *, field: str, max_length: int) -> str:
     if len(stripped) > max_length:
         raise ValueError(f"Classification assist field {field} exceeds {max_length} characters.")
     return stripped
+
+
+def _required_non_empty_bounded_text(value: object, *, field: str, max_length: int) -> str:
+    text = _bounded_text(_required_text(value, field=field), field=field, max_length=max_length)
+    if not text:
+        raise ValueError(f"Structured extraction field {field} must not be empty.")
+    return text
+
+
+def _optional_bounded_text(value: object, *, field: str, max_length: int) -> str | None:
+    if value is None:
+        return None
+    text = _bounded_text(_required_text(value, field=field), field=field, max_length=max_length)
+    return text or None
+
+
+def _required_confidence(value: object, *, field: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError(f"Structured extraction field {field} must be a number.")
+    confidence = float(value)
+    if confidence < 0.0 or confidence > 1.0:
+        raise ValueError(f"Structured extraction field {field} must be between 0.0 and 1.0.")
+    return confidence
 
 
 def _bounded_text_list(value: object, *, field: str, max_items: int, max_length: int) -> list[str]:

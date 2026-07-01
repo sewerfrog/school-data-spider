@@ -7,16 +7,18 @@ from university_admissions_crawler.crawler.discovery import DiscoveryConfig
 from university_admissions_crawler.crawler.fetcher import FetchResult, FixtureFetcher
 from university_admissions_crawler.crawler.filters import canonicalize_url
 from university_admissions_crawler.extractor.schema import WarningCode
-from university_admissions_crawler.extractor.llm_provider import MockClassificationAssistProvider
+from university_admissions_crawler.extractor.llm_provider import MockClassificationAssistProvider, MockStructuredExtractionProvider
 from university_admissions_crawler.extractor.html_extractor import extract_contact, extract_english_requirement, extract_fee
 from university_admissions_crawler.evidence.provenance import source_from_text
 from university_admissions_crawler.extractor.schema import SourceType
-from university_admissions_crawler.pipeline.diagnostics import _missing_reasons
+from university_admissions_crawler.pipeline.diagnostics import _missing_reasons, llm_structured_validation_summary
 from university_admissions_crawler.pipeline.run_university_scan import run_fixture_scan, run_scan
 from university_admissions_crawler.pipeline.source_planning import attach_source_plan_diagnostics
+from university_admissions_crawler.reports.programme_catalog_csv import render_programme_catalog_csv
 from university_admissions_crawler.extractor.llm_provider import MockSourcePlanProvider
 
 ROOT = Path("tests/fixtures/mini_university_site")
+LLM_STRUCTURED_ROOT = Path("tests/fixtures/llm_structured_extraction")
 SAVED = Path("tests/fixtures/saved_sources")
 NUS_CATALOG_SAMPLES = Path("tests/fixtures/programme_catalog/nus/source_samples.json")
 
@@ -359,7 +361,268 @@ def test_pipeline_source_planning_reports_budget_skipped_candidate():
     assert source_plan["budget_skipped_candidate_urls"] == [programme_url]
     assert source_plan["accepted_candidate_urls"][0]["crawl_status"] == "budget_skipped"
     assert programme_url not in fetcher.fetched
+
+
+def test_pipeline_llm_structured_extraction_fallback_writes_validated_missing_facts():
+    seed_url = "https://example.edu/"
+    fee_url = "https://example.edu/admissions/undergraduate/fees"
+    snippet = "Undergraduate admissions tuition fees are published annually on the official fee schedule."
+    fetcher = SourcePlanningFrontierFetcher(
+        {
+            seed_url: ("Home", "Undergraduate admissions home", [fee_url]),
+            fee_url: ("Undergraduate admissions fees", snippet, []),
+        }
+    )
+    class SourceAwareStructuredProvider(MockStructuredExtractionProvider):
+        def extract_structured_candidate_payload(self, source, allowed_claim_paths, schema):
+            self.requests.append(
+                {
+                    "source_url": source.source_url,
+                    "allowed_claim_paths": allowed_claim_paths,
+                    "schema": schema,
+                }
+            )
+            if source.source_url != fee_url:
+                return {"candidate_facts": [], "warnings": []}
+            return {
+                "candidate_facts": [
+                        {
+                            "claim_path": "admissions.fees",
+                            "value": "published annually",
+                            "evidence_snippet": snippet,
+                            "source_url": fee_url,
+                            "confidence": 0.8,
+                        },
+                        {
+                            "claim_path": "admissions.fees",
+                            "value": "published monthly",
+                            "evidence_snippet": snippet,
+                            "source_url": fee_url,
+                            "confidence": 0.8,
+                    },
+                ],
+                "warnings": ["mock warning"],
+            }
+
+    provider = SourceAwareStructuredProvider()
+
+    data = run_scan(
+        seed_url,
+        fetcher,
+        DiscoveryConfig(max_pages=3, max_depth=1, allowed_hosts={"example.edu"}),
+        structured_extraction_provider=provider,
+    )
+
+    diagnostics = data.run.config["llm_structured_extraction"]
+    assert diagnostics["enabled"] is True
+    assert diagnostics["triggered"] is True
+    assert diagnostics["applied_to_facts"] is True
+    assert diagnostics["applied_count"] == 1
+    assert "core_field_missing" in diagnostics["trigger_reasons"]
+    assert diagnostics["source_urls_used"][0] == fee_url
+    assert seed_url in diagnostics["source_urls_used"]
+    assert diagnostics["candidate_count"] == 2
+    assert diagnostics["accepted_count"] == 1
+    assert diagnostics["rejected_count"] == 1
+    assert diagnostics["accepted_claim_paths"] == {"admissions.fees": 1}
+    assert diagnostics["reject_reasons"] == {"value_not_in_snippet": 1}
+    assert diagnostics["write_status_counts"] == {"applied": 1, "not_applicable": 1}
+    assert diagnostics["results"][0]["extractor"] == "llm_fallback_validated"
+    assert diagnostics["results"][0]["validation_status"] == "accepted"
+    assert diagnostics["results"][0]["write_status"] == "applied"
+    assert diagnostics["results"][0]["evidence_path"] == "/fees/0/value"
+    assert diagnostics["results"][1]["validation_status"] == "rejected"
+    assert diagnostics["warnings"] == ["mock warning"]
+    assert provider.requests[0]["source_url"] == fee_url
+    assert provider.requests[0]["allowed_claim_paths"]
+    assert "fees" not in data.run.config["coverage"]["missing"]
+    assert "fees" in data.run.config["coverage"]["found"]
+    assert "fees" not in data.run.config["missing_reasons"]
+    assert data.run.config["template_completeness"]["fields"]["fees"]["status"] == "found"
+    assert data.fees[0].label == "tuition/fees"
+    assert data.fees[0].value.value == "published annually"
+    assert data.fees[0].value.raw_text == snippet
+    assert data.fees[0].value.parse_status == "llm_fallback_validated"
+    assert data.fees[0].value.evidence == ["/fees/0/value"]
+    assert data.evidence[-1].claim_path == "/fees/0/value"
+    assert data.evidence[-1].source_url == fee_url
+    assert data.evidence[-1].snippet == snippet
     assert not data.programmes
+
+
+def test_pipeline_llm_structured_extraction_does_not_overwrite_existing_fee_fact():
+    seed_url = "https://example.edu/"
+    fee_url = "https://example.edu/admissions/undergraduate/fees"
+    snippet = "Undergraduate admissions tuition fee is SGD 20,000 per year."
+    llm_snippet = "Undergraduate admissions tuition fee is SGD 99,000 per year."
+    fetcher = SourcePlanningFrontierFetcher(
+        {
+            seed_url: ("Home", "Undergraduate admissions home", [fee_url]),
+            fee_url: ("Undergraduate admissions fees", f"{snippet} {llm_snippet}", []),
+        }
+    )
+
+    class SourceAwareStructuredProvider(MockStructuredExtractionProvider):
+        def extract_structured_candidate_payload(self, source, allowed_claim_paths, schema):
+            self.requests.append(
+                {
+                    "source_url": source.source_url,
+                    "allowed_claim_paths": allowed_claim_paths,
+                    "schema": schema,
+                }
+            )
+            if source.source_url != fee_url:
+                return {"candidate_facts": [], "warnings": []}
+            return {
+                "candidate_facts": [
+                    {
+                        "claim_path": "admissions.fees",
+                        "value": "SGD 99,000",
+                        "evidence_snippet": llm_snippet,
+                        "source_url": fee_url,
+                        "confidence": 0.8,
+                    }
+                ],
+                "warnings": [],
+            }
+
+    provider = SourceAwareStructuredProvider()
+
+    data = run_scan(
+        seed_url,
+        fetcher,
+        DiscoveryConfig(max_pages=3, max_depth=1, allowed_hosts={"example.edu"}),
+        structured_extraction_provider=provider,
+    )
+
+    diagnostics = data.run.config["llm_structured_extraction"]
+    assert diagnostics["accepted_count"] == 1
+    assert diagnostics["applied_count"] == 0
+    assert diagnostics["applied_to_facts"] is False
+    assert diagnostics["write_status_counts"] == {"existing_value": 1}
+    assert diagnostics["results"][0]["write_status"] == "existing_value"
+    assert len(data.fees) == 1
+    assert data.fees[0].value.value == "tuition fee is SGD 20,000 per year."
+    assert "SGD 99,000" not in data.fees[0].value.value
+    assert data.fees[0].value.parse_status != "llm_fallback_validated"
+
+
+def test_fixture_school_llm_structured_extraction_repairs_missing_fee_field():
+    fee_url = "https://fixture.test/admissions/undergraduate/fees.html"
+    programme_url = "https://fixture.test/programmes/index.html"
+    valid_snippet = "For undergraduate admissions, the annual tuition charge for international students is published in the official applicant fee schedule."
+    programme_snippet = "The undergraduate programme catalogue includes the Data Futures Bachelor pathway for applicants interested in analytics and public policy."
+
+    class FixtureSchoolStructuredProvider(MockStructuredExtractionProvider):
+        def extract_structured_candidate_payload(self, source, allowed_claim_paths, schema):
+            self.requests.append(
+                {
+                    "source_url": source.source_url,
+                    "allowed_claim_paths": allowed_claim_paths,
+                    "schema": schema,
+                }
+            )
+            if source.source_url == programme_url:
+                return {
+                    "candidate_facts": [
+                        {
+                            "claim_path": "programme_catalog[].name",
+                            "value": "Data Futures Bachelor pathway",
+                            "evidence_snippet": programme_snippet,
+                            "source_url": programme_url,
+                            "confidence": 0.78,
+                        }
+                    ],
+                    "warnings": [],
+                }
+            if source.source_url != fee_url:
+                return {"candidate_facts": [], "warnings": []}
+            return {
+                "candidate_facts": [
+                    {
+                        "claim_path": "admissions.fees",
+                        "value": "annual tuition charge for international students",
+                        "evidence_snippet": valid_snippet,
+                        "source_url": fee_url,
+                        "confidence": 0.82,
+                    },
+                    {
+                        "claim_path": "admissions.fees",
+                        "value": "annual tuition charge for international students",
+                        "evidence_snippet": "This snippet is not present in the captured source.",
+                        "source_url": fee_url,
+                        "confidence": 0.82,
+                    },
+                    {
+                        "claim_path": "admissions.fees",
+                        "value": "amount shown in the appendix",
+                        "evidence_snippet": valid_snippet,
+                        "source_url": fee_url,
+                        "confidence": 0.82,
+                    },
+                    {
+                        "claim_path": "admissions.fees",
+                        "value": "annual tuition charge for international students",
+                        "evidence_snippet": valid_snippet,
+                        "source_url": "https://fixture.test/admissions/undergraduate/not-crawled.html",
+                        "confidence": 0.82,
+                    },
+                ],
+                "warnings": [],
+            }
+
+    provider = FixtureSchoolStructuredProvider()
+
+    data = run_fixture_scan(
+        LLM_STRUCTURED_ROOT,
+        max_pages=5,
+        max_depth=2,
+        structured_extraction_provider=provider,
+    )
+
+    diagnostics = data.run.config["llm_structured_extraction"]
+    assert diagnostics["triggered"] is True
+    assert diagnostics["applied_to_facts"] is True
+    assert diagnostics["candidate_count"] == 5
+    assert diagnostics["accepted_count"] == 2
+    assert diagnostics["rejected_count"] == 3
+    assert diagnostics["applied_count"] == 2
+    assert diagnostics["reject_reasons"] == {
+        "snippet_not_found": 1,
+        "source_not_captured": 1,
+        "value_not_in_snippet": 1,
+    }
+    assert diagnostics["accepted_claim_paths"] == {"admissions.fees": 1, "programme_catalog[].name": 1}
+    assert diagnostics["write_status_counts"] == {"applied": 2, "not_applicable": 3}
+    applied_results = [result for result in diagnostics["results"] if result.get("write_status") == "applied"]
+    assert {result["evidence_path"] for result in applied_results} == {"/fees/0/value", "/programme_catalog/0/name"}
+    assert all(result["extractor"] == "llm_fallback_validated" for result in applied_results)
+    assert all(result["validation_status"] == "accepted" for result in applied_results)
+    assert "fees" in data.run.config["coverage"]["found"]
+    assert "fees" not in data.run.config["coverage"]["missing"]
+    assert "fees" not in data.run.config["missing_reasons"]
+    assert data.run.config["template_completeness"]["fields"]["fees"]["status"] == "found"
+    assert len(data.fees) == 1
+    assert data.fees[0].label == "tuition/fees"
+    assert data.fees[0].value.value == "annual tuition charge for international students"
+    assert data.fees[0].value.raw_text == valid_snippet
+    assert data.fees[0].value.parse_status == "llm_fallback_validated"
+    assert data.fees[0].value.evidence == ["/fees/0/value"]
+    assert data.evidence[-1].claim_path == "/fees/0/value"
+    assert data.evidence[-1].source_url == fee_url
+    assert data.evidence[-1].snippet == valid_snippet
+    fee_request = next(request for request in provider.requests if request["source_url"] == fee_url)
+    assert "admissions.fees" in fee_request["allowed_claim_paths"]
+    programme_row = data.programme_catalog[0]
+    assert programme_row.name == "Data Futures Bachelor pathway"
+    assert programme_row.source_url == programme_url
+    assert programme_row.evidence_snippet == programme_snippet
+    assert programme_row.evidence_path == "/programme_catalog/0/name"
+    assert programme_row.parse_status == "llm_fallback_validated"
+    csv_text = render_programme_catalog_csv(data)
+    assert "programme_id,name,faculty_or_school" in csv_text
+    assert "programme-catalog-001,Data Futures Bachelor pathway" in csv_text
+    assert "llm_fallback_validated" in csv_text
 
 
 def test_pipeline_uses_html_table_text_for_extraction():
@@ -1076,3 +1339,42 @@ class SourcePlanningFrontierFetcher:
             links=list(links),
             source=source,
         )
+
+
+def test_llm_structured_validation_summary_counts_reject_reasons_and_claim_paths():
+    summary = llm_structured_validation_summary(
+        [
+            {
+                "accepted": True,
+                "candidate": {
+                    "claim_path": "admissions.fees",
+                    "value": "SGD 20,000",
+                    "evidence_snippet": "Undergraduate admissions tuition fee is SGD 20,000 per year.",
+                    "source_url": "https://example.edu/admissions/fees",
+                    "confidence": 0.8,
+                },
+            },
+            {
+                "accepted": False,
+                "reject_reason": "snippet_not_found",
+                "candidate": {
+                    "claim_path": "admissions.fees",
+                    "value": "SGD 30,000",
+                    "evidence_snippet": "Tuition fee is SGD 30,000.",
+                    "source_url": "https://example.edu/admissions/fees",
+                    "confidence": 0.8,
+                },
+            },
+            {
+                "accepted": False,
+                "reject_reason": "source_not_captured",
+                "candidate": None,
+            },
+        ]
+    )
+
+    assert summary["candidate_count"] == 3
+    assert summary["accepted_count"] == 1
+    assert summary["rejected_count"] == 2
+    assert summary["accepted_claim_paths"] == {"admissions.fees": 1}
+    assert summary["reject_reasons"] == {"snippet_not_found": 1, "source_not_captured": 1}

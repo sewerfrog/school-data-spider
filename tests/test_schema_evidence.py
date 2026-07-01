@@ -1,4 +1,6 @@
 from university_admissions_crawler.evidence.provenance import evidence_from_source, source_from_text
+from university_admissions_crawler.evidence.validator import validate_llm_candidate_fact
+from university_admissions_crawler.extractor.llm_provider import LLMStructuredCandidateFact
 from university_admissions_crawler.extractor.schema import (
     AdmissionsData,
     Confidence,
@@ -171,3 +173,153 @@ def test_programme_catalog_record_requires_row_level_provenance():
     assert "source_url" in missing[0].message
     assert "evidence_snippet" in missing[0].message
     assert "evidence_path" in missing[0].message
+
+
+def test_validate_llm_candidate_fact_accepts_grounded_captured_candidate():
+    source = source_from_text(
+        source_url="https://example.edu/admissions/fees",
+        title="Undergraduate admissions fees",
+        text="Undergraduate admissions tuition fee is SGD 20,000 per year.",
+    )
+    candidate = LLMStructuredCandidateFact(
+        claim_path="admissions.fees",
+        value="SGD 20,000",
+        evidence_snippet="Undergraduate admissions tuition fee is SGD 20,000 per year.",
+        source_url=source.source_url,
+        confidence=0.8,
+    )
+
+    result = validate_llm_candidate_fact(
+        candidate,
+        captured_sources={source.source_url: "Undergraduate admissions tuition fee is SGD 20,000 per year."},
+        source_records=[source],
+    )
+
+    assert result.accepted is True
+    assert result.reject_reason is None
+    assert result.to_dict()["candidate"]["claim_path"] == "admissions.fees"
+
+
+def test_validate_llm_candidate_fact_rejects_source_not_captured():
+    candidate = LLMStructuredCandidateFact(
+        claim_path="admissions.fees",
+        value="SGD 20,000",
+        evidence_snippet="Undergraduate admissions tuition fee is SGD 20,000 per year.",
+        source_url="https://example.edu/admissions/fees",
+        confidence=0.8,
+    )
+
+    result = validate_llm_candidate_fact(candidate, captured_sources={})
+
+    assert result.accepted is False
+    assert result.reject_reason == "source_not_captured"
+
+
+def test_validate_llm_candidate_fact_rejects_non_official_source_record():
+    source = source_from_text(
+        source_url="https://example.edu/admissions/fees",
+        title="Undergraduate admissions fees",
+        text="Undergraduate admissions tuition fee is SGD 20,000 per year.",
+        is_official=False,
+    )
+    candidate = LLMStructuredCandidateFact(
+        claim_path="admissions.fees",
+        value="SGD 20,000",
+        evidence_snippet="Undergraduate admissions tuition fee is SGD 20,000 per year.",
+        source_url=source.source_url,
+        confidence=0.8,
+    )
+
+    result = validate_llm_candidate_fact(
+        candidate,
+        captured_sources={source.source_url: "Undergraduate admissions tuition fee is SGD 20,000 per year."},
+        source_records=[source],
+    )
+
+    assert result.accepted is False
+    assert result.reject_reason == "source_not_official"
+
+
+def test_validate_llm_candidate_fact_rejects_disallowed_claim_path():
+    candidate = LLMStructuredCandidateFact(
+        claim_path="rankings.employment_rate",
+        value="95%",
+        evidence_snippet="Employment rate is 95%.",
+        source_url="https://example.edu/admissions",
+        confidence=0.8,
+    )
+
+    result = validate_llm_candidate_fact(
+        candidate,
+        captured_sources={"https://example.edu/admissions": "Employment rate is 95%."},
+    )
+
+    assert result.accepted is False
+    assert result.reject_reason == "claim_path_not_allowed"
+
+
+def test_validate_llm_candidate_fact_rejects_missing_snippet_and_value():
+    source_url = "https://example.edu/admissions/fees"
+    source_text = "Undergraduate admissions tuition fee is SGD 20,000 per year."
+    missing_snippet = LLMStructuredCandidateFact(
+        claim_path="admissions.fees",
+        value="SGD 20,000",
+        evidence_snippet="Application fee is SGD 50.",
+        source_url=source_url,
+        confidence=0.8,
+    )
+    missing_value = LLMStructuredCandidateFact(
+        claim_path="admissions.fees",
+        value="SGD 30,000",
+        evidence_snippet=source_text,
+        source_url=source_url,
+        confidence=0.8,
+    )
+
+    assert validate_llm_candidate_fact(missing_snippet, captured_sources={source_url: source_text}).reject_reason == "snippet_not_found"
+    assert validate_llm_candidate_fact(missing_value, captured_sources={source_url: source_text}).reject_reason == "value_not_in_snippet"
+
+
+def test_validate_llm_candidate_fact_rejects_low_confidence_and_malformed_candidate():
+    low_confidence = LLMStructuredCandidateFact(
+        claim_path="admissions.fees",
+        value="SGD 20,000",
+        evidence_snippet="Undergraduate admissions tuition fee is SGD 20,000 per year.",
+        source_url="https://example.edu/admissions/fees",
+        confidence=0.1,
+    )
+
+    result = validate_llm_candidate_fact(
+        low_confidence,
+        captured_sources={"https://example.edu/admissions/fees": "Undergraduate admissions tuition fee is SGD 20,000 per year."},
+    )
+    malformed = validate_llm_candidate_fact({"claim_path": "admissions.fees"}, captured_sources={})
+
+    assert result.accepted is False
+    assert result.reject_reason == "low_confidence"
+    assert malformed.accepted is False
+    assert malformed.reject_reason == "malformed_candidate"
+
+
+def test_validate_llm_candidate_fact_rejects_context_gate_failure():
+    source = source_from_text(
+        source_url="https://example.edu/current-students/finance",
+        title="Current student finance",
+        text="Current student tuition fee is SGD 20,000 per year.",
+    )
+    candidate = LLMStructuredCandidateFact(
+        claim_path="admissions.fees",
+        value="SGD 20,000",
+        evidence_snippet="Current student tuition fee is SGD 20,000 per year.",
+        source_url=source.source_url,
+        confidence=0.8,
+    )
+
+    result = validate_llm_candidate_fact(
+        candidate,
+        captured_sources={source.source_url: "Current student tuition fee is SGD 20,000 per year."},
+        source_records=[source],
+    )
+
+    assert result.accepted is False
+    assert result.reject_reason == "context_gate_failed"

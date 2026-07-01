@@ -28,6 +28,7 @@ def render_markdown_report(data: AdmissionsData) -> str:
     _template_completeness(lines, data)
     _programme_catalog_diagnostics(lines, data)
     _extraction_diagnostics(lines, data)
+    _llm_structured_extraction(lines, data)
     _missing_reasons(lines, data)
 
     lines.append("## Discovered categories")
@@ -392,6 +393,76 @@ def _extraction_diagnostics(lines: list[str], data: AdmissionsData) -> None:
             if isinstance(counts, dict):
                 lines.append(f"  - `{field}`: {_format_counts(counts)}")
     lines.append("- Note: extraction diagnostics are observational and do not change facts.")
+    lines.append("")
+
+
+def _llm_structured_extraction(lines: list[str], data: AdmissionsData) -> None:
+    diagnostics = data.run.config.get("llm_structured_extraction")
+    if not isinstance(diagnostics, dict):
+        return
+    if not diagnostics.get("enabled") and not diagnostics.get("triggered"):
+        return
+
+    lines.append("## LLM Structured Extraction Diagnostics")
+    lines.append("")
+    lines.append(f"- Enabled: {diagnostics.get('enabled', False)}")
+    lines.append(f"- Triggered: {diagnostics.get('triggered', False)}")
+    lines.append(f"- Provider: `{diagnostics.get('provider', 'unknown')}`")
+    lines.append(f"- Candidates: {diagnostics.get('candidate_count', 0)}")
+    lines.append(f"- Accepted: {diagnostics.get('accepted_count', 0)}")
+    lines.append(f"- Rejected: {diagnostics.get('rejected_count', 0)}")
+    lines.append(f"- Applied to facts: {diagnostics.get('applied_to_facts', False)}")
+    lines.append(f"- Applied count: {diagnostics.get('applied_count', 0)}")
+    triggers = diagnostics.get("trigger_reasons") or []
+    if isinstance(triggers, list) and triggers:
+        lines.append(f"- Trigger reasons: {', '.join(f'`{trigger}`' for trigger in triggers)}")
+    accepted_claim_paths = diagnostics.get("accepted_claim_paths")
+    if isinstance(accepted_claim_paths, dict) and accepted_claim_paths:
+        lines.append(f"- Accepted claim paths: {_format_counts(accepted_claim_paths)}")
+    reject_reasons = diagnostics.get("reject_reasons")
+    if isinstance(reject_reasons, dict) and reject_reasons:
+        lines.append(f"- Reject reasons: {_format_counts(reject_reasons)}")
+    write_status_counts = diagnostics.get("write_status_counts")
+    if isinstance(write_status_counts, dict) and write_status_counts:
+        lines.append(f"- Write statuses: {_format_counts(write_status_counts)}")
+    source_urls = diagnostics.get("source_urls_used") or []
+    if isinstance(source_urls, list) and source_urls:
+        lines.append("- Source URLs used:")
+        for url in source_urls[:10]:
+            lines.append(f"  - {url}")
+        if len(source_urls) > 10:
+            lines.append(f"  - Omitted source URLs: {len(source_urls) - 10}")
+    results = diagnostics.get("results") or []
+    if isinstance(results, list) and results:
+        lines.append("- Candidate results:")
+        for result in results[:10]:
+            if not isinstance(result, dict):
+                continue
+            candidate = result.get("candidate")
+            claim_path = "unknown"
+            source_url = str(result.get("source_url", "unknown"))
+            if isinstance(candidate, dict):
+                claim_path = str(candidate.get("claim_path", "unknown"))
+                source_url = str(candidate.get("source_url", source_url))
+            status = result.get("validation_status", "accepted" if result.get("accepted") else "rejected")
+            write_status = result.get("write_status", "not_applicable")
+            line = f"  - `{claim_path}` from {source_url}: validation `{status}`, write `{write_status}`"
+            evidence_path = result.get("evidence_path")
+            if evidence_path:
+                line += f", evidence `{evidence_path}`"
+            reject_reason = result.get("reject_reason")
+            if reject_reason:
+                line += f", rejected `{reject_reason}`"
+            lines.append(line)
+        if len(results) > 10:
+            lines.append(f"  - Omitted candidate results: {len(results) - 10}")
+    warnings = diagnostics.get("warnings") or []
+    if isinstance(warnings, list) and warnings:
+        lines.append(f"- Warnings: {', '.join(str(warning) for warning in warnings)}")
+    note = diagnostics.get("note")
+    if note:
+        lines.append(f"- Note: {note}")
+    lines.append("- Note: LLM structured extraction can only apply candidates that passed deterministic evidence validation.")
     lines.append("")
 
 

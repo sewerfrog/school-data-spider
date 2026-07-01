@@ -54,20 +54,10 @@ def source_strategy_for(source_type: SourceType, url: str, title: str | None, te
 def attach_run_diagnostics(data: AdmissionsData) -> AdmissionsData:
     """Attach coverage/source-strategy diagnostics under run.config."""
 
-    coverage = _coverage(data)
+    refresh_run_diagnostics(data)
+    coverage = data.run.config.get("coverage", {})
     source_strategy = data.run.config.get("source_strategy", [])
-    summary = Counter(item.get("strategy", "unknown") for item in source_strategy if isinstance(item, dict))
-    data.run.config["coverage"] = coverage
-    data.run.config["source_strategy_summary"] = dict(sorted(summary.items()))
-    extraction_diagnostics = data.run.config.get("extraction_diagnostics")
-    data.run.config["programme_catalog_summary"] = _programme_catalog_summary(data, extraction_diagnostics, source_strategy)
-    classification_assist = data.run.config.get("classification_assist")
-    if isinstance(classification_assist, list):
-        data.run.config["classification_assist_summary"] = _classification_assist_summary(classification_assist)
-    if isinstance(extraction_diagnostics, list):
-        data.run.config["extraction_diagnostics_summary"] = _extraction_diagnostics_summary(extraction_diagnostics)
-        data.run.config["missing_reasons"] = _missing_reasons(coverage, extraction_diagnostics, source_strategy)
-    attach_template_completeness(data)
+    source_strategy_summary = data.run.config.get("source_strategy_summary", {})
     if coverage["missing"]:
         data.warnings.append(
             WarningRecord(
@@ -76,7 +66,7 @@ def attach_run_diagnostics(data: AdmissionsData) -> AdmissionsData:
                 field="/run/config/coverage",
             )
         )
-    if summary.get("blocked_or_challenge") or summary.get("application_portal"):
+    if source_strategy_summary.get("blocked_or_challenge") or source_strategy_summary.get("application_portal"):
         blocked = [item.get("url") for item in source_strategy if item.get("strategy") in {"blocked_or_challenge", "application_portal"}]
         data.warnings.append(
             WarningRecord(
@@ -86,6 +76,26 @@ def attach_run_diagnostics(data: AdmissionsData) -> AdmissionsData:
                 source_urls=[url for url in blocked if url],
             )
         )
+    return data
+
+
+def refresh_run_diagnostics(data: AdmissionsData) -> AdmissionsData:
+    """Refresh run.config diagnostics without adding warnings or changing facts."""
+
+    coverage = _coverage(data)
+    source_strategy = data.run.config.get("source_strategy", [])
+    summary = Counter(item.get("strategy", "unknown") for item in source_strategy if isinstance(item, dict))
+    extraction_diagnostics = data.run.config.get("extraction_diagnostics")
+    data.run.config["coverage"] = coverage
+    data.run.config["source_strategy_summary"] = dict(sorted(summary.items()))
+    data.run.config["programme_catalog_summary"] = _programme_catalog_summary(data, extraction_diagnostics, source_strategy)
+    classification_assist = data.run.config.get("classification_assist")
+    if isinstance(classification_assist, list):
+        data.run.config["classification_assist_summary"] = _classification_assist_summary(classification_assist)
+    if isinstance(extraction_diagnostics, list):
+        data.run.config["extraction_diagnostics_summary"] = _extraction_diagnostics_summary(extraction_diagnostics)
+        data.run.config["missing_reasons"] = _missing_reasons(coverage, extraction_diagnostics, source_strategy)
+    attach_template_completeness(data)
     return data
 
 
@@ -105,6 +115,34 @@ def attach_template_completeness(data: AdmissionsData) -> AdmissionsData:
         extraction_diagnostics = []
     data.run.config["template_completeness"] = _template_completeness(data, coverage, extraction_diagnostics, source_strategy, missing_reasons)
     return data
+
+
+def llm_structured_validation_summary(results: list[object]) -> dict[str, object]:
+    """Summarize accepted/rejected LLM structured candidate validation results."""
+
+    accepted_count = 0
+    rejected_count = 0
+    reject_reasons: Counter[str] = Counter()
+    accepted_claim_paths: Counter[str] = Counter()
+    for result in results:
+        if not isinstance(result, dict):
+            continue
+        candidate = result.get("candidate")
+        if result.get("accepted") is True:
+            accepted_count += 1
+            if isinstance(candidate, dict):
+                accepted_claim_paths[str(candidate.get("claim_path", "unknown"))] += 1
+        else:
+            rejected_count += 1
+            reject_reasons[str(result.get("reject_reason", "unknown"))] += 1
+    return {
+        "candidate_count": accepted_count + rejected_count,
+        "accepted_count": accepted_count,
+        "rejected_count": rejected_count,
+        "reject_reasons": dict(sorted(reject_reasons.items())),
+        "accepted_claim_paths": dict(sorted(accepted_claim_paths.items())),
+        "note": "LLM structured extraction candidates are summarized after deterministic validation; rejected candidates are diagnostics only.",
+    }
 
 
 def _classification_assist_summary(entries: list[object]) -> dict[str, object]:

@@ -10,10 +10,10 @@ from university_admissions_crawler.config_loader import SMOKE_MAX_DEPTH, SMOKE_M
 from university_admissions_crawler.crawler.discovery import DiscoveryConfig
 from university_admissions_crawler.crawler.fetcher import BrowserFallbackFetcher, LiveHTTPFetcher, PlaywrightBrowserFetcher
 from university_admissions_crawler.crawler.relevance import build_relevance_strategy
-from university_admissions_crawler.extractor.llm_provider import MockClassificationAssistProvider, MockProgrammeCatalogAssistProvider, MockSourcePlanProvider, OpenAIProvider
 from university_admissions_crawler.extractor.pdf_extractor import PypdfPDFExtractor
 from university_admissions_crawler.extractor.schema import AdmissionsData, Institution, RunMetadata, attach_validation_warnings
 from university_admissions_crawler.pipeline.diagnostics import inferred_allowed_domain
+from university_admissions_crawler.pipeline.llm_runtime import attach_llm_runtime_config, llm_providers_for_args
 from university_admissions_crawler.pipeline.merge import merge_data
 from university_admissions_crawler.pipeline.output_writer import write_result_files
 from university_admissions_crawler.pipeline.run_university_scan import run_scan
@@ -46,7 +46,7 @@ def _run_university_config(args: argparse.Namespace, university: UniversityConfi
         relevance_strategy=university.relevance_strategy,
         keyword_query=university.keyword_query,
     )
-    classification_assist_provider, programme_catalog_assist_provider, source_plan_provider = _llm_providers_for_args(args)
+    classification_assist_provider, programme_catalog_assist_provider, source_plan_provider, structured_extraction_provider = llm_providers_for_args(args)
     for seed_url in university.seed_urls:
         fetcher = _fetcher_for_mode(
             seed_url,
@@ -72,6 +72,7 @@ def _run_university_config(args: argparse.Namespace, university: UniversityConfi
             classification_assist_provider=classification_assist_provider,
             programme_catalog_assist_provider=programme_catalog_assist_provider,
             source_plan_provider=source_plan_provider,
+            structured_extraction_provider=structured_extraction_provider,
         )
         combined = data if combined is None else merge_data(combined, data)
     if combined is None:
@@ -80,6 +81,7 @@ def _run_university_config(args: argparse.Namespace, university: UniversityConfi
     combined.institution.homepage_url = university.seed_urls[0]
     combined.run.config["university_id"] = university.id
     combined.run.config["seed_urls"] = university.seed_urls
+    attach_llm_runtime_config(combined, args)
     return attach_validation_warnings(combined)
 
 
@@ -99,26 +101,6 @@ def _fetcher_for_mode(seed_url: str, mode: str, *, timeout_seconds: float, wait_
     if mode in {"live-http", "http"}:
         return LiveHTTPFetcher(timeout_seconds=timeout_seconds, user_agent=user_agent)
     raise ValueError(f"Unsupported university config mode: {mode}")
-
-
-def _llm_providers_for_args(args: argparse.Namespace):
-    if not args.enable_llm:
-        return None, None, None
-    provider_name = args.llm_provider or "mock"
-    if provider_name == "mock":
-        return (
-            MockClassificationAssistProvider() if args.enable_classification_assist else None,
-            MockProgrammeCatalogAssistProvider() if args.enable_classification_assist else None,
-            MockSourcePlanProvider() if args.enable_source_planning else None,
-        )
-    if provider_name == "openai":
-        provider = OpenAIProvider()
-        return (
-            provider if args.enable_classification_assist else None,
-            provider if args.enable_classification_assist else None,
-            provider if args.enable_source_planning else None,
-        )
-    raise ValueError(f"Unsupported LLM provider: {provider_name}")
 
 
 def _allowed_domains_for(seed_url: str, explicit_domains: list[str], infer: bool) -> set[str]:

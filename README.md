@@ -1,12 +1,13 @@
 # University Admissions Crawler
 
-Evidence-first MVP for extracting undergraduate admissions information from official university websites. The current implementation is a deterministic Python CLI/library that can start from a university homepage, run bounded official-source discovery, and produce structured JSON plus a Markdown evidence report.
+Evidence-first MVP for extracting undergraduate admissions information from official university websites. The current implementation is an LLM-assisted Python CLI/library for live university homepages with deterministic validation for every fact that enters the result.
 
 ## What it does now
 
 - Starts from fixture roots, live university homepages, or batch-configured seed URLs.
-- For non-fixture URLs, live HTTP crawling, default scan limits, fetch timeout,
-  and allowed-domain inference are applied by default; `--auto` and
+- For non-fixture URLs, live HTTP crawling, LLM-assisted source planning and
+  structured extraction fallback, default scan limits, fetch timeout, and
+  allowed-domain inference are applied by default; `--auto` and
   `--enable-live-network` remain compatibility flags.
 - Discovers bounded official links with `max_pages` / `max_depth` limits.
 - Classifies admissions-related pages into undergraduate admissions, international requirements, deadlines, accepted qualifications, programme lists/prerequisites, fees, scholarships, visa, housing, contact, and irrelevant pages.
@@ -33,10 +34,11 @@ Evidence-first MVP for extracting undergraduate admissions information from offi
 - Detects obvious WAF/challenge/noindex/access-denied sources and records them
   as `blocked_or_challenge` diagnostics. These sources remain reviewable but
   are not treated as usable admissions text for fact extraction.
-- Supports opt-in guarded LLM source navigation through `--enable-source-planning`.
-  Candidate URLs and queries are validated, reported under diagnostics, and
-  accepted URL candidates can enter the bounded crawl frontier; they never
-  become admissions facts without fetched official-source evidence.
+- Supports guarded LLM source navigation by default for live scans when a
+  provider is available. Candidate URLs and queries are validated, reported
+  under diagnostics, and accepted URL candidates can enter the bounded crawl
+  frontier; they never become admissions facts without fetched official-source
+  evidence.
 - Adds a lightweight cleaned-candidate layer for key fields: `raw_text`, `parsed`, and `parse_status`.
 - Parses common English test scores, fee amounts, and application dates when the raw text is specific enough; otherwise the raw candidate remains visible for manual review.
 - Keeps raw fee-table/reference candidates when an official undergraduate fee
@@ -134,14 +136,19 @@ python -m university_admissions_crawler.cli https://www.example.edu/ \
   --output-dir outputs/example-homepage
 ```
 
-For live URLs, the CLI enables HTTP crawling by default, infers the allowed
-official domain from the input URL, uses the built-in
-`admissions_programme_profile` relevance strategy, and applies live defaults of
-`max_pages=80`, `max_depth=4`, and `timeout_seconds=60`. Use `--enable-browser`
-only when a site needs JavaScript rendering; it keeps HTTP-first fetching and
-uses Playwright as a fallback for high-value rendered pages.
+For live URLs, the CLI enables HTTP crawling and LLM-assisted source navigation
+and structured extraction fallback by default, infers the allowed official
+domain from the input URL, uses the built-in `admissions_programme_profile`
+relevance strategy, and applies live defaults of `max_pages=80`, `max_depth=4`,
+and `timeout_seconds=60`. Provider selection defaults to `--llm-provider auto`:
+it uses OpenAI when `OPENAI_API_KEY` is present, otherwise records
+`llm_runtime.provider = none` and continues with deterministic crawling. Use
+`--no-llm` or `--deterministic-only` to disable LLM-assisted live crawling. Use
+`--enable-browser` only when a site needs JavaScript rendering; it keeps
+HTTP-first fetching and uses Playwright as a fallback for high-value rendered
+pages.
 
-For a smaller smoke run, add `--smoke`; it caps the run at `max_pages<=20` and `max_depth<=2` even if larger values are supplied. In batch mode, a university config's own `max_pages` or `max_depth` still overrides the CLI smoke cap for that university. `--enable-scrapegraph` remains a guarded future surface and fails closed. `--enable-llm` is guarded as well: `--llm-provider mock` remains the deterministic test provider, while `--llm-provider openai` is available for guarded `--enable-classification-assist` and `--enable-source-planning` runs. `--keyword-query` is deterministic debug input and no longer enables LLM keyword-plan generation. Anthropic and Gemini provider names remain reserved and fail closed.
+For a smaller smoke run, add `--smoke`; it caps the run at `max_pages<=20` and `max_depth<=2` even if larger values are supplied. In batch mode, a university config's own `max_pages` or `max_depth` still overrides the CLI smoke cap for that university. `--enable-scrapegraph` remains a guarded future surface and fails closed. `--llm-provider mock` remains the deterministic test provider, while `--llm-provider openai` is available for source planning, classification assist, programme-catalog hints, and structured extraction fallback. `--keyword-query` is deterministic debug input and no longer enables LLM keyword-plan generation. Anthropic and Gemini provider names remain reserved and fail closed.
 
 To compare with a previous run:
 
@@ -345,8 +352,8 @@ LLM keyword-plan generation is no longer supported. `--keyword-query` remains a
 deterministic debug input for explicit keyword-plan diagnostics and the legacy
 `bm25-like` path.
 
-Guarded source navigation can be enabled when you need to test the LLM
-candidate frontier plumbing. Use `mock` for deterministic offline tests:
+LLM-assisted source navigation is enabled by default for live scans when a
+provider is available. Use `mock` for deterministic offline tests:
 
 ```bash
 python -m university_admissions_crawler.cli https://www.example.edu/ \
@@ -361,10 +368,10 @@ deterministic domain/source-value validation before they can enter the bounded
 crawl frontier, and extracted facts still require captured official-source
 evidence.
 
-For a real OpenAI-backed source planning run, provide credentials through
-environment variables; keys are never read from fixture files or written to
-outputs. For team/local development, copy the tracked template to an ignored
-local `.env` file:
+For a real OpenAI-backed live run, provide credentials through environment
+variables; keys are never read from fixture files or written to outputs. For
+team/local development, copy the tracked template to an ignored local `.env`
+file:
 
 ```bash
 cp .env.example .env
@@ -391,14 +398,11 @@ Verify that the variables are present without printing the key:
 python -c 'import os; print("OPENAI_API_KEY set:", bool(os.environ.get("OPENAI_API_KEY"))); print("OPENAI_MODEL:", os.environ.get("OPENAI_MODEL"))'
 ```
 
-Then run the guarded OpenAI provider:
+Then run the default LLM-assisted live crawler:
 
 ```bash
 python -m university_admissions_crawler.cli https://www.example.edu/ \
-  --enable-llm \
-  --llm-provider openai \
-  --enable-source-planning \
-  --output-dir outputs/example-openai-source-navigation
+  --output-dir outputs/example-openai-auto
 ```
 
 `.env` is ignored by git; `.env.example` is the only credential-related file

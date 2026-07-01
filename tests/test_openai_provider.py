@@ -2,8 +2,11 @@ from pathlib import Path
 
 from university_admissions_crawler.extractor.llm_provider import (
     CLASSIFICATION_ASSIST_OUTPUT_SCHEMA,
+    LLMStructuredExtractionSource,
     PROGRAMME_CATALOG_CLASSIFICATION_OUTPUT_SCHEMA,
     SOURCE_PLAN_OUTPUT_SCHEMA,
+    STRUCTURED_EXTRACTION_ALLOWED_CLAIM_PATHS,
+    STRUCTURED_EXTRACTION_OUTPUT_SCHEMA,
     OpenAIProvider,
 )
 
@@ -84,3 +87,40 @@ def test_openai_classification_and_programme_hint_payloads_are_schema_bounded():
     assert calls[1]["text"]["format"]["schema"] == PROGRAMME_CATALOG_CLASSIFICATION_OUTPUT_SCHEMA
     assert "Do not extract admissions facts" in calls[0]["instructions"]
     assert "Do not add programme names" in calls[1]["instructions"]
+
+
+def test_openai_structured_extraction_provider_uses_captured_source_boundary():
+    calls = []
+
+    def transport(payload):
+        calls.append(payload)
+        return {
+            "output_text": '{"candidate_facts":[{"claim_path":"admissions.fees","value":"SGD 20,000","evidence_snippet":"Undergraduate tuition fee is SGD 20,000 per year.","source_url":"https://example.edu/admissions/fees","confidence":0.76}],"warnings":[]}',
+        }
+
+    provider = OpenAIProvider(api_key="test-key", model="test-model", transport=transport)
+    source = LLMStructuredExtractionSource(
+        source_url="https://example.edu/admissions/fees",
+        title="Undergraduate fees",
+        source_type="html",
+        text="Undergraduate tuition fee is SGD 20,000 per year.",
+    )
+
+    payload = provider.extract_structured_candidate_payload(
+        source,
+        STRUCTURED_EXTRACTION_ALLOWED_CLAIM_PATHS,
+        STRUCTURED_EXTRACTION_OUTPUT_SCHEMA,
+    )
+
+    assert payload["candidate_facts"][0]["claim_path"] == "admissions.fees"
+    request = calls[0]
+    assert request["model"] == "test-model"
+    assert request["store"] is False
+    assert request["text"]["format"]["name"] == "structured_extraction"
+    assert request["text"]["format"]["schema"] == STRUCTURED_EXTRACTION_OUTPUT_SCHEMA
+    assert "contiguous verbatim substring" in request["instructions"]
+    assert "Return candidate facts, not final facts" in request["instructions"]
+    assert "Every source_url must equal the supplied source URL" in request["instructions"]
+    assert "test-key" not in str(request)
+    assert '"allowed_claim_paths"' in request["input"]
+    assert "admissions.fees" in request["input"]

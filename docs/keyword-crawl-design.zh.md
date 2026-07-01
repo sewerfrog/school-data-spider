@@ -52,8 +52,9 @@ profile 自动优先发现招生和专业目录 source”。
 
 - OpenAI 本地配置标准化已经完成：`.env.example`、`.gitignore`、README、
   版本说明和 `.env.example` 模板安全测试已对齐。
-- 真实 OpenAI provider 已接入 guarded source planning、classification assist 和
-  programme catalog hint，但还没有接入 Phase 6 的 structured extraction fallback。
+- 真实 OpenAI provider 已接入 guarded source planning、classification assist、
+  programme catalog hint 和 Phase 6 structured extraction fallback；OpenAI 仍只产生
+  source/candidate，不直接成为 facts authority。
 - 字段覆盖率仍取决于真实站点结构、source acquisition、context gate 和 extractor；
   diagnostics 只能解释本次 run 的失败层级，不能证明官网从未提供某字段。
 - `run_university_scan.py` 的插桩仍偏重，后续新增复杂诊断前应优先抽小 helper/tracer。
@@ -106,8 +107,10 @@ profile 自动优先发现招生和专业目录 source”。
   source acquisition failure。
 - `extraction_diagnostics` 会记录 source-level `source_acquisition_status`，用于区分
   blocked source 上的 no-match 和 usable source 上的 no-match。
-- `--enable-source-planning` 已接入 guarded LLM source planning。它必须配合
-  `--enable-llm`，支持 deterministic `mock` 和真实 `openai` provider，默认不启用。
+- `--enable-source-planning` 已接入 guarded LLM source planning。fixture/debug 模式仍需
+  显式配合 `--enable-llm`；非 fixture live 默认启用 LLM-assisted source planning，
+  `--llm-provider auto` 会在 `OPENAI_API_KEY` 存在时使用 OpenAI，否则记录 provider
+  `none` 并继续 deterministic crawl。
 - `llm_source_plan` 会写入 `run.config` diagnostics；accepted candidate URL 经过
   deterministic validation 后可以作为 bounded crawl frontier hint，但不会直接写 facts，
   不绕过 WAF。
@@ -419,8 +422,13 @@ Phase 5 的目标是把项目从“需要用户理解内部参数的 crawler”�
 11. NUS、HKU、NTU、PolyU saved-source pipeline 样板已覆盖 source discovery、page category、
     programme catalog rows 和 evidence path，未加入学校硬编码分支。
 12. OpenAI provider 已接入 guarded source planning、low-confidence classification assist、
-    captured programme row category/mode hint；mock provider 仍用于 deterministic offline
-    tests。Anthropic/Gemini 仍 fail closed。
+    captured programme row category/mode hint 和 structured extraction fallback；mock provider
+    仍用于 deterministic offline tests。Anthropic/Gemini 仍 fail closed。
+13. 非 fixture HTTP(S) 输入已切换为默认 LLM-assisted crawler：source planning、
+    classification assist 和 structured extraction fallback 默认开启；`--llm-provider auto`
+    在存在 `OPENAI_API_KEY` 时解析为 OpenAI，没有可用 provider 时记录
+    `llm_runtime.provider = none` 并继续 deterministic crawl。`--no-llm` /
+    `--deterministic-only` 是显式关闭入口。
 
 当前仍然保留的边界：
 
@@ -429,7 +437,8 @@ Phase 5 的目标是把项目从“需要用户理解内部参数的 crawler”�
 - 不做无边界全站 crawl。
 - 不把 live output 作为 pytest 依赖。
 - 不一次性重写所有 extractor。
-- 不把 hosted LLM 作为 deterministic test 或默认运行依赖。
+- 不把 hosted LLM 作为 deterministic test 依赖；live 默认可以启用 LLM-assisted crawler，
+  但 provider 不可用时必须 fail closed / degrade to deterministic crawl。
 - 所有 admissions facts 和 programme catalog rows 仍必须有 captured official source、
   snippet 和 evidence path。
 
@@ -802,7 +811,8 @@ git diff --check
 
 风险控制：
 
-- 默认不启用 hosted LLM。
+- live 默认启用 LLM-assisted crawler，但 hosted provider 不可用时必须 fail closed 并继续
+  deterministic crawl。
 - mock-first，fixture tests 不依赖网络或付费 API。
 - fallback 只处理已经保存的 source，不新增 crawl。
 
@@ -918,8 +928,10 @@ git diff --check
 
 目标：
 
-- README 继续保持 homepage-first 自动 crawl 为主命令。
-- LLM structured extraction 作为高级 guarded fallback 描述，不作为默认必需能力。
+- README 继续保持 homepage-first 自动 crawl 为主命令，并说明 live 默认是
+  LLM-assisted evidence-first crawler。
+- LLM structured extraction 是默认 live assisted crawler 的 fallback 层，但不是 facts
+  authority；deterministic validation 仍决定是否写入 result。
 - 文档明确：
   - LLM 不生成事实。
   - LLM 只从 captured official source 里提出 candidates。
@@ -936,7 +948,7 @@ git diff --check
 
 风险控制：
 
-- 不把 Phase 6 写成默认已完全自动化。
+- 不把 Phase 6 写成任意大学 100% 自动完整抽取。
 - 不承诺 hosted LLM 在所有学校上稳定提升覆盖率。
 - 不弱化“无法验证则 unknown / needs_manual_check”的原则。
 

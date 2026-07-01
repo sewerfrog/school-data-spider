@@ -404,6 +404,14 @@ def test_cli_smoke_flag_caps_depth_and_provider_flags_are_guarded():
 
     with redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
         try:
+            main([str(ROOT), "--fixture", "--enable-llm-structured-extraction"])
+        except SystemExit as exc:
+            assert exc.code != 0
+        else:
+            raise AssertionError("structured extraction should require guarded LLM opt-in")
+
+    with redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+        try:
             main([str(ROOT), "--fixture", "--enable-llm", "--llm-provider", "anthropic", "--enable-source-planning"])
         except SystemExit as exc:
             assert exc.code != 0
@@ -440,6 +448,71 @@ def test_cli_fixture_openai_source_planning_fails_closed_without_api_key(monkeyp
         assert "llm_source_plan_fallback" in source_plan["warnings"]
 
 
+def test_cli_fixture_openai_structured_extraction_fails_closed_without_api_key(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    with TemporaryDirectory() as tmp:
+        code = main(
+            [
+                str(ROOT),
+                "--fixture",
+                "--seed-url",
+                "https://fixture.test/realistic-admissions.html",
+                "--max-pages",
+                "1",
+                "--max-depth",
+                "0",
+                "--enable-llm",
+                "--llm-provider",
+                "openai",
+                "--enable-llm-structured-extraction",
+                "--output-dir",
+                tmp,
+            ]
+        )
+        assert code == 0
+        data = json.loads((Path(tmp) / "result.json").read_text())
+        diagnostics = data["run"]["config"]["llm_structured_extraction"]
+        assert diagnostics["provider"] == "openai"
+        assert diagnostics["candidate_count"] >= 1
+        assert diagnostics["rejected_count"] == diagnostics["candidate_count"]
+        assert any(result.get("error_type") == "RuntimeError" for result in diagnostics["results"])
+        assert diagnostics["applied_to_facts"] is False
+
+
+def test_cli_fixture_mock_llm_structured_extraction_records_report_diagnostics():
+    with TemporaryDirectory() as tmp:
+        code = main(
+            [
+                str(ROOT),
+                "--fixture",
+                "--seed-url",
+                "https://fixture.test/realistic-admissions.html",
+                "--max-pages",
+                "1",
+                "--max-depth",
+                "0",
+                "--enable-llm",
+                "--llm-provider",
+                "mock",
+                "--enable-llm-structured-extraction",
+                "--output-dir",
+                tmp,
+            ]
+        )
+        assert code == 0
+        data = json.loads((Path(tmp) / "result.json").read_text())
+        diagnostics = data["run"]["config"]["llm_structured_extraction"]
+        assert diagnostics["enabled"] is True
+        assert diagnostics["provider"] == "mock"
+        assert diagnostics["applied_to_facts"] is False
+        assert "results" in diagnostics
+        assert "source_urls_used" in diagnostics
+        report = (Path(tmp) / "report.md").read_text()
+        assert "## LLM Structured Extraction Diagnostics" in report
+        assert report.index("## LLM Structured Extraction Diagnostics") < report.index("## Facts")
+        assert "- Applied to facts: False" in report
+
+
 def test_cli_live_http_writes_json_and_markdown_from_local_server():
     with TemporaryDirectory() as out_tmp:
         with patch("university_admissions_crawler.cli.LiveHTTPFetcher", _FakeLiveHTTPFetcher):
@@ -463,7 +536,9 @@ def test_cli_live_http_writes_json_and_markdown_from_local_server():
         assert "Evidence appendix" in (Path(out_tmp) / "report.md").read_text()
 
 
-def test_cli_live_defaults_infer_domain_and_use_homepage_first_limits():
+def test_cli_live_defaults_infer_domain_and_use_homepage_first_limits(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("UAC_LLM_PROVIDER", raising=False)
     with TemporaryDirectory() as out_tmp:
         with patch("university_admissions_crawler.cli.LiveHTTPFetcher", _FakeLiveHTTPFetcher):
             code = main(
@@ -478,8 +553,36 @@ def test_cli_live_defaults_infer_domain_and_use_homepage_first_limits():
         assert data["run"]["config"]["allowed_domains"] == ["example.edu"]
         assert data["run"]["config"]["max_pages"] == 80
         assert data["run"]["config"]["max_depth"] == 4
+        assert data["run"]["config"]["llm_runtime"]["enabled"] is True
+        assert data["run"]["config"]["llm_runtime"]["provider"] == "none"
+        assert data["run"]["config"]["llm_runtime"]["features"]["source_planning"] is True
+        assert data["run"]["config"]["llm_runtime"]["features"]["structured_extraction"] is True
         assert data["run"]["config"]["coverage"]["found_count"] > 0
         assert "Core Field Coverage" in (Path(out_tmp) / "report.md").read_text()
+
+
+def test_cli_live_can_disable_default_llm_assist(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    with TemporaryDirectory() as out_tmp:
+        with patch("university_admissions_crawler.cli.LiveHTTPFetcher", _FakeLiveHTTPFetcher):
+            code = main(
+                [
+                    "https://example.edu/",
+                    "--no-llm",
+                    "--output-dir",
+                    out_tmp,
+                    "--max-pages",
+                    "5",
+                    "--max-depth",
+                    "1",
+                ]
+            )
+        assert code == 0
+        data = json.loads((Path(out_tmp) / "result.json").read_text())
+        assert data["run"]["config"]["llm_runtime"]["enabled"] is False
+        assert data["run"]["config"]["llm_runtime"]["provider"] == "none"
+        assert "llm_source_plan" not in data["run"]["config"]
+        assert "llm_structured_extraction" not in data["run"]["config"]
 
 
 def test_cli_browser_defaults_use_domcontentloaded_and_sixty_second_timeout():
