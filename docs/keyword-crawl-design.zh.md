@@ -66,7 +66,7 @@ profile 自动优先发现招生和专业目录 source”。
 当前执行状态：
 
 - 债务 1 已按“先拆 orchestration、冻结外部契约”的方向完成首轮代码清理：`run_university_scan.py` 保留扫描编排，category-routed extraction 与 guarded structured fallback 已迁出到独立 pipeline 模块。
-- 债务 2 已完成能力边界显式化：`field_capability_matrix`、canonical `missing_reasons`、`action_target` 和 Markdown capability 说明已经接入 diagnostics/report/tests。
+- 债务 2 已完成能力边界显式化：`field_capability_matrix`、canonical `missing_reasons`、`action_target` 和 Markdown capability 说明已经接入 diagnostics/report/tests。为降低兼容风险，`missing_reasons[*].reason` 保持旧诊断标签，新的行动分类写入 `missing_reasons[*].canonical_reason`。
 - 债务 3 尚未执行代码修改；本节只保留其契约治理方案，处理前需先做接口、schema 字段、compatibility alias 和文档状态盘点。
 
 ### 债务 1：`run_university_scan.py` 编排层过重

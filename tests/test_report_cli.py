@@ -47,6 +47,7 @@ def test_markdown_report_shows_missing_reasons_before_facts_when_fields_are_miss
     assert report.index("## Missing Reasons") < report.index("## Facts")
     assert "`accepted_qualifications`" in report
     assert "  - action target:" in report
+    assert "  - compatibility reason:" in report
     assert "  - capability:" in report
     assert "they do not prove the official site lacks the field" in report
 

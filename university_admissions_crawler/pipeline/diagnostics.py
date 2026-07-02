@@ -19,6 +19,15 @@ MISSING_REASON_CODES: tuple[str, ...] = (
     "portal_or_login_required",
     "manual_check_required",
 )
+LEGACY_MISSING_REASON_CODES: tuple[str, ...] = (
+    "not_attempted",
+    "source_not_crawled",
+    "application_portal_unreachable",
+    "attempted_no_match",
+    "context_gate_failed",
+    "undergraduate_context_gate_failed",
+    "manual_check_required",
+)
 LEGACY_MISSING_REASON_BY_CANONICAL = {
     "source_not_found": "not_attempted",
     "blocked_or_challenge": "source_not_crawled",
@@ -206,6 +215,7 @@ def refresh_run_diagnostics(data: AdmissionsData) -> AdmissionsData:
         data.run.config["classification_assist_summary"] = _classification_assist_summary(classification_assist)
     if isinstance(extraction_diagnostics, list):
         data.run.config["extraction_diagnostics_summary"] = _extraction_diagnostics_summary(extraction_diagnostics)
+        data.run.config["missing_reasons_contract"] = _missing_reasons_contract()
         data.run.config["missing_reasons"] = _missing_reasons(coverage, extraction_diagnostics, source_strategy)
     attach_template_completeness(data)
     return data
@@ -262,6 +272,17 @@ def _field_capability_matrix() -> dict[str, object]:
     return {capability.field: _field_capability_to_dict(capability) for capability in FIELD_CAPABILITIES}
 
 
+def _missing_reasons_contract() -> dict[str, object]:
+    return {
+        "reason": "legacy-compatible diagnostic label retained for existing consumers",
+        "canonical_reason": "actionable diagnostic label for debt-2 capability routing",
+        "action_target": "repair layer suggested by canonical_reason",
+        "canonical_reasons": list(MISSING_REASON_CODES),
+        "legacy_reasons": list(LEGACY_MISSING_REASON_CODES),
+        "note": "Consumers should migrate from reason to canonical_reason; reason remains stable for compatibility.",
+    }
+
+
 def _field_capability_details(field: str) -> dict[str, object]:
     capability = FIELD_CAPABILITY_BY_FIELD.get(field)
     if capability is None:
@@ -271,8 +292,10 @@ def _field_capability_details(field: str) -> dict[str, object]:
             "discovery_categories": [],
             "context_gates": [],
             "deterministic_extractors": [],
+            "structured_llm_fallback": False,
             "llm_claim_paths": [],
             "diagnostics_reasons": list(MISSING_REASON_CODES),
+            "compatibility_reasons": list(LEGACY_MISSING_REASON_CODES),
         }
     return _field_capability_to_dict(capability)
 
@@ -287,6 +310,7 @@ def _field_capability_to_dict(capability: FieldCapability) -> dict[str, object]:
         "structured_llm_fallback": bool(capability.llm_claim_paths),
         "llm_claim_paths": list(capability.llm_claim_paths),
         "diagnostics_reasons": list(capability.diagnostics_reasons),
+        "compatibility_reasons": list(LEGACY_MISSING_REASON_CODES),
     }
 
 
@@ -468,6 +492,7 @@ def _template_completeness(
             "status": "found" if is_found else "missing",
             "status_flags": status_flags,
             "reason": "found" if is_found else details.get("reason", "manual_check_required"),
+            "canonical_reason": "found" if is_found else details.get("canonical_reason", details.get("reason", "manual_check_required")),
             "action_target": "none" if is_found else details.get("action_target", "manual_review"),
             "capability": _field_capability_details(field),
             "attempts": len(attempts),
@@ -728,26 +753,34 @@ def _missing_reasons(coverage: dict[str, object], extraction_entries: list[objec
         field_source_urls = _urls_for_source_entries(field_source_entries)
         challenge_urls = _urls_for_source_entries(field_source_entries, {"blocked_or_challenge"})
         portal_urls = _urls_for_source_strategies(source_strategy, {"application_portal"})
-        reason, detail_reason = _missing_reason_for_attempts(attempts, challenge_urls, portal_urls, field_source_urls)
+        canonical_reason, detail_reason = _missing_reason_for_attempts(attempts, challenge_urls, portal_urls, field_source_urls)
+        legacy_reason = _legacy_missing_reason_for(canonical_reason, detail_reason)
         source_urls = sorted({str(item.get("source_url")) for item in attempts if item.get("source_url")})
-        if not source_urls and reason == "blocked_or_challenge":
+        if not source_urls and canonical_reason == "blocked_or_challenge":
             source_urls = challenge_urls
-        elif not source_urls and reason == "portal_or_login_required":
+        elif not source_urls and canonical_reason == "portal_or_login_required":
             source_urls = portal_urls
-        elif not source_urls and reason != "source_not_found":
+        elif not source_urls and canonical_reason != "source_not_found":
             source_urls = field_source_urls
         out[field_name] = {
-            "reason": reason,
-            "legacy_reason": LEGACY_MISSING_REASON_BY_CANONICAL.get(reason),
+            "reason": legacy_reason,
+            "canonical_reason": canonical_reason,
+            "legacy_reason": legacy_reason,
             "detail_reason": detail_reason,
-            "action_target": MISSING_REASON_ACTION_TARGETS.get(reason, "manual_review"),
+            "action_target": MISSING_REASON_ACTION_TARGETS.get(canonical_reason, "manual_review"),
             "attempts": len(attempts),
             "attempted_extractors": sorted({str(item.get("extractor", "unknown")) for item in attempts}),
             "source_urls": source_urls[:10],
             "capability": _field_capability_details(field_name),
-            "note": _missing_reason_note(reason),
+            "note": _missing_reason_note(canonical_reason),
         }
     return out
+
+
+def _legacy_missing_reason_for(canonical_reason: str, detail_reason: str) -> str:
+    if canonical_reason == "context_gate_failed" and detail_reason == "undergraduate_context_gate_failed":
+        return "undergraduate_context_gate_failed"
+    return LEGACY_MISSING_REASON_BY_CANONICAL.get(canonical_reason, canonical_reason)
 
 
 def _missing_reason_for_attempts(

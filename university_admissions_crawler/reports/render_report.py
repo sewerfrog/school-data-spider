@@ -475,15 +475,15 @@ def _missing_reasons(lines: list[str], data: AdmissionsData) -> None:
     for field, details in missing_reasons.items():
         if not isinstance(details, dict):
             continue
-        reason = details.get("reason", "manual_check_required")
+        compatibility_reason = details.get("reason", "manual_check_required")
+        canonical_reason = details.get("canonical_reason", compatibility_reason)
         attempts = details.get("attempts", 0)
-        lines.append(f"- `{field}`: `{reason}` after {attempts} attempt(s)")
+        lines.append(f"- `{field}`: `{canonical_reason}` after {attempts} attempt(s)")
         action_target = details.get("action_target")
         if action_target:
             lines.append(f"  - action target: `{action_target}`")
-        legacy_reason = details.get("legacy_reason")
-        if legacy_reason:
-            lines.append(f"  - legacy reason: `{legacy_reason}`")
+        if compatibility_reason != canonical_reason:
+            lines.append(f"  - compatibility reason: `{compatibility_reason}`")
         extractors = details.get("attempted_extractors") or []
         if isinstance(extractors, list) and extractors:
             lines.append(f"  - attempted extractors: {', '.join(f'`{extractor}`' for extractor in extractors)}")
