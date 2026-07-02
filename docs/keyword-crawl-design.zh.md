@@ -30,13 +30,13 @@ relevance、合理的 timeout/browser 策略、source planning 和 diagnostics�
 
 **阶段 5：官网主页优先的自动招生信息爬取**
 
-当前待执行的工程化需求：
+近期已完成的工程化需求：
 
-**Next Step: OpenAI Local Configuration Standardization**
+**Completed: OpenAI Local Configuration Standardization**
 
-**下一步：OpenAI 本地配置标准化**
+**已完成：OpenAI 本地配置标准化**
 
-后续功能规划：
+已完成并继续硬化的功能规划：
 
 **Phase 6: LLM Structured Extraction Fallback**
 
@@ -58,6 +58,210 @@ profile 自动优先发现招生和专业目录 source”。
 - 字段覆盖率仍取决于真实站点结构、source acquisition、context gate 和 extractor；
   diagnostics 只能解释本次 run 的失败层级，不能证明官网从未提供某字段。
 - `run_university_scan.py` 的插桩仍偏重，后续新增复杂诊断前应优先抽小 helper/tracer。
+
+## 当前技术债修理方案与执行状态
+
+本节基于 2026-07-02 对当前仓库的只读架构审计，目标是把最危险的三类债务拆成可执行、可验证、低回归风险的工程方案。
+
+当前执行状态：
+
+- 债务 1 已按“先拆 orchestration、冻结外部契约”的方向完成首轮代码清理：`run_university_scan.py` 保留扫描编排，category-routed extraction 与 guarded structured fallback 已迁出到独立 pipeline 模块。
+- 债务 2 已完成能力边界显式化：`field_capability_matrix`、canonical `missing_reasons`、`action_target` 和 Markdown capability 说明已经接入 diagnostics/report/tests。
+- 债务 3 尚未执行代码修改；本节只保留其契约治理方案，处理前需先做接口、schema 字段、compatibility alias 和文档状态盘点。
+
+### 债务 1：`run_university_scan.py` 编排层过重
+
+证据：
+
+- `university_admissions_crawler/pipeline/run_university_scan.py` 同时承担 discovery 调用、source 持久化、HTML/JSON/PDF 分流、页面分类、`source_strategy` 二次候选抓取、coverage diagnostics、core supplement、LLM structured fallback 和最终补诊断。
+- `run_scan()` 先走 `_run_scan_once()`，再根据 `source_strategy_summary` 可能追加候选 URL 后重新执行一次扫描。这个设计让“单次扫描状态”和“策略性补扫状态”混在同一入口里。
+- `_run_scan_once()` 内部既写入 facts，又写入 source records，还维护 diagnostics。`attach_run_diagnostics()` 之后 LLM fallback 仍可能补写事实，随后再刷新 diagnostics，说明事实状态和诊断状态存在顺序耦合。
+- `_append_programme_catalog()`、`_extract_core_supplements()`、`_apply_llm_structured_fallback()` 等能力已经是相对独立的功能块，但仍挂在同一个超大 orchestration 文件内。
+
+风险：
+
+- 任何字段抽取、LLM fallback、diagnostics 或 source strategy 的改动都容易触碰主扫描循环，回归半径过大。
+- 测试虽然覆盖了多条关键路径，但很多断言是在最终结果上观察副作用，缺少中间阶段的稳定契约。
+- 后续如果继续加 `selection_tests_or_interviews`、`international_requirements` 等字段，主循环会继续横向膨胀。
+
+修理策略：
+
+1. 先冻结外部契约，不改变 `run_scan()`、CLI 参数、`run.config`、`result.json`、report markdown、CSV 输出的结构。
+2. 在 pipeline 内引入小型内部上下文对象，例如：
+   - `CapturedSourceContext`：保存 URL、response、content type、extracted text、source record id、classifier result。
+   - `ExtractionAttempt`：保存字段名、候选值、claim path、source id、accept/reject reason。
+   - `ScanDiagnosticsState`：聚合 coverage、missing reasons、source strategy、LLM fallback diagnostics。
+3. 把主循环拆成只读输入、显式输出的 helper：
+   - `materialize_source(...)`：负责 response 到 source record/text 的转换。
+   - `classify_source(...)`：负责 deterministic classifier 与 optional LLM assist 诊断，但不直接写 facts。
+   - `extract_from_source(...)`：负责按 category 分派 deterministic extractor，返回 attempts。
+   - `apply_validated_attempts(...)`：统一做 evidence validation 与 facts 写入。
+   - `run_structured_fallback(...)`：从 orchestration 文件迁到独立模块，只接收缺失字段、候选 source、provider config，只返回 validated attempts 和 diagnostics。
+4. 主文件保留为 orchestration shell：discovery -> materialize -> classify -> extract -> validate/apply -> diagnostics -> optional fallback -> output。
+
+执行步骤：
+
+1. 补充保护性测试，先用现有 fixture 固定这些输出切片：
+   - evidence path resolution。
+   - `coverage` / `missing_reasons`。
+   - `source_strategy_summary`。
+   - LLM structured fallback 的 accepted/rejected candidate。
+   - programme catalog CSV 与 source index 的存在性。
+2. 第一步只提取 `CapturedSourceContext` 和 source materialization，要求 fixture 输出结构等价。
+3. 第二步提取 category dispatcher，保持现有 HTML/JSON/PDF 抽取顺序不变。
+4. 第三步提取 LLM structured fallback 到 `pipeline/structured_fallback.py`，保留 provider mock-first 测试方式。
+5. 最后再整理 diagnostics state，避免在同一个函数里多次“先诊断、后补事实、再补诊断”的隐式顺序。
+
+验收标准：
+
+- `run_university_scan.py` 只保留流程编排，单个 helper 有明确输入输出，不再承担字段解析细节。
+- 现有 CLI、Python API、输出 JSON/report/CSV 的契约不变。
+- deterministic 测试全量通过，并至少覆盖一次 source strategy 补扫、一次 LLM candidate accepted、一次 LLM candidate rejected。
+- `python3 -m compileall university_admissions_crawler tests` 通过。
+
+明确不做：
+
+- 不在这次债务修理中改默认 live crawl 行为。
+- 不借重构机会扩大 LLM 写 facts 的权限。
+- 不删除 compatibility alias 或旧 public API。
+
+### 债务 2：抽取器与分类器仍偏启发式，真实站点泛化边界不清
+
+证据：
+
+- `classifier/page_classifier.py` 主要依赖关键词与低置信度规则判断页面类别。
+- `admissions_context.py` 通过 context gate 决定文本是否足以支持字段抽取，这能减少误报，但也会产生漏报。
+- `extractor/html_extractor.py` 仍以字段级正则和局部上下文为主，例如 deadline、English、programme、prerequisite、fee、contact、required documents。
+- `extractor/programme_catalog.py` 已包含若干来源提示，例如 HKU/NUS/NTU/PolyU 相关页面结构和 faculty hint。这提升了样本效果，但也说明 programme catalog 泛化依赖启发式。
+- `reports/render_report.py` 与 diagnostics 文案已经强调：missing reason 解释的是“当前捕获源码与当前抽取器未产出”，不是官网不存在该字段的证明。
+
+风险：
+
+- 对新学校、新栏目、新页面模板，系统可能出现“抓到了页面但分类不准”“分类准但 context gate 拦截”“context gate 通过但 parser 不识别”的链式漏抽。
+- 当前 diagnostics 能提示缺字段，但还不能稳定指出应该修 discovery、classifier、context gate 还是 extractor。
+- 若继续用零散正则追加字段，会让 false positive/false negative 的边界越来越难维护。
+
+修理策略：
+
+1. 建立字段能力矩阵，以 `pipeline/diagnostics.py` 的 `CORE_FIELDS` 为主线。每个字段必须明确：
+   - 依赖哪些 discovery page category。
+   - 经过哪些 context gate。
+   - deterministic extractor 的入口。
+   - 是否允许 structured LLM fallback。
+   - 允许写入的 claim path。
+   - 失败时对应的 `missing_reasons` 类型。
+2. 把缺失原因拆成可行动分类：
+   - `source_not_found`：没捕获到支持该字段的页面。
+   - `blocked_or_challenge`：捕获到的是挑战页、封锁页或无可用正文。
+   - `context_gate_failed`：页面存在，但上下文不足以支持事实。
+   - `attempted_no_match`：上下文通过，deterministic extractor 未匹配。
+   - `raw_needs_manual_review`：抽到了原文候选，但无法可靠结构化。
+   - `portal_or_login_required`：字段很可能在登录/申请系统内，不能从公开页面确认。
+3. 以 fixture 和 saved source 驱动改进，不把 live network 作为核心测试依赖：
+   - 从现有 HKU/NTU/PolyU/NUS saved source 中抽取最小 HTML 片段。
+   - 每个字段至少保留一个 positive fixture 和一个 false-positive rejection fixture。
+   - 复杂字段保留 raw value，只有确定可解析时才输出 structured value。
+4. programme catalog 拆分为“通用表格/列表解析”和“来源 hint”两层：
+   - 通用层只处理 table/list/card 的结构。
+   - hint 层只提供轻量字段名映射、faculty hint、噪声过滤。
+   - 不允许在 pipeline 主循环里新增学校专用分支。
+5. LLM fallback 继续作为最后一层补洞：
+   - 只能基于已捕获 source text。
+   - candidate 必须通过 `validate_llm_candidate_fact` 和 claim path 白名单。
+   - 不能覆盖 deterministic extractor 已经写入且有证据的字段。
+
+执行步骤：
+
+1. 先在文档或测试 fixture 注释中补齐字段能力矩阵，确认每个 core field 的 owner。
+2. 按字段逐步整理 extractor 测试，优先顺序：
+   - `application_deadline` 和 `tuition_fee`，因为它们最容易出现格式和币种差异。
+   - `english_language_requirements`，因为页面模板差异大且误报成本高。
+   - `required_documents`、`prerequisites`、`contact`，因为通常依赖段落上下文。
+3. 为 programme catalog 增加“generic parser 不依赖学校名”的 fixture，再把学校 hint 测试单独隔离。
+4. 扩展 `missing_reasons` 输出，让报告能区分“页面没来”和“页面来了但 parser 没懂”。
+5. 每完成一个字段，同步补充 saved-source regression，避免为了新样本破坏旧样本。
+
+验收标准：
+
+- 每个 core field 都能从 capability matrix 追溯到 discovery category、context gate、extractor、diagnostics reason。
+- 新增字段或修改 parser 时，不需要改 `run_university_scan.py` 主循环。
+- report 的缺失说明能指导下一步修复位置，而不是只给出 generic missing。
+- deterministic extractor 和 LLM fallback 的职责边界在测试里有正反例。
+
+明确不做：
+
+- 不承诺任意官网字段 100% 覆盖。
+- 不引入大型 NLP/浏览器依赖作为 core extractor 前置条件。
+- 不把 LLM 输出作为无证据事实写入。
+
+### 债务 3：输出契约、兼容层与文档状态存在漂移
+
+证据：
+
+- `extractor/schema.py` 的 `AdmissionsRecord` 包含 `international_requirements`、`standardized_tests`、`selection_tests_or_interviews` 等字段，但当前主要抽取路径并没有稳定写入这些字段。
+- `tests/test_compatibility_boundaries.py` 冻结了若干 compatibility/private alias，说明外部或历史调用面已经存在，不能随意删除。
+- `crawler/config.py` 里的 `CrawlConfig` / `smoke_config()` 更像兼容边界，而 CLI live/fixture 默认值主要来自 `cli.py` 和 `config_loader.py`。
+- README、VERSION_NOTES、PROJECT_MAP、设计文档里曾多次记录测试数量和阶段状态，这类数字很容易随测试增删而不一致。
+- diagnostics/report 文案已经在局部强调“不是 absence proof”，但 schema 字段、报告字段和文档路线图之间仍可能让读者误以为所有 schema 字段都已稳定抽取。
+
+风险：
+
+- 下游使用者无法区分“稳定事实字段”“实验字段”“仅 schema 预留字段”“diagnostic 字段”。
+- 为了保持旧测试通过，内部 private alias 可能继续被当作事实公共 API 扩散。
+- 文档中的测试数量、phase 状态、默认行为如果漂移，会削弱后续维护者对文档的信任。
+
+修理策略：
+
+1. 建立运行契约清单，把接口分成四类：
+   - `primary`：CLI、`run_scan()`、`run_fixture_scan()`、`AdmissionsData`、`write_result_files()`、稳定输出字段。
+   - `compatibility`：历史 alias、private alias、旧 config wrapper，短期保留但不鼓励新增调用。
+   - `experimental`：schema 预留字段、LLM assist diagnostics、source planning diagnostics。
+   - `generated-output`：reports、CSV、source index、coverage/missing reasons。
+2. 给 schema 字段加状态说明：
+   - 已稳定抽取：可以在报告中作为事实展示。
+   - 条件抽取：只在 source text 足够且 extractor 支持时展示。
+   - 预留/实验：可以出现在 schema，但不能让文档暗示已稳定覆盖。
+3. 给 compatibility surface 制定退场策略：
+   - 当前阶段不删除，先在文档中标明 owner 和用途。
+   - 新代码不再引用 private alias。
+   - 若未来要移除，必须先有一次显式迁移说明和测试调整。
+4. 文档状态改成少写易漂移数字：
+   - README 只描述能力面和推荐命令。
+   - VERSION_NOTES 记录 release-level 验证快照。
+   - PROJECT_MAP 描述模块边界。
+   - 本设计文档记录方案、边界和设计决策，不反复维护“最新通过测试数量”。
+5. 对输出字段建立事实/诊断分界：
+   - facts 必须有 source/evidence claim path。
+   - diagnostics 只能解释系统行为，不能当作招生事实。
+   - experimental 字段默认需要 manual check 或明确 provenance。
+
+执行步骤：
+
+1. 用 `rg` 生成一次接口与字段盘点：
+   - public imports / CLI flags。
+   - schema 字段写入点。
+   - compatibility alias 使用点。
+   - docs 中的测试数量和 phase 状态。
+2. 在文档中补一张契约表，先完成标注，不立刻改代码。
+3. 对未稳定写入的 schema 字段，逐项选择：
+   - 补 deterministic extractor。
+   - 仅作为 manual/experimental 字段保留。
+   - 计划未来破坏性迁移，但当前不删除。
+4. 将测试只绑定到真正承诺的 contract，不要为内部 helper 自动形成长期兼容义务。
+5. 每次 release 只在一个地方更新验证快照，其他文档引用该快照或避免写死数字。
+
+验收标准：
+
+- 文档能清楚区分事实字段、诊断字段、实验字段、兼容 API。
+- 未稳定抽取的 schema 字段不会被描述成已完成能力。
+- compatibility alias 有保留理由和未来处理方式。
+- README/VERSION_NOTES/PROJECT_MAP/本设计文档之间不再出现互相矛盾的阶段状态或测试数量。
+
+明确不做：
+
+- 不在本 docs 更新中删除字段、alias 或旧配置入口。
+- 不把测试数量作为长期架构质量指标。
+- 不让 diagnostics 输出替代 evidence-backed facts。
 
 ## 当前目标与边界
 

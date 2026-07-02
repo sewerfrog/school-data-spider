@@ -3,22 +3,133 @@
 from __future__ import annotations
 
 from collections import Counter
+from dataclasses import dataclass
 from urllib.parse import urlparse
 
 from university_admissions_crawler.crawler.filters import looks_like_blocked_or_challenge_source
 from university_admissions_crawler.extractor.schema import AdmissionsData, PageCategory, SourceType, WarningCode, WarningRecord
 
 
-CORE_FIELDS: tuple[tuple[str, str], ...] = (
-    ("undergraduate_application_entry", "/admissions/undergraduate_application_entry"),
-    ("application_periods", "/admissions/application_periods"),
-    ("english_requirements", "/admissions/english_requirements"),
-    ("accepted_qualifications", "/admissions/accepted_qualifications"),
-    ("required_documents", "/admissions/required_documents"),
-    ("programmes", "/programmes"),
-    ("fees", "/fees"),
-    ("scholarships", "/scholarships"),
-    ("contacts", "/contacts"),
+MISSING_REASON_CODES: tuple[str, ...] = (
+    "source_not_found",
+    "blocked_or_challenge",
+    "attempted_no_match",
+    "context_gate_failed",
+    "raw_needs_manual_review",
+    "portal_or_login_required",
+    "manual_check_required",
+)
+LEGACY_MISSING_REASON_BY_CANONICAL = {
+    "source_not_found": "not_attempted",
+    "blocked_or_challenge": "source_not_crawled",
+    "portal_or_login_required": "application_portal_unreachable",
+}
+MISSING_REASON_ACTION_TARGETS = {
+    "source_not_found": "discovery_or_classifier",
+    "blocked_or_challenge": "source_acquisition",
+    "attempted_no_match": "extractor",
+    "context_gate_failed": "context_gate",
+    "raw_needs_manual_review": "parser_or_manual_review",
+    "portal_or_login_required": "portal_or_manual_review",
+    "manual_check_required": "manual_review",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class FieldCapability:
+    """Static capability map used by diagnostics; it does not drive extraction."""
+
+    field: str
+    claim_path: str
+    discovery_categories: tuple[PageCategory, ...]
+    context_gates: tuple[str, ...]
+    deterministic_extractors: tuple[str, ...]
+    llm_claim_paths: tuple[str, ...] = ()
+    diagnostics_reasons: tuple[str, ...] = MISSING_REASON_CODES
+
+
+FIELD_CAPABILITIES: tuple[FieldCapability, ...] = (
+    FieldCapability(
+        field="undergraduate_application_entry",
+        claim_path="/admissions/undergraduate_application_entry",
+        discovery_categories=(PageCategory.UNDERGRADUATE_ADMISSIONS,),
+        context_gates=("requires_application_period",),
+        deterministic_extractors=("source_url_from_application_period",),
+        llm_claim_paths=("admissions.application_entry",),
+    ),
+    FieldCapability(
+        field="application_periods",
+        claim_path="/admissions/application_periods",
+        discovery_categories=(PageCategory.UNDERGRADUATE_ADMISSIONS, PageCategory.APPLICATION_DEADLINES),
+        context_gates=(),
+        deterministic_extractors=("extract_deadline",),
+        llm_claim_paths=("admissions.application_period", "admissions.application_deadline"),
+    ),
+    FieldCapability(
+        field="english_requirements",
+        claim_path="/admissions/english_requirements",
+        discovery_categories=(PageCategory.INTERNATIONAL_REQUIREMENTS,),
+        context_gates=("has_english_requirement_context", "has_undergraduate_admissions_context"),
+        deterministic_extractors=("extract_english_requirement",),
+        llm_claim_paths=("admissions.requirements.english",),
+    ),
+    FieldCapability(
+        field="accepted_qualifications",
+        claim_path="/admissions/accepted_qualifications",
+        discovery_categories=(
+            PageCategory.ACCEPTED_QUALIFICATIONS,
+            PageCategory.INTERNATIONAL_REQUIREMENTS,
+            PageCategory.PROGRAMME_PREREQUISITES,
+        ),
+        context_gates=(),
+        deterministic_extractors=("extract_accepted_qualification", "extract_prerequisite"),
+        llm_claim_paths=("admissions.requirements.academic",),
+    ),
+    FieldCapability(
+        field="required_documents",
+        claim_path="/admissions/required_documents",
+        discovery_categories=(PageCategory.UNDERGRADUATE_ADMISSIONS,),
+        context_gates=(),
+        deterministic_extractors=("extract_required_document",),
+        llm_claim_paths=("admissions.required_documents",),
+    ),
+    FieldCapability(
+        field="programmes",
+        claim_path="/programmes",
+        discovery_categories=(PageCategory.PROGRAMME_LIST, PageCategory.PROGRAMME_PREREQUISITES),
+        context_gates=("has_undergraduate_admissions_context",),
+        deterministic_extractors=("extract_programmes", "extract_programme"),
+    ),
+    FieldCapability(
+        field="fees",
+        claim_path="/fees",
+        discovery_categories=(PageCategory.FEES,),
+        context_gates=("has_undergraduate_fee_context", "has_undergraduate_admissions_context"),
+        deterministic_extractors=("extract_fee",),
+        llm_claim_paths=("admissions.fees",),
+    ),
+    FieldCapability(
+        field="scholarships",
+        claim_path="/scholarships",
+        discovery_categories=(PageCategory.SCHOLARSHIPS,),
+        context_gates=("has_undergraduate_scholarship_context", "has_undergraduate_admissions_context"),
+        deterministic_extractors=("extract_scholarship",),
+        llm_claim_paths=("admissions.scholarships",),
+    ),
+    FieldCapability(
+        field="contacts",
+        claim_path="/contacts",
+        discovery_categories=(PageCategory.CONTACT,),
+        context_gates=("has_admissions_contact_context", "has_undergraduate_admissions_context"),
+        deterministic_extractors=("extract_contact",),
+        llm_claim_paths=("admissions.contact",),
+    ),
+)
+FIELD_CAPABILITY_BY_FIELD: dict[str, FieldCapability] = {
+    capability.field: capability for capability in FIELD_CAPABILITIES
+}
+CORE_FIELDS: tuple[tuple[str, str], ...] = tuple(
+    (capability.field, capability.claim_path) for capability in FIELD_CAPABILITIES
 )
 
 PORTAL_TERMS = (
@@ -87,6 +198,7 @@ def refresh_run_diagnostics(data: AdmissionsData) -> AdmissionsData:
     summary = Counter(item.get("strategy", "unknown") for item in source_strategy if isinstance(item, dict))
     extraction_diagnostics = data.run.config.get("extraction_diagnostics")
     data.run.config["coverage"] = coverage
+    data.run.config["field_capability_matrix"] = _field_capability_matrix()
     data.run.config["source_strategy_summary"] = dict(sorted(summary.items()))
     data.run.config["programme_catalog_summary"] = _programme_catalog_summary(data, extraction_diagnostics, source_strategy)
     classification_assist = data.run.config.get("classification_assist")
@@ -113,6 +225,7 @@ def attach_template_completeness(data: AdmissionsData) -> AdmissionsData:
         missing_reasons = {}
     if not isinstance(extraction_diagnostics, list):
         extraction_diagnostics = []
+    data.run.config["field_capability_matrix"] = _field_capability_matrix()
     data.run.config["template_completeness"] = _template_completeness(data, coverage, extraction_diagnostics, source_strategy, missing_reasons)
     return data
 
@@ -142,6 +255,38 @@ def llm_structured_validation_summary(results: list[object]) -> dict[str, object
         "reject_reasons": dict(sorted(reject_reasons.items())),
         "accepted_claim_paths": dict(sorted(accepted_claim_paths.items())),
         "note": "LLM structured extraction candidates are summarized after deterministic validation; rejected candidates are diagnostics only.",
+    }
+
+
+def _field_capability_matrix() -> dict[str, object]:
+    return {capability.field: _field_capability_to_dict(capability) for capability in FIELD_CAPABILITIES}
+
+
+def _field_capability_details(field: str) -> dict[str, object]:
+    capability = FIELD_CAPABILITY_BY_FIELD.get(field)
+    if capability is None:
+        return {
+            "field": field,
+            "claim_path": "",
+            "discovery_categories": [],
+            "context_gates": [],
+            "deterministic_extractors": [],
+            "llm_claim_paths": [],
+            "diagnostics_reasons": list(MISSING_REASON_CODES),
+        }
+    return _field_capability_to_dict(capability)
+
+
+def _field_capability_to_dict(capability: FieldCapability) -> dict[str, object]:
+    return {
+        "field": capability.field,
+        "claim_path": capability.claim_path,
+        "discovery_categories": [str(category) for category in capability.discovery_categories],
+        "context_gates": list(capability.context_gates),
+        "deterministic_extractors": list(capability.deterministic_extractors),
+        "structured_llm_fallback": bool(capability.llm_claim_paths),
+        "llm_claim_paths": list(capability.llm_claim_paths),
+        "diagnostics_reasons": list(capability.diagnostics_reasons),
     }
 
 
@@ -323,6 +468,8 @@ def _template_completeness(
             "status": "found" if is_found else "missing",
             "status_flags": status_flags,
             "reason": "found" if is_found else details.get("reason", "manual_check_required"),
+            "action_target": "none" if is_found else details.get("action_target", "manual_review"),
+            "capability": _field_capability_details(field),
             "attempts": len(attempts),
             "attempted_extractors": sorted({str(item.get("extractor", "unknown")) for item in attempts}),
             "source_urls": _template_source_urls(field, details, attempts, source_plan_budget_skipped),
@@ -441,15 +588,17 @@ def _template_status_flags(
         return ["source_found"]
     if source_plan_budget_skipped.get(field):
         return ["source_budget_skipped"]
-    if missing_reason == "source_not_crawled":
+    if missing_reason in {"blocked_or_challenge", "source_not_crawled"}:
         return ["source_blocked_or_challenge"]
-    if missing_reason == "application_portal_unreachable":
+    if missing_reason in {"portal_or_login_required", "application_portal_unreachable"}:
         return ["portal_or_login_required"]
     if missing_reason == "attempted_no_match":
         return ["source_found", "attempted_no_match"]
     if missing_reason in {"context_gate_failed", "undergraduate_context_gate_failed"}:
         return ["source_found", "context_gate_failed"]
-    if not attempts or missing_reason == "not_attempted":
+    if missing_reason == "raw_needs_manual_review":
+        return ["source_found", "raw_needs_manual_review"]
+    if not attempts or missing_reason in {"source_not_found", "not_attempted"}:
         return ["source_not_found", "extractor_not_attempted"]
     return ["manual_check_required"]
 
@@ -462,6 +611,8 @@ def _template_next_action(found: bool, status_flags: list[str]) -> str:
         return "improve_source_discovery_or_llm_source_navigation"
     if "attempted_no_match" in flags or "context_gate_failed" in flags or "extractor_not_attempted" in flags:
         return "improve_extractor_or_context_gate"
+    if "raw_needs_manual_review" in flags:
+        return "manual_review_or_parser"
     if "portal_or_login_required" in flags:
         return "manual_check_required"
     return "manual_check_required"
@@ -494,6 +645,8 @@ def _template_field_note(found: bool, status_flags: list[str]) -> str:
         return "A field extractor ran on captured official text but did not match a supported pattern."
     if "context_gate_failed" in status_flags:
         return "Captured text did not pass the deterministic context gate for this field."
+    if "raw_needs_manual_review" in status_flags:
+        return "Captured text produced a raw candidate that needs parser improvement or manual review before structured use."
     if "portal_or_login_required" in status_flags:
         return "Relevant diagnostics point to a portal/login flow that this crawler cannot enter."
     return "The field remains unresolved and needs manual review."
@@ -567,47 +720,66 @@ def _missing_reasons(coverage: dict[str, object], extraction_entries: list[objec
                 enriched["source_acquisition_status"] = source_acquisition_status
             attempts_by_field.setdefault(field, []).append(enriched)
 
-    challenge_urls = _urls_for_source_strategies(source_strategy, {"blocked_or_challenge"})
-    portal_urls = _urls_for_source_strategies(source_strategy, {"application_portal"})
     out: dict[str, object] = {}
     for field in missing:
         field_name = str(field)
         attempts = attempts_by_field.get(field_name, [])
-        reason = _missing_reason_for_attempts(attempts, challenge_urls, portal_urls)
+        field_source_entries = _source_strategy_entries_for_field(source_strategy, field_name)
+        field_source_urls = _urls_for_source_entries(field_source_entries)
+        challenge_urls = _urls_for_source_entries(field_source_entries, {"blocked_or_challenge"})
+        portal_urls = _urls_for_source_strategies(source_strategy, {"application_portal"})
+        reason, detail_reason = _missing_reason_for_attempts(attempts, challenge_urls, portal_urls, field_source_urls)
         source_urls = sorted({str(item.get("source_url")) for item in attempts if item.get("source_url")})
-        if not source_urls and reason == "source_not_crawled":
+        if not source_urls and reason == "blocked_or_challenge":
             source_urls = challenge_urls
-        elif not source_urls and reason == "application_portal_unreachable":
+        elif not source_urls and reason == "portal_or_login_required":
             source_urls = portal_urls
+        elif not source_urls and reason != "source_not_found":
+            source_urls = field_source_urls
         out[field_name] = {
             "reason": reason,
+            "legacy_reason": LEGACY_MISSING_REASON_BY_CANONICAL.get(reason),
+            "detail_reason": detail_reason,
+            "action_target": MISSING_REASON_ACTION_TARGETS.get(reason, "manual_review"),
             "attempts": len(attempts),
             "attempted_extractors": sorted({str(item.get("extractor", "unknown")) for item in attempts}),
             "source_urls": source_urls[:10],
+            "capability": _field_capability_details(field_name),
             "note": _missing_reason_note(reason),
         }
     return out
 
 
-def _missing_reason_for_attempts(attempts: list[dict[str, object]], challenge_urls: list[str], portal_urls: list[str]) -> str:
+def _missing_reason_for_attempts(
+    attempts: list[dict[str, object]],
+    challenge_urls: list[str],
+    portal_urls: list[str],
+    field_source_urls: list[str],
+) -> tuple[str, str]:
     if not attempts:
         if challenge_urls:
-            return "source_not_crawled"
-        return "application_portal_unreachable" if portal_urls else "not_attempted"
+            return "blocked_or_challenge", "source_not_crawled"
+        if portal_urls:
+            return "portal_or_login_required", "application_portal_unreachable"
+        if not field_source_urls:
+            return "source_not_found", "not_attempted"
+        return "manual_check_required", "extractor_not_attempted"
     if _all_attempts_from_blocked_sources(attempts, challenge_urls):
-        return "source_not_crawled"
+        return "blocked_or_challenge", "source_not_crawled"
     usable_attempts = [item for item in attempts if not _is_blocked_source_attempt(item, challenge_urls)]
+    if any(item.get("parse_status") == "raw_needs_manual_review" or item.get("reason") == "raw_needs_manual_review" for item in usable_attempts):
+        return "raw_needs_manual_review", "raw_needs_manual_review"
     if any(item.get("status") == "no_match" for item in usable_attempts):
-        return "attempted_no_match"
+        return "attempted_no_match", "attempted_no_match"
     if any(item.get("reason") == "context_gate_failed" for item in usable_attempts):
-        return "context_gate_failed"
+        return "context_gate_failed", "context_gate_failed"
     if any(item.get("reason") == "undergraduate_context_gate_failed" for item in usable_attempts):
-        return "undergraduate_context_gate_failed"
+        return "context_gate_failed", "undergraduate_context_gate_failed"
     if portal_urls:
-        return "application_portal_unreachable"
+        return "portal_or_login_required", "application_portal_unreachable"
     if any(item.get("status") == "skipped" for item in attempts):
-        return "manual_check_required"
-    return "manual_check_required"
+        return "manual_check_required", "skipped_or_inconclusive"
+    return "manual_check_required", "inconclusive"
 
 
 def _source_strategy_by_url(source_strategy: object) -> dict[str, str]:
@@ -622,6 +794,34 @@ def _source_strategy_by_url(source_strategy: object) -> dict[str, str]:
         if isinstance(url, str) and url and isinstance(strategy, str) and strategy:
             out[url] = strategy
     return out
+
+
+def _source_strategy_entries_for_field(source_strategy: object, field: str) -> list[dict[str, object]]:
+    if not isinstance(source_strategy, list):
+        return []
+    capability = FIELD_CAPABILITY_BY_FIELD.get(field)
+    if capability is None:
+        return []
+    categories = {str(category) for category in capability.discovery_categories}
+    entries: list[dict[str, object]] = []
+    for item in source_strategy:
+        if not isinstance(item, dict):
+            continue
+        category = item.get("category")
+        if isinstance(category, str) and category in categories:
+            entries.append(item)
+    return entries
+
+
+def _urls_for_source_entries(entries: list[dict[str, object]], strategies: set[str] | None = None) -> list[str]:
+    urls: list[str] = []
+    for item in entries:
+        if strategies is not None and item.get("strategy") not in strategies:
+            continue
+        url = item.get("url")
+        if isinstance(url, str) and url:
+            urls.append(url)
+    return sorted(set(urls))
 
 
 def _all_attempts_from_blocked_sources(attempts: list[dict[str, object]], challenge_urls: list[str]) -> bool:
@@ -650,12 +850,12 @@ def _urls_for_source_strategies(source_strategy: object, strategies: set[str]) -
 
 def _missing_reason_note(reason: str) -> str:
     notes = {
-        "not_attempted": "No extractor attempt was recorded for this missing field in the captured sources.",
-        "source_not_crawled": "Captured source was blocked/challenge content, so extractors did not receive usable official page text.",
+        "source_not_found": "No captured source matched this field's capability categories in this run.",
+        "blocked_or_challenge": "A field-relevant captured source was blocked/challenge content, so extractors did not receive usable official page text.",
         "attempted_no_match": "At least one extractor ran on captured sources but did not match a supported pattern.",
         "context_gate_failed": "Captured sources did not pass the field-specific context gate.",
-        "undergraduate_context_gate_failed": "Captured sources did not pass the undergraduate admissions context gate.",
-        "application_portal_unreachable": "Relevant source diagnostics indicate an application portal that this crawler cannot enter.",
+        "raw_needs_manual_review": "A captured source produced a raw candidate that needs manual review or parser improvement before structured use.",
+        "portal_or_login_required": "Relevant source diagnostics indicate an application portal that this crawler cannot enter.",
         "manual_check_required": "The field remains missing after skipped or inconclusive extraction attempts.",
     }
     return notes.get(reason, "The field remains missing and needs manual review.")

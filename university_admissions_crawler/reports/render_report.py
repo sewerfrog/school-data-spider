@@ -478,9 +478,20 @@ def _missing_reasons(lines: list[str], data: AdmissionsData) -> None:
         reason = details.get("reason", "manual_check_required")
         attempts = details.get("attempts", 0)
         lines.append(f"- `{field}`: `{reason}` after {attempts} attempt(s)")
+        action_target = details.get("action_target")
+        if action_target:
+            lines.append(f"  - action target: `{action_target}`")
+        legacy_reason = details.get("legacy_reason")
+        if legacy_reason:
+            lines.append(f"  - legacy reason: `{legacy_reason}`")
         extractors = details.get("attempted_extractors") or []
         if isinstance(extractors, list) and extractors:
             lines.append(f"  - attempted extractors: {', '.join(f'`{extractor}`' for extractor in extractors)}")
+        capability = details.get("capability")
+        if isinstance(capability, dict):
+            capability_parts = _capability_report_parts(capability)
+            if capability_parts:
+                lines.append(f"  - capability: {'; '.join(capability_parts)}")
         source_urls = details.get("source_urls") or []
         if isinstance(source_urls, list) and source_urls:
             lines.append(f"  - sources: {', '.join(str(url) for url in source_urls[:5])}")
@@ -489,6 +500,30 @@ def _missing_reasons(lines: list[str], data: AdmissionsData) -> None:
             lines.append(f"  - note: {note}")
     lines.append("- Note: missing reasons describe the current crawl and extractors; they do not prove the official site lacks the field.")
     lines.append("")
+
+
+def _capability_report_parts(capability: dict[str, object]) -> list[str]:
+    parts: list[str] = []
+    categories = _code_values(capability.get("discovery_categories"))
+    if categories:
+        parts.append(f"categories {categories}")
+    gates = _code_values(capability.get("context_gates"))
+    if gates:
+        parts.append(f"context gates {gates}")
+    extractors = _code_values(capability.get("deterministic_extractors"))
+    if extractors:
+        parts.append(f"extractors {extractors}")
+    llm_claims = _code_values(capability.get("llm_claim_paths"))
+    if llm_claims:
+        parts.append(f"LLM claims {llm_claims}")
+    return parts
+
+
+def _code_values(values: object) -> str:
+    if not isinstance(values, list):
+        return ""
+    clean_values = [str(value) for value in values if value]
+    return ", ".join(f"`{value}`" for value in clean_values)
 
 
 def _field(lines: list[str], label: str, value: FieldValue, data: AdmissionsData | None = None) -> None:

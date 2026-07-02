@@ -2,67 +2,40 @@
 
 from __future__ import annotations
 
-from collections import Counter
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from university_admissions_crawler.classifier.page_classifier import classify_page, is_low_confidence_classification
-from university_admissions_crawler.crawler.admissions_context import (
-    has_admissions_contact_context,
-    has_english_requirement_context,
-    has_undergraduate_admissions_context,
-    has_undergraduate_fee_context,
-    has_undergraduate_scholarship_context,
-)
-from university_admissions_crawler.crawler.discovery import DiscoveryConfig, discover
-from university_admissions_crawler.crawler.fetcher import Fetcher, FixtureFetcher
-from university_admissions_crawler.crawler.filters import DomainPolicy, canonicalize_url
+from university_admissions_crawler.classifier.page_classifier import Classification, classify_page, is_low_confidence_classification
+from university_admissions_crawler.crawler.discovery import DiscoveredPage, DiscoveryConfig, discover
+from university_admissions_crawler.crawler.fetcher import Fetcher, FetchResult, FixtureFetcher
+from university_admissions_crawler.crawler.filters import canonicalize_url
 from university_admissions_crawler.crawler.relevance import DEFAULT_RELEVANCE_STRATEGY, KeywordPlan, RelevanceStrategy, relevance_diagnostics
 from university_admissions_crawler.evidence.store import write_source_record
-from university_admissions_crawler.evidence.validator import validate_llm_candidate_fact
-from university_admissions_crawler.evidence.provenance import evidence_from_source
 from university_admissions_crawler.extractor.api_extractor import extract_api_claims
-from university_admissions_crawler.extractor.html_extractor import (
-    extract_accepted_qualification,
-    extract_contact,
-    extract_deadline,
-    extract_english_requirement,
-    extract_fee,
-    extract_housing,
-    extract_prerequisite,
-    extract_programme,
-    extract_programmes,
-    extract_required_document,
-    extract_scholarship,
-    extract_visa,
-)
 from university_admissions_crawler.extractor.llm_provider import (
-    LLMStructuredCandidateFact,
-    LLMStructuredExtractionSource,
-    STRUCTURED_EXTRACTION_ALLOWED_CLAIM_PATHS,
-    STRUCTURED_EXTRACTION_OUTPUT_SCHEMA,
     ClassificationAssistProvider,
     ProgrammeCatalogAssistProvider,
     SourcePlanProvider,
     StructuredExtractionProvider,
     generate_classification_assist_diagnostic,
-    structured_extraction_result_from_payload,
 )
 from university_admissions_crawler.extractor.normalizer import add_warning
-from university_admissions_crawler.extractor.pdf_extractor import FixturePDFExtractor, MissingPDFExtractor, PDFExtractor
-from university_admissions_crawler.extractor.programme_catalog import extract_programme_catalog
-from university_admissions_crawler.pipeline.diagnostics import attach_run_diagnostics, attach_template_completeness, llm_structured_validation_summary, refresh_run_diagnostics, source_strategy_for
+from university_admissions_crawler.extractor.pdf_extractor import FixturePDFExtractor, MissingPDFExtractor, PDFExtractor, PDFPageText
+from university_admissions_crawler.pipeline.category_extraction import (
+    SourceExtractionContext,
+    extract_category_route,
+    extract_core_supplements_for_context,
+    start_extraction_diagnostics,
+)
+from university_admissions_crawler.pipeline.diagnostics import attach_run_diagnostics, attach_template_completeness, source_strategy_for
 from university_admissions_crawler.pipeline.source_planning import build_source_plan_diagnostic
+from university_admissions_crawler.pipeline.structured_fallback import attach_llm_structured_extraction_diagnostics
 from university_admissions_crawler.extractor.schema import (
     AdmissionsData,
-    ClaimStatus,
-    Confidence,
     FieldValue,
     Institution,
-    PageCategory,
     PageClassificationRecord,
-    ProgrammeCatalogRecord,
-    ProgrammeRecord,
     RequirementRecord,
     RunMetadata,
     SourceRecord,
@@ -71,6 +44,25 @@ from university_admissions_crawler.extractor.schema import (
     WarningRecord,
     attach_validation_warnings,
 )
+
+
+@dataclass(slots=True)
+class _SourceTextContext:
+    discovery_text: str
+    extraction_text: str
+    pdf_pages: list[PDFPageText]
+
+
+@dataclass(slots=True)
+class _CapturedSourceContext:
+    final_url: str
+    title: str | None
+    source: SourceRecord
+    discovery_text: str
+    extraction_text: str
+    pdf_pages: list[PDFPageText]
+    classification: Classification
+    source_strategy: str
 
 
 def run_fixture_scan(
@@ -208,20 +200,13 @@ def _config_with_extra_candidates(config: DiscoveryConfig, extra_candidates: tup
     )
 
 
-def _run_scan_once(
+def _initialize_scan_data(
     seed_url: str,
-    fetcher: Fetcher,
-    config: DiscoveryConfig | None = None,
+    discovery_config: DiscoveryConfig,
     *,
-    previous_result: dict[str, Any] | None = None,
-    pdf_extractor: PDFExtractor | None = None,
-    source_output_dir: str | Path | None = None,
-    classification_assist_provider: ClassificationAssistProvider | None = None,
-    programme_catalog_assist_provider: ProgrammeCatalogAssistProvider | None = None,
-    structured_extraction_provider: StructuredExtractionProvider | None = None,
+    classification_assist_provider: ClassificationAssistProvider | None,
+    structured_extraction_provider: StructuredExtractionProvider | None,
 ) -> AdmissionsData:
-    discovery_config = config or DiscoveryConfig()
-    pages = discover(seed_url, fetcher, discovery_config)
     data = AdmissionsData(
         institution=Institution(homepage_url=seed_url),
         run=RunMetadata(
@@ -253,18 +238,142 @@ def _run_scan_once(
             "applied_to_facts": False,
             "note": "LLM structured extraction fallback writes only validated candidates into missing fields; rejected or skipped candidates remain diagnostics.",
         }
+    return data
+
+
+def _record_fetch_result(
+    data: AdmissionsData,
+    result: FetchResult,
+    *,
+    captured_source_texts: dict[str, str],
+    source_output_dir: str | Path | None,
+) -> bool:
+    data.warnings.extend(result.warnings)
+    if result.source:
+        captured_text = result.markdown or result.text
+        data.sources.append(result.source)
+        captured_source_texts[result.source.source_url] = captured_text
+        if source_output_dir is not None:
+            write_source_record(source_output_dir, result.source, captured_text)
+    return bool(result.ok and result.source)
+
+
+def _source_text_context(data: AdmissionsData, result: FetchResult, pdf_extractor: PDFExtractor) -> _SourceTextContext:
+    discovery_text = result.markdown or result.text
+    if result.source is None or result.source.source_type != SourceType.PDF:
+        return _SourceTextContext(discovery_text=discovery_text, extraction_text=discovery_text, pdf_pages=[])
+
+    try:
+        pdf_result = pdf_extractor.extract(result.source, result.text)
+    except Exception as exc:
+        data.warnings.append(
+            WarningRecord(
+                WarningCode.PDF_PARSE_FAILED,
+                f"PDF extractor raised {type(exc).__name__}: {exc}",
+                field=result.source.source_url,
+                source_urls=[result.source.source_url],
+            )
+        )
+        return _SourceTextContext(discovery_text=discovery_text, extraction_text="", pdf_pages=[])
+
+    data.warnings.extend(pdf_result.warnings)
+    return _SourceTextContext(
+        discovery_text=discovery_text,
+        extraction_text=pdf_result.text if pdf_result.pages else "",
+        pdf_pages=pdf_result.pages,
+    )
+
+
+def _build_captured_source_context(
+    data: AdmissionsData,
+    page: DiscoveredPage,
+    discovery_config: DiscoveryConfig,
+    pdf_extractor: PDFExtractor,
+    classification_assist_provider: ClassificationAssistProvider | None,
+) -> _CapturedSourceContext:
+    result = page.result
+    if result.source is None:
+        raise ValueError("Cannot build a captured source context without a source record.")
+    text_context = _source_text_context(data, result, pdf_extractor)
+    classification = classify_page(result.final_url, result.title, text_context.extraction_text)
+    if classification_assist_provider is not None and is_low_confidence_classification(classification):
+        data.run.config.setdefault("classification_assist", []).append(
+            generate_classification_assist_diagnostic(
+                url=result.final_url,
+                title=result.title,
+                text=text_context.extraction_text,
+                rule_category=classification.category,
+                rule_score=classification.score,
+                provider=classification_assist_provider,
+            )
+        )
+
+    discovery_diagnostics = relevance_diagnostics(
+        discovery_config.relevance_strategy,
+        result.final_url,
+        result.title,
+        text_context.discovery_text,
+        score=page.score,
+    )
+    data.discovered_categories.append(
+        PageClassificationRecord(
+            source_url=result.final_url,
+            category=classification.category,
+            score=classification.score,
+            signals=classification.signals,
+            title=result.title,
+        )
+    )
+    strategy = source_strategy_for(result.source.source_type, result.final_url, result.title, text_context.extraction_text, classification.category)
+    data.run.config.setdefault("source_strategy", []).append(
+        {
+            "url": result.final_url,
+            "source_type": str(result.source.source_type),
+            "category": str(classification.category),
+            "strategy": strategy,
+            "discovery_score": discovery_diagnostics.score,
+            "discovery_signals": list(discovery_diagnostics.signals),
+            "relevance_strategy": discovery_diagnostics.strategy,
+        }
+    )
+    return _CapturedSourceContext(
+        final_url=result.final_url,
+        title=result.title,
+        source=result.source,
+        discovery_text=text_context.discovery_text,
+        extraction_text=text_context.extraction_text,
+        pdf_pages=text_context.pdf_pages,
+        classification=classification,
+        source_strategy=strategy,
+    )
+
+
+def _run_scan_once(
+    seed_url: str,
+    fetcher: Fetcher,
+    config: DiscoveryConfig | None = None,
+    *,
+    previous_result: dict[str, Any] | None = None,
+    pdf_extractor: PDFExtractor | None = None,
+    source_output_dir: str | Path | None = None,
+    classification_assist_provider: ClassificationAssistProvider | None = None,
+    programme_catalog_assist_provider: ProgrammeCatalogAssistProvider | None = None,
+    structured_extraction_provider: StructuredExtractionProvider | None = None,
+) -> AdmissionsData:
+    discovery_config = config or DiscoveryConfig()
+    pages = discover(seed_url, fetcher, discovery_config)
+    data = _initialize_scan_data(
+        seed_url,
+        discovery_config,
+        classification_assist_provider=classification_assist_provider,
+        structured_extraction_provider=structured_extraction_provider,
+    )
     pdf_extractor = pdf_extractor or _default_pdf_extractor(fetcher)
     captured_source_texts: dict[str, str] = {}
 
     for page in pages:
         result = page.result
-        data.warnings.extend(result.warnings)
-        if result.source:
-            data.sources.append(result.source)
-            captured_source_texts[result.source.source_url] = result.markdown or result.text
-            if source_output_dir is not None:
-                write_source_record(source_output_dir, result.source, result.markdown or result.text)
-        if not result.ok or not result.source:
+        if not _record_fetch_result(data, result, captured_source_texts=captured_source_texts, source_output_dir=source_output_dir):
             continue
         if result.source.source_type == SourceType.JSON:
             programmes, deadlines, fees, documents, api_evidence = extract_api_claims(
@@ -280,338 +389,33 @@ def _run_scan_once(
             data.fees.extend(fees)
             data.admissions.required_documents.extend(documents)
             data.evidence.extend(api_evidence)
-        discovery_text = result.markdown or result.text
-        text = discovery_text
-        pdf_pages = []
-        if result.source.source_type == SourceType.PDF:
-            try:
-                pdf_result = pdf_extractor.extract(result.source, result.text)
-            except Exception as exc:
-                data.warnings.append(
-                    WarningRecord(
-                        WarningCode.PDF_PARSE_FAILED,
-                        f"PDF extractor raised {type(exc).__name__}: {exc}",
-                        field=result.source.source_url,
-                        source_urls=[result.source.source_url],
-                    )
-                )
-                pdf_pages = []
-                text = ""
-            else:
-                data.warnings.extend(pdf_result.warnings)
-                pdf_pages = pdf_result.pages
-                text = pdf_result.text if pdf_result.pages else ""
+        context = _build_captured_source_context(
+            data,
+            page,
+            discovery_config,
+            pdf_extractor,
+            classification_assist_provider,
+        )
+        source_context = SourceExtractionContext(
+            final_url=context.final_url,
+            title=context.title,
+            source=context.source,
+            text=context.extraction_text,
+            pdf_pages=context.pdf_pages,
+            category=context.classification.category,
+        )
+        extraction_recorder = start_extraction_diagnostics(data, source_context, source_strategy=context.source_strategy)
 
-        classification = classify_page(result.final_url, result.title, text)
-        if classification_assist_provider is not None and is_low_confidence_classification(classification):
-            data.run.config.setdefault("classification_assist", []).append(
-                generate_classification_assist_diagnostic(
-                    url=result.final_url,
-                    title=result.title,
-                    text=text,
-                    rule_category=classification.category,
-                    rule_score=classification.score,
-                    provider=classification_assist_provider,
-                )
-            )
-        discovery_diagnostics = relevance_diagnostics(
-            discovery_config.relevance_strategy,
-            result.final_url,
-            result.title,
-            discovery_text,
-            score=page.score,
-        )
-        data.discovered_categories.append(
-            PageClassificationRecord(
-                source_url=result.final_url,
-                category=classification.category,
-                score=classification.score,
-                signals=classification.signals,
-                title=result.title,
-            )
-        )
-        strategy = source_strategy_for(result.source.source_type, result.final_url, result.title, text, classification.category)
-        data.run.config.setdefault("source_strategy", []).append(
-            {
-                "url": result.final_url,
-                "source_type": str(result.source.source_type),
-                "category": str(classification.category),
-                "strategy": strategy,
-                "discovery_score": discovery_diagnostics.score,
-                "discovery_signals": list(discovery_diagnostics.signals),
-                "relevance_strategy": discovery_diagnostics.strategy,
-            }
-        )
-        extraction_attempts: list[dict[str, object]] = []
-        extraction_recorder = _ExtractionDiagnosticsRecorder(extraction_attempts)
-        extraction_entry = {
-            "url": result.final_url,
-            "source_type": str(result.source.source_type),
-            "category": str(classification.category),
-            "attempts": extraction_attempts,
-        }
-        if strategy == "blocked_or_challenge":
-            extraction_entry["source_acquisition_status"] = "blocked_or_challenge"
-        data.run.config.setdefault("extraction_diagnostics", []).append(extraction_entry)
-
-        if strategy == "blocked_or_challenge":
+        if context.source_strategy == "blocked_or_challenge":
             continue
 
-        if classification.category == PageCategory.UNDERGRADUATE_ADMISSIONS:
-            claim_path = f"/admissions/application_periods/{len(data.admissions.application_periods)}/value"
-            record, evidence = extract_deadline(text, result.source, claim_path)
-            extraction_recorder.record_record(
-                field="application_periods",
-                extractor="extract_deadline",
-                record=record,
-                evidence=evidence,
-                reason="category_route",
-                claim_path=claim_path,
-            )
-            if record:
-                data.admissions.application_periods.append(record)
-                data.evidence.extend(evidence)
-                entry_claim_path = "/admissions/undergraduate_application_entry"
-                if data.admissions.undergraduate_application_entry.is_unknownish:
-                    data.evidence.append(
-                        evidence_from_source(
-                            claim_path=entry_claim_path,
-                            source=result.source,
-                            snippet=result.title or result.final_url,
-                            confidence=Confidence.HIGH,
-                        )
-                    )
-                    data.admissions.undergraduate_application_entry = FieldValue(
-                        value=result.final_url,
-                        status=ClaimStatus.KNOWN,
-                        confidence=Confidence.HIGH,
-                        evidence=[entry_claim_path],
-                    )
-                    extraction_recorder.record(
-                        field="undergraduate_application_entry",
-                        extractor="source_url_from_application_period",
-                        status="extracted",
-                        reason="category_route",
-                        claim_path=entry_claim_path,
-                        record_count=1,
-                        evidence_count=1,
-                    )
-                else:
-                    extraction_recorder.skip(
-                        field="undergraduate_application_entry",
-                        extractor="source_url_from_application_period",
-                        reason="existing_value",
-                        claim_path=entry_claim_path,
-                    )
-            else:
-                extraction_recorder.skip(
-                    field="undergraduate_application_entry",
-                    extractor="source_url_from_application_period",
-                    reason="requires_application_period",
-                    claim_path="/admissions/undergraduate_application_entry",
-                )
-            doc_claim = f"/admissions/required_documents/{len(data.admissions.required_documents)}/value"
-            doc_record, doc_evidence = extract_required_document(text, result.source, doc_claim)
-            extraction_recorder.record_record(
-                field="required_documents",
-                extractor="extract_required_document",
-                record=doc_record,
-                evidence=doc_evidence,
-                reason="category_route",
-                claim_path=doc_claim,
-            )
-            if doc_record:
-                data.admissions.required_documents.append(doc_record)
-                data.evidence.extend(doc_evidence)
-        elif classification.category == PageCategory.INTERNATIONAL_REQUIREMENTS:
-            claim_path = f"/admissions/english_requirements/{len(data.admissions.english_requirements)}/value"
-            has_context = has_english_requirement_context(result.final_url, result.title, text)
-            record, evidence = (extract_english_requirement(text, result.source, claim_path) if has_context else (None, []))
-            if has_context:
-                extraction_recorder.record_record(
-                    field="english_requirements",
-                    extractor="extract_english_requirement",
-                    record=record,
-                    evidence=evidence,
-                    reason="category_route",
-                    claim_path=claim_path,
-                )
-            else:
-                extraction_recorder.skip(field="english_requirements", extractor="extract_english_requirement", reason="context_gate_failed", claim_path=claim_path)
-            if record:
-                data.admissions.english_requirements.append(record)
-                data.evidence.extend(evidence)
-        elif classification.category == PageCategory.APPLICATION_DEADLINES:
-            claim_path = f"/admissions/application_periods/{len(data.admissions.application_periods)}/value"
-            record, evidence = extract_deadline(text, result.source, claim_path)
-            extraction_recorder.record_record(
-                field="application_periods",
-                extractor="extract_deadline",
-                record=record,
-                evidence=evidence,
-                reason="category_route",
-                claim_path=claim_path,
-            )
-            if record:
-                data.admissions.application_periods.append(record)
-                data.evidence.extend(evidence)
-        elif classification.category == PageCategory.ACCEPTED_QUALIFICATIONS:
-            claim_path = f"/admissions/accepted_qualifications/{len(data.admissions.accepted_qualifications)}/value"
-            record, evidence = extract_accepted_qualification(text, result.source, claim_path)
-            extraction_recorder.record_record(
-                field="accepted_qualifications",
-                extractor="extract_accepted_qualification",
-                record=record,
-                evidence=evidence,
-                reason="category_route",
-                claim_path=claim_path,
-            )
-            if record:
-                data.admissions.accepted_qualifications.append(record)
-                data.evidence.extend(evidence)
-        elif classification.category in {PageCategory.PROGRAMME_LIST, PageCategory.PROGRAMME_PREREQUISITES}:
-            _append_programme_catalog(data, text, result.source, extraction_recorder, reason="category_route", assist_provider=programme_catalog_assist_provider)
-            programme_start = len(data.programmes)
-            programme_claim = f"/programmes/{programme_start}/name"
-            programme_records = extract_programmes(text, result.source, "/programmes", programme_start)
-            extraction_recorder.record_count(
-                field="programmes",
-                extractor="extract_programmes",
-                reason="category_route",
-                claim_path="/programmes",
-                record_count=len(programme_records),
-                evidence_count=sum(len(evidence) for _programme, evidence in programme_records),
-            )
-            programme_name = None
-            programme_evidence = []
-            if not programme_records:
-                programme_name, programme_evidence = extract_programme(text, result.source, programme_claim)
-                extraction_recorder.record_record(
-                    field="programmes",
-                    extractor="extract_programme",
-                    record=programme_name,
-                    evidence=programme_evidence,
-                    reason="fallback_single_programme",
-                    claim_path=programme_claim,
-                )
-            prereq_claim = f"/programmes/{programme_start}/prerequisites/0/value"
-            prereq, prereq_evidence = _extract_prerequisite_with_pdf_page(text, result.source, prereq_claim, pdf_pages)
-            extraction_recorder.record_record(
-                field="programme_prerequisites",
-                extractor="extract_prerequisite",
-                record=prereq,
-                evidence=prereq_evidence,
-                reason="category_route",
-                claim_path=prereq_claim,
-            )
-            if programme_records:
-                for index, (programme, evidence) in enumerate(programme_records):
-                    if index == 0 and prereq:
-                        programme.prerequisites.append(prereq)
-                        data.evidence.extend(prereq_evidence)
-                    data.programmes.append(programme)
-                    data.evidence.extend(evidence)
-            elif programme_name:
-                programme = ProgrammeRecord(
-                    name=FieldValue(value=programme_name, status=ClaimStatus.KNOWN, confidence=Confidence.MEDIUM, evidence=[programme_claim]),
-                    source_url=result.final_url,
-                    prerequisites=[prereq] if prereq else [],
-                    evidence=[programme_claim],
-                )
-                data.programmes.append(programme)
-                data.evidence.extend(programme_evidence)
-                data.evidence.extend(prereq_evidence)
-            elif prereq:
-                if data.programmes:
-                    programme_index = 0
-                    dest_index = len(data.programmes[programme_index].prerequisites)
-                    dest_claim = f"/programmes/{programme_index}/prerequisites/{dest_index}/value"
-                    prereq.value.evidence = [dest_claim]
-                    for item in prereq_evidence:
-                        item.claim_path = dest_claim
-                    data.programmes[programme_index].prerequisites.append(prereq)
-                else:
-                    dest_index = len(data.admissions.accepted_qualifications)
-                    dest_claim = f"/admissions/accepted_qualifications/{dest_index}/value"
-                    prereq.value.evidence = [dest_claim]
-                    for item in prereq_evidence:
-                        item.claim_path = dest_claim
-                    data.admissions.accepted_qualifications.append(prereq)
-                data.evidence.extend(prereq_evidence)
-        elif classification.category == PageCategory.FEES:
-            claim_path = f"/fees/{len(data.fees)}/value"
-            if has_undergraduate_fee_context(result.final_url, result.title, text):
-                record_count, evidence_count = _append_requirement(data.fees, data.evidence, extract_fee, text, result.source, claim_path)
-                extraction_recorder.record_count(
-                    field="fees",
-                    extractor="extract_fee",
-                    reason="category_route",
-                    claim_path=claim_path,
-                    record_count=record_count,
-                    evidence_count=evidence_count,
-                )
-            else:
-                extraction_recorder.skip(field="fees", extractor="extract_fee", reason="context_gate_failed", claim_path=claim_path)
-        elif classification.category == PageCategory.SCHOLARSHIPS:
-            claim_path = f"/scholarships/{len(data.scholarships)}/value"
-            if has_undergraduate_scholarship_context(result.final_url, result.title, text):
-                record_count, evidence_count = _append_requirement(data.scholarships, data.evidence, extract_scholarship, text, result.source, claim_path)
-                extraction_recorder.record_count(
-                    field="scholarships",
-                    extractor="extract_scholarship",
-                    reason="category_route",
-                    claim_path=claim_path,
-                    record_count=record_count,
-                    evidence_count=evidence_count,
-                )
-            else:
-                extraction_recorder.skip(field="scholarships", extractor="extract_scholarship", reason="context_gate_failed", claim_path=claim_path)
-        elif classification.category == PageCategory.VISA:
-            claim_path = f"/visa/{len(data.visa)}/value"
-            record_count, evidence_count = _append_requirement(data.visa, data.evidence, extract_visa, text, result.source, claim_path)
-            extraction_recorder.record_count(
-                field="visa",
-                extractor="extract_visa",
-                reason="category_route",
-                claim_path=claim_path,
-                record_count=record_count,
-                evidence_count=evidence_count,
-            )
-        elif classification.category == PageCategory.HOUSING:
-            claim_path = f"/housing/{len(data.housing)}/value"
-            record_count, evidence_count = _append_requirement(data.housing, data.evidence, extract_housing, text, result.source, claim_path)
-            extraction_recorder.record_count(
-                field="housing",
-                extractor="extract_housing",
-                reason="category_route",
-                claim_path=claim_path,
-                record_count=record_count,
-                evidence_count=evidence_count,
-            )
-        elif classification.category == PageCategory.CONTACT:
-            claim_path = f"/contacts/{len(data.contacts)}/value"
-            if has_admissions_contact_context(result.final_url, result.title, text):
-                record_count, evidence_count = _append_requirement(data.contacts, data.evidence, extract_contact, text, result.source, claim_path)
-                extraction_recorder.record_count(
-                    field="contacts",
-                    extractor="extract_contact",
-                    reason="category_route",
-                    claim_path=claim_path,
-                    record_count=record_count,
-                    evidence_count=evidence_count,
-                )
-            else:
-                extraction_recorder.skip(field="contacts", extractor="extract_contact", reason="context_gate_failed", claim_path=claim_path)
-
-        if classification.category != PageCategory.IRRELEVANT:
-            if has_undergraduate_admissions_context(result.final_url, result.title, text):
-                _extract_core_supplements(data, text, result.source, extraction_recorder)
-            else:
-                extraction_recorder.skip(
-                    field="core_supplements",
-                    extractor="extract_core_supplements",
-                    reason="undergraduate_context_gate_failed",
-                )
+        extract_category_route(
+            data,
+            source_context,
+            extraction_recorder,
+            programme_catalog_assist_provider=programme_catalog_assist_provider,
+        )
+        extract_core_supplements_for_context(data, source_context, extraction_recorder)
 
     if not data.admissions.required_documents:
         data.admissions.required_documents.append(
@@ -623,7 +427,7 @@ def _run_scan_once(
     apply_incremental_diff(data, previous_result)
     attach_run_diagnostics(data)
     if structured_extraction_provider is not None:
-        _attach_llm_structured_extraction_diagnostics(data, captured_source_texts, structured_extraction_provider, discovery_config)
+        attach_llm_structured_extraction_diagnostics(data, captured_source_texts, structured_extraction_provider, discovery_config)
     return attach_validation_warnings(data)
 
 
@@ -649,318 +453,6 @@ def apply_incremental_diff(data: AdmissionsData, previous_result: dict[str, Any]
         add_warning(data, WarningRecord(WarningCode.INCREMENTAL_CHANGE, "Extracted field value changed since previous result.", field=path))
 
 
-def _attach_llm_structured_extraction_diagnostics(
-    data: AdmissionsData,
-    captured_source_texts: dict[str, str],
-    provider: StructuredExtractionProvider,
-    discovery_config: DiscoveryConfig,
-) -> None:
-    diagnostic = data.run.config.get("llm_structured_extraction")
-    if not isinstance(diagnostic, dict):
-        diagnostic = {}
-    trigger_reasons = _llm_structured_trigger_reasons(data)
-    diagnostic.update(
-        {
-            "enabled": True,
-            "provider": getattr(provider, "name", type(provider).__name__),
-            "triggered": bool(trigger_reasons),
-            "trigger_reasons": trigger_reasons,
-            "applied_to_facts": False,
-            "note": "LLM structured extraction fallback writes only validated candidates into missing fields; rejected or skipped candidates remain diagnostics.",
-        }
-    )
-    if not trigger_reasons:
-        diagnostic.update(
-            {
-                "candidate_count": 0,
-                "accepted_count": 0,
-                "rejected_count": 0,
-                "results": [],
-                "source_urls_used": [],
-            }
-        )
-        data.run.config["llm_structured_extraction"] = diagnostic
-        return
-
-    source_records = {source.source_url: source for source in data.sources}
-    policy = DomainPolicy(
-        seed_url=data.run.input_url,
-        allowed_hosts=set(discovery_config.allowed_hosts),
-        allowed_domains=set(discovery_config.allowed_domains),
-        allow_official_subdomains=discovery_config.allow_official_subdomains,
-    )
-    validation_results: list[dict[str, object]] = []
-    source_urls_used: list[str] = []
-    warnings: list[str] = []
-    existing_targets = _llm_structured_existing_targets(data)
-    for source in _llm_structured_candidate_sources(data, captured_source_texts):
-        source_urls_used.append(source.source_url)
-        try:
-            payload = provider.extract_structured_candidate_payload(
-                source,
-                STRUCTURED_EXTRACTION_ALLOWED_CLAIM_PATHS,
-                STRUCTURED_EXTRACTION_OUTPUT_SCHEMA,
-            )
-            result = structured_extraction_result_from_payload(payload)
-        except Exception as exc:
-            validation_results.append(
-                {
-                    "accepted": False,
-                    "candidate": None,
-                    "reject_reason": "malformed_candidate",
-                    "source_url": source.source_url,
-                    "error_type": type(exc).__name__,
-                    "error": str(exc),
-                    "validation_status": "rejected",
-                    "applied_to_facts": False,
-                }
-            )
-            continue
-        warnings.extend(result.warnings)
-        for candidate in result.candidate_facts:
-            validation = validate_llm_candidate_fact(
-                candidate,
-                captured_sources=captured_source_texts,
-                source_records=source_records,
-                domain_policy=policy,
-            )
-            validation_result = validation.to_dict()
-            if validation.accepted and validation.candidate is not None:
-                validation_result.update(
-                    _apply_llm_structured_candidate(
-                        data,
-                        validation.candidate,
-                        source_records=source_records,
-                        existing_targets=existing_targets,
-                    )
-                )
-            else:
-                validation_result["validation_status"] = "rejected"
-                validation_result["applied_to_facts"] = False
-            validation_results.append(validation_result)
-
-    summary = llm_structured_validation_summary(validation_results)
-    applied_count = sum(1 for result in validation_results if result.get("applied_to_facts") is True)
-    write_status_counts = Counter(str(result.get("write_status", "not_applicable")) for result in validation_results)
-    diagnostic.update(summary)
-    diagnostic["results"] = validation_results
-    diagnostic["source_urls_used"] = source_urls_used
-    diagnostic["warnings"] = warnings
-    diagnostic["applied_to_facts"] = applied_count > 0
-    diagnostic["applied_count"] = applied_count
-    diagnostic["write_status_counts"] = dict(sorted(write_status_counts.items()))
-    diagnostic["note"] = "LLM structured extraction fallback writes only validated candidates into missing fields; rejected or skipped candidates remain diagnostics."
-    data.run.config["llm_structured_extraction"] = diagnostic
-    if applied_count:
-        refresh_run_diagnostics(data)
-        data.run.config["llm_structured_extraction"] = diagnostic
-
-
-def _apply_llm_structured_candidate(
-    data: AdmissionsData,
-    candidate: LLMStructuredCandidateFact,
-    *,
-    source_records: dict[str, SourceRecord],
-    existing_targets: dict[str, bool],
-) -> dict[str, object]:
-    source = source_records.get(candidate.source_url)
-    if source is None:
-        return _llm_write_result(write_status="source_record_missing", applied=False)
-    if existing_targets.get(candidate.claim_path):
-        return _llm_write_result(write_status="existing_value", applied=False)
-
-    if candidate.claim_path == "admissions.application_entry":
-        if not data.admissions.undergraduate_application_entry.is_unknownish:
-            return _llm_write_result(write_status="existing_value", applied=False)
-        evidence_path = "/admissions/undergraduate_application_entry"
-        data.admissions.undergraduate_application_entry = _llm_field_value(candidate, evidence_path)
-        data.evidence.append(_llm_evidence(candidate, source, evidence_path))
-        _mark_llm_structured_target_existing(existing_targets, candidate.claim_path)
-        return _llm_write_result(write_status="applied", applied=True, evidence_path=evidence_path)
-
-    requirement_target = _llm_requirement_target(data, candidate.claim_path)
-    if requirement_target is not None:
-        dest, label, claim_prefix = requirement_target
-        if _has_requirement_value(dest, candidate.value):
-            return _llm_write_result(write_status="duplicate_value", applied=False)
-        evidence_path = f"{claim_prefix}/{len(dest)}/value"
-        dest.append(
-            RequirementRecord(
-                label=label,
-                value=_llm_field_value(candidate, evidence_path),
-            )
-        )
-        data.evidence.append(_llm_evidence(candidate, source, evidence_path))
-        _mark_llm_structured_target_existing(existing_targets, candidate.claim_path)
-        return _llm_write_result(write_status="applied", applied=True, evidence_path=evidence_path)
-
-    if candidate.claim_path == "programme_catalog[].name":
-        if _has_programme_catalog_name(data.programme_catalog, candidate.value):
-            return _llm_write_result(write_status="duplicate_value", applied=False)
-        evidence_path = f"/programme_catalog/{len(data.programme_catalog)}/name"
-        data.programme_catalog.append(
-            ProgrammeCatalogRecord(
-                name=candidate.value,
-                source_url=candidate.source_url,
-                evidence_snippet=candidate.evidence_snippet,
-                evidence_path=evidence_path,
-                evidence_confidence=_llm_confidence(candidate.confidence),
-                parse_status="llm_fallback_validated",
-            )
-        )
-        data.evidence.append(_llm_evidence(candidate, source, evidence_path))
-        return _llm_write_result(write_status="applied", applied=True, evidence_path=evidence_path)
-
-    return _llm_write_result(write_status="unsupported_claim_path_for_write", applied=False)
-
-
-def _llm_write_result(*, write_status: str, applied: bool, evidence_path: str | None = None) -> dict[str, object]:
-    result: dict[str, object] = {
-        "extractor": "llm_fallback_validated",
-        "validation_status": "accepted",
-        "write_status": write_status,
-        "applied_to_facts": applied,
-    }
-    if evidence_path is not None:
-        result["evidence_path"] = evidence_path
-    return result
-
-
-def _llm_structured_existing_targets(data: AdmissionsData) -> dict[str, bool]:
-    period_exists = _has_known_requirement_records(data.admissions.application_periods)
-    return {
-        "admissions.application_period": period_exists,
-        "admissions.application_deadline": period_exists,
-        "admissions.application_entry": not data.admissions.undergraduate_application_entry.is_unknownish,
-        "admissions.requirements.academic": _has_known_requirement_records(data.admissions.accepted_qualifications),
-        "admissions.requirements.english": _has_known_requirement_records(data.admissions.english_requirements),
-        "admissions.required_documents": _has_known_requirement_records(data.admissions.required_documents),
-        "admissions.fees": _has_known_requirement_records(data.fees),
-        "admissions.scholarships": _has_known_requirement_records(data.scholarships),
-        "admissions.contact": _has_known_requirement_records(data.contacts),
-    }
-
-
-def _mark_llm_structured_target_existing(existing_targets: dict[str, bool], claim_path: str) -> None:
-    existing_targets[claim_path] = True
-    if claim_path in {"admissions.application_period", "admissions.application_deadline"}:
-        existing_targets["admissions.application_period"] = True
-        existing_targets["admissions.application_deadline"] = True
-
-
-def _llm_requirement_target(data: AdmissionsData, claim_path: str) -> tuple[list[RequirementRecord], str, str] | None:
-    if claim_path == "admissions.application_period":
-        return data.admissions.application_periods, "application period", "/admissions/application_periods"
-    if claim_path == "admissions.application_deadline":
-        return data.admissions.application_periods, "application deadline", "/admissions/application_periods"
-    if claim_path == "admissions.requirements.academic":
-        return data.admissions.accepted_qualifications, "academic requirement", "/admissions/accepted_qualifications"
-    if claim_path == "admissions.requirements.english":
-        return data.admissions.english_requirements, "english language requirement", "/admissions/english_requirements"
-    if claim_path == "admissions.required_documents":
-        return data.admissions.required_documents, "required documents", "/admissions/required_documents"
-    if claim_path == "admissions.fees":
-        return data.fees, "tuition/fees", "/fees"
-    if claim_path == "admissions.scholarships":
-        return data.scholarships, "scholarship", "/scholarships"
-    if claim_path == "admissions.contact":
-        return data.contacts, "contact", "/contacts"
-    return None
-
-
-def _llm_field_value(candidate: LLMStructuredCandidateFact, evidence_path: str) -> FieldValue:
-    return FieldValue(
-        value=candidate.value,
-        raw_text=candidate.evidence_snippet,
-        parse_status="llm_fallback_validated",
-        evidence=[evidence_path],
-        confidence=_llm_confidence(candidate.confidence),
-        status=ClaimStatus.KNOWN,
-    )
-
-
-def _llm_evidence(candidate: LLMStructuredCandidateFact, source: SourceRecord, evidence_path: str):
-    return evidence_from_source(
-        claim_path=evidence_path,
-        source=source,
-        snippet=candidate.evidence_snippet,
-        confidence=_llm_confidence(candidate.confidence),
-    )
-
-
-def _llm_confidence(score: float) -> Confidence:
-    if score >= 0.9:
-        return Confidence.HIGH
-    if score >= 0.65:
-        return Confidence.MEDIUM
-    return Confidence.LOW
-
-
-def _has_known_requirement_records(records: list[RequirementRecord]) -> bool:
-    return any(not record.value.is_unknownish for record in records)
-
-
-def _has_requirement_value(records: list[RequirementRecord], value: str) -> bool:
-    normalized = value.strip().casefold()
-    return any(str(record.value.value).strip().casefold() == normalized for record in records)
-
-
-def _has_programme_catalog_name(records: list[ProgrammeCatalogRecord], value: str) -> bool:
-    normalized = value.strip().casefold()
-    return any(record.name.strip().casefold() == normalized for record in records)
-
-
-def _llm_structured_trigger_reasons(data: AdmissionsData) -> list[str]:
-    reasons: list[str] = []
-    coverage = data.run.config.get("coverage")
-    if isinstance(coverage, dict) and coverage.get("missing"):
-        reasons.append("core_field_missing")
-    extraction_summary = data.run.config.get("extraction_diagnostics_summary")
-    if isinstance(extraction_summary, dict):
-        status_counts = extraction_summary.get("status_counts")
-        if isinstance(status_counts, dict) and int(status_counts.get("no_match", 0) or 0) > 0:
-            reasons.append("extractor_attempted_no_match")
-    programme_summary = data.run.config.get("programme_catalog_summary")
-    if isinstance(programme_summary, dict) and programme_summary.get("probable_incomplete_catalog"):
-        reasons.append("programme_catalog_probable_incomplete")
-    return reasons
-
-
-def _llm_structured_candidate_sources(data: AdmissionsData, captured_source_texts: dict[str, str], limit: int = 5) -> list[LLMStructuredExtractionSource]:
-    source_strategy = data.run.config.get("source_strategy")
-    strategy_by_url: dict[str, dict[str, object]] = {}
-    if isinstance(source_strategy, list):
-        for item in source_strategy:
-            if isinstance(item, dict) and isinstance(item.get("url"), str):
-                strategy_by_url[str(item["url"])] = item
-    scored: list[tuple[int, LLMStructuredExtractionSource]] = []
-    for source in data.sources:
-        text = captured_source_texts.get(source.source_url, "")
-        if not text.strip():
-            continue
-        strategy = strategy_by_url.get(source.source_url, {})
-        if strategy.get("strategy") in {"blocked_or_challenge", "application_portal", "irrelevant"}:
-            continue
-        category = str(strategy.get("category", ""))
-        score = int(strategy.get("discovery_score", 0) or 0)
-        if category in {str(PageCategory.UNDERGRADUATE_ADMISSIONS), str(PageCategory.PROGRAMME_LIST), str(PageCategory.PROGRAMME_PREREQUISITES)}:
-            score += 20
-        elif category in {str(PageCategory.FEES), str(PageCategory.SCHOLARSHIPS), str(PageCategory.INTERNATIONAL_REQUIREMENTS), str(PageCategory.APPLICATION_DEADLINES)}:
-            score += 12
-        scored.append(
-            (
-                score,
-                LLMStructuredExtractionSource(
-                    source_url=source.source_url,
-                    title=source.title,
-                    text=text[:6000],
-                    source_type=str(source.source_type),
-                ),
-            )
-        )
-    return [source for _score, source in sorted(scored, key=lambda item: (-item[0], item[1].source_url))[:limit]]
-
-
 def _field_snapshot(value: Any, prefix: str = "") -> dict[str, Any]:
     out: dict[str, Any] = {}
     if isinstance(value, dict):
@@ -977,200 +469,7 @@ def _field_snapshot(value: Any, prefix: str = "") -> dict[str, Any]:
     return out
 
 
-def _append_requirement(dest: list[RequirementRecord], evidence_dest, extractor, text, source, claim_path: str) -> tuple[int, int]:
-    record, evidence = extractor(text, source, claim_path)
-    if record:
-        dest.append(record)
-        evidence_dest.extend(evidence)
-        return 1, len(evidence)
-    return 0, 0
-
-
 def _default_pdf_extractor(fetcher: Fetcher) -> PDFExtractor:
     if isinstance(fetcher, FixtureFetcher):
         return FixturePDFExtractor()
     return MissingPDFExtractor()
-
-
-def _append_programme_catalog(
-    data: AdmissionsData,
-    text: str,
-    source,
-    recorder: "_ExtractionDiagnosticsRecorder",
-    *,
-    reason: str,
-    assist_provider: ProgrammeCatalogAssistProvider | None = None,
-) -> None:
-    catalog_records = extract_programme_catalog(text, source, start_index=len(data.programme_catalog), assist_provider=assist_provider)
-    for record, evidence in catalog_records:
-        data.programme_catalog.append(record)
-        data.evidence.extend(evidence)
-    recorder.record_count(
-        field="programme_catalog",
-        extractor="extract_programme_catalog",
-        reason=reason,
-        claim_path="/programme_catalog",
-        record_count=len(catalog_records),
-        evidence_count=sum(len(evidence) for _record, evidence in catalog_records),
-    )
-
-
-def _extract_core_supplements(data: AdmissionsData, text: str, source, recorder: "_ExtractionDiagnosticsRecorder") -> None:
-    if not data.admissions.application_periods:
-        claim_path = f"/admissions/application_periods/{len(data.admissions.application_periods)}/value"
-        status, record_count, evidence_count = _append_unique_requirement(data.admissions.application_periods, data.evidence, extract_deadline, text, source, claim_path)
-        recorder.record(field="application_periods", extractor="extract_deadline", status=status, reason="core_supplement", claim_path=claim_path, record_count=record_count, evidence_count=evidence_count)
-    else:
-        recorder.skip(field="application_periods", extractor="extract_deadline", reason="existing_value")
-    if not data.admissions.english_requirements:
-        claim_path = f"/admissions/english_requirements/{len(data.admissions.english_requirements)}/value"
-        if has_english_requirement_context(source.source_url, source.title, text):
-            status, record_count, evidence_count = _append_unique_requirement(data.admissions.english_requirements, data.evidence, extract_english_requirement, text, source, claim_path)
-            recorder.record(field="english_requirements", extractor="extract_english_requirement", status=status, reason="core_supplement", claim_path=claim_path, record_count=record_count, evidence_count=evidence_count)
-        else:
-            recorder.skip(field="english_requirements", extractor="extract_english_requirement", reason="context_gate_failed", claim_path=claim_path)
-    else:
-        recorder.skip(field="english_requirements", extractor="extract_english_requirement", reason="existing_value")
-    if not data.fees:
-        claim_path = f"/fees/{len(data.fees)}/value"
-        if has_undergraduate_fee_context(source.source_url, source.title, text):
-            status, record_count, evidence_count = _append_unique_requirement(data.fees, data.evidence, extract_fee, text, source, claim_path)
-            recorder.record(field="fees", extractor="extract_fee", status=status, reason="core_supplement", claim_path=claim_path, record_count=record_count, evidence_count=evidence_count)
-        else:
-            recorder.skip(field="fees", extractor="extract_fee", reason="context_gate_failed", claim_path=claim_path)
-    else:
-        recorder.skip(field="fees", extractor="extract_fee", reason="existing_value")
-    if not data.scholarships:
-        claim_path = f"/scholarships/{len(data.scholarships)}/value"
-        if has_undergraduate_scholarship_context(source.source_url, source.title, text):
-            status, record_count, evidence_count = _append_unique_requirement(data.scholarships, data.evidence, extract_scholarship, text, source, claim_path)
-            recorder.record(field="scholarships", extractor="extract_scholarship", status=status, reason="core_supplement", claim_path=claim_path, record_count=record_count, evidence_count=evidence_count)
-        else:
-            recorder.skip(field="scholarships", extractor="extract_scholarship", reason="context_gate_failed", claim_path=claim_path)
-    else:
-        recorder.skip(field="scholarships", extractor="extract_scholarship", reason="existing_value")
-    if not data.contacts:
-        claim_path = f"/contacts/{len(data.contacts)}/value"
-        if has_admissions_contact_context(source.source_url, source.title, text):
-            status, record_count, evidence_count = _append_unique_requirement(data.contacts, data.evidence, extract_contact, text, source, claim_path)
-            recorder.record(field="contacts", extractor="extract_contact", status=status, reason="core_supplement", claim_path=claim_path, record_count=record_count, evidence_count=evidence_count)
-        else:
-            recorder.skip(field="contacts", extractor="extract_contact", reason="context_gate_failed", claim_path=claim_path)
-    else:
-        recorder.skip(field="contacts", extractor="extract_contact", reason="existing_value")
-    if not data.programmes:
-        programme_count = 0
-        evidence_count = 0
-        for programme, evidence in extract_programmes(text, source, "/programmes", len(data.programmes)):
-            data.programmes.append(programme)
-            data.evidence.extend(evidence)
-            programme_count += 1
-            evidence_count += len(evidence)
-        recorder.record_count(
-            field="programmes",
-            extractor="extract_programmes",
-            reason="core_supplement",
-            claim_path="/programmes",
-            record_count=programme_count,
-            evidence_count=evidence_count,
-        )
-    else:
-        recorder.skip(field="programmes", extractor="extract_programmes", reason="existing_value")
-
-
-def _append_unique_requirement(dest: list[RequirementRecord], evidence_dest, extractor, text, source, claim_path: str) -> tuple[str, int, int]:
-    record, evidence = extractor(text, source, claim_path)
-    if not record:
-        return "no_match", 0, 0
-    value = str(record.value.value).strip().lower()
-    if any(str(existing.value.value).strip().lower() == value for existing in dest):
-        return "skipped", 0, 0
-    dest.append(record)
-    evidence_dest.extend(evidence)
-    return "extracted", 1, len(evidence)
-
-
-class _ExtractionDiagnosticsRecorder:
-    def __init__(self, attempts: list[dict[str, object]]) -> None:
-        self.attempts = attempts
-
-    def record(
-        self,
-        *,
-        field: str,
-        extractor: str,
-        status: str,
-        reason: str,
-        claim_path: str | None = None,
-        record_count: int = 0,
-        evidence_count: int = 0,
-    ) -> None:
-        _record_extraction_attempt(
-            self.attempts,
-            field=field,
-            extractor=extractor,
-            status=status,
-            reason=reason,
-            claim_path=claim_path,
-            record_count=record_count,
-            evidence_count=evidence_count,
-        )
-
-    def record_record(self, *, field: str, extractor: str, record, evidence, reason: str, claim_path: str) -> None:
-        self.record(
-            field=field,
-            extractor=extractor,
-            status="extracted" if record else "no_match",
-            reason=reason,
-            claim_path=claim_path,
-            record_count=1 if record else 0,
-            evidence_count=len(evidence),
-        )
-
-    def record_count(self, *, field: str, extractor: str, reason: str, claim_path: str, record_count: int, evidence_count: int) -> None:
-        self.record(
-            field=field,
-            extractor=extractor,
-            status="extracted" if record_count else "no_match",
-            reason=reason,
-            claim_path=claim_path,
-            record_count=record_count,
-            evidence_count=evidence_count,
-        )
-
-    def skip(self, *, field: str, extractor: str, reason: str, claim_path: str | None = None) -> None:
-        self.record(field=field, extractor=extractor, status="skipped", reason=reason, claim_path=claim_path)
-
-
-def _record_extraction_attempt(
-    attempts: list[dict[str, object]],
-    *,
-    field: str,
-    extractor: str,
-    status: str,
-    reason: str,
-    claim_path: str | None = None,
-    record_count: int = 0,
-    evidence_count: int = 0,
-) -> None:
-    attempt: dict[str, object] = {
-        "field": field,
-        "extractor": extractor,
-        "status": status,
-        "reason": reason,
-        "record_count": record_count,
-        "evidence_count": evidence_count,
-    }
-    if claim_path:
-        attempt["claim_path"] = claim_path
-    attempts.append(attempt)
-
-
-def _extract_prerequisite_with_pdf_page(text, source, claim_path: str, pdf_pages):
-    if not pdf_pages:
-        return extract_prerequisite(text, source, claim_path)
-    for page in pdf_pages:
-        record, evidence = extract_prerequisite(page.text, source, claim_path, page_number=page.page_number)
-        if record:
-            return record, evidence
-    return extract_prerequisite(text, source, claim_path)

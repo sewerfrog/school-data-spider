@@ -166,7 +166,9 @@ def test_pipeline_marks_nus_incapsula_page_as_blocked_challenge():
     blocked_diagnostics = next(item for item in data.run.config["extraction_diagnostics"] if item["url"] == blocked_url)
     assert blocked_diagnostics["source_acquisition_status"] == "blocked_or_challenge"
     assert blocked_diagnostics["attempts"] == []
-    assert data.run.config["missing_reasons"]["programmes"]["reason"] == "source_not_crawled"
+    assert data.run.config["missing_reasons"]["programmes"]["reason"] == "blocked_or_challenge"
+    assert data.run.config["missing_reasons"]["programmes"]["legacy_reason"] == "source_not_crawled"
+    assert data.run.config["missing_reasons"]["programmes"]["action_target"] == "source_acquisition"
     assert blocked_url in data.run.config["missing_reasons"]["programmes"]["source_urls"]
     template = data.run.config["template_completeness"]
     assert template["fields"]["programmes"]["status_flags"] == ["source_blocked_or_challenge"]
@@ -256,7 +258,7 @@ def test_pipeline_nus_mock_source_planning_regression_keeps_candidates_diagnosti
 
     assert fetcher.fetched == [blocked_url]
     assert data.run.config["source_strategy"][0]["strategy"] == "blocked_or_challenge"
-    assert data.run.config["missing_reasons"]["programmes"]["reason"] == "source_not_crawled"
+    assert data.run.config["missing_reasons"]["programmes"]["reason"] == "blocked_or_challenge"
     assert not data.programmes
     assert not data.fees
     assert not data.admissions.application_periods
@@ -641,11 +643,19 @@ def test_pipeline_attaches_core_coverage_and_source_strategy():
     extraction_summary = data.run.config["extraction_diagnostics_summary"]
     missing_reasons = data.run.config["missing_reasons"]
     template = data.run.config["template_completeness"]
+    field_capabilities = data.run.config["field_capability_matrix"]
     assert coverage["found_count"] > 0
     assert "coverage_ratio" in coverage
+    assert set(field_capabilities) == set(coverage["found"]) | set(coverage["missing"])
+    assert field_capabilities["fees"]["discovery_categories"] == ["fees"]
+    assert field_capabilities["fees"]["context_gates"] == ["has_undergraduate_fee_context", "has_undergraduate_admissions_context"]
+    assert field_capabilities["fees"]["deterministic_extractors"] == ["extract_fee"]
+    assert field_capabilities["fees"]["structured_llm_fallback"] is True
+    assert field_capabilities["fees"]["llm_claim_paths"] == ["admissions.fees"]
     assert template["fields_total"] == coverage["core_fields_total"]
     assert template["found_count"] == coverage["found_count"]
     assert set(template["fields"]) == set(coverage["found"]) | set(coverage["missing"])
+    assert template["fields"]["fees"]["capability"] == field_capabilities["fees"]
     assert template["fields"]["application_periods"]["status_flags"] == ["source_found"]
     assert template["fields"]["application_periods"]["next_action"] == "none"
     assert data.run.config["source_strategy_summary"]["html_page"] >= 1
@@ -661,16 +671,18 @@ def test_pipeline_attaches_core_coverage_and_source_strategy():
     assert all(
         details["reason"]
         in {
-            "not_attempted",
+            "source_not_found",
             "attempted_no_match",
             "context_gate_failed",
-            "undergraduate_context_gate_failed",
-            "source_not_crawled",
-            "application_portal_unreachable",
+            "raw_needs_manual_review",
+            "blocked_or_challenge",
+            "portal_or_login_required",
             "manual_check_required",
         }
         for details in missing_reasons.values()
     )
+    assert all(details["capability"]["diagnostics_reasons"] for details in missing_reasons.values())
+    assert all(details["action_target"] for details in missing_reasons.values())
     assert all(
         details["next_action"]
         in {
@@ -724,6 +736,8 @@ def test_missing_reasons_prefers_no_match_over_context_gate_when_both_exist():
 
     assert reasons["fees"]["reason"] == "attempted_no_match"
     assert reasons["fees"]["attempts"] == 2
+    assert reasons["fees"]["capability"]["deterministic_extractors"] == ["extract_fee"]
+    assert reasons["fees"]["capability"]["llm_claim_paths"] == ["admissions.fees"]
     assert reasons["fees"]["source_urls"] == [
         "https://example.edu/admissions/fees",
         "https://example.edu/admissions/tuition",
@@ -754,7 +768,9 @@ def test_missing_reasons_prefers_portal_over_generic_manual_check():
         ],
     )
 
-    assert reasons["required_documents"]["reason"] == "application_portal_unreachable"
+    assert reasons["required_documents"]["reason"] == "portal_or_login_required"
+    assert reasons["required_documents"]["legacy_reason"] == "application_portal_unreachable"
+    assert reasons["required_documents"]["action_target"] == "portal_or_manual_review"
     assert reasons["required_documents"]["source_urls"] == [
         "https://example.edu/admissions/requirements",
     ]
@@ -786,10 +802,33 @@ def test_missing_reasons_prefers_source_acquisition_failure_for_blocked_source_a
         ],
     )
 
-    assert reasons["programmes"]["reason"] == "source_not_crawled"
+    assert reasons["programmes"]["reason"] == "blocked_or_challenge"
+    assert reasons["programmes"]["legacy_reason"] == "source_not_crawled"
+    assert reasons["programmes"]["action_target"] == "source_acquisition"
     assert reasons["programmes"]["attempts"] == 1
     assert reasons["programmes"]["attempted_extractors"] == ["extract_programmes"]
+    assert reasons["programmes"]["capability"]["discovery_categories"] == ["programme_list", "programme_prerequisites"]
     assert reasons["programmes"]["source_urls"] == [blocked_url]
+
+
+def test_missing_reasons_scope_blocked_sources_to_field_capability_categories():
+    blocked_url = "https://example.edu/programmes"
+    reasons = _missing_reasons(
+        {"missing": ["fees"]},
+        [],
+        [
+            {
+                "url": blocked_url,
+                "category": "programme_list",
+                "strategy": "blocked_or_challenge",
+            }
+        ],
+    )
+
+    assert reasons["fees"]["reason"] == "source_not_found"
+    assert reasons["fees"]["legacy_reason"] == "not_attempted"
+    assert reasons["fees"]["action_target"] == "discovery_or_classifier"
+    assert reasons["fees"]["source_urls"] == []
 
 
 def test_template_completeness_marks_budget_skipped_source_plan_candidate():
