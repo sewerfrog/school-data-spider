@@ -138,8 +138,14 @@ def test_pipeline_extracts_public_json_api_claims():
     data = run_fixture_scan(ROOT, max_pages=30)
     assert any(source.source_url.endswith("/api/programmes.json") and source.source_type == "json" for source in data.sources)
     assert any(programme.name.value == "Bachelor of Science" for programme in data.programmes)
+    assert any(row.name == "Bachelor of Science" and row.source_url.endswith("/api/programmes.json") for row in data.programme_catalog)
     assert any(record.value.value == "15 February 2027" for record in data.admissions.application_periods)
     assert any(record.value.value == "SGD 32000 per year" for record in data.fees)
+    summary = data.run.config["programme_catalog_summary"]
+    assert summary["api_response_count"] >= 1
+    assert summary["api_accepted_row_count"] >= 1
+    assert summary["source_status_counts"]["api_capture"] >= 1
+    assert "Bachelor of Science" in render_programme_catalog_csv(data)
 
 
 def test_pipeline_marks_nus_incapsula_page_as_blocked_challenge():

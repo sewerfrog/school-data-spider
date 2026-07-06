@@ -122,6 +122,10 @@ def _candidate_lines(text: str) -> list[str]:
         if not cleaned:
             continue
         if "|" in cleaned:
+            table_candidates = _flattened_table_candidate_lines(cleaned)
+            if table_candidates:
+                out.extend(table_candidates)
+                continue
             cells = [_clean(part) for part in cleaned.split("|") if _clean(part)]
             if len(cells) >= 2 and _is_table_header(cells):
                 continue
@@ -133,6 +137,47 @@ def _candidate_lines(text: str) -> list[str]:
             if sentence:
                 out.append(sentence)
     return out
+
+
+def _flattened_table_candidate_lines(line: str) -> list[str]:
+    """Recover rows from tables flattened into one browser/OCR text line."""
+
+    explicit_rows = [_clean(part) for part in re.split(r"\s+[.;]\s+", line) if _clean(part)]
+    candidates: list[str] = []
+    if len(explicit_rows) > 1:
+        for row in explicit_rows:
+            cells = [_clean(part) for part in row.split("|") if _clean(part)]
+            if len(cells) < 2 or _is_table_header(cells):
+                continue
+            if _looks_like_table_candidate_cells(cells):
+                candidates.append(" | ".join(cells))
+    if candidates:
+        return candidates
+
+    cells = [_clean(part) for part in line.split("|") if _clean(part)]
+    if len(cells) < 4 or not _is_flattened_header_cells(cells[:3]):
+        return []
+    out: list[str] = []
+    for index in range(2, len(cells) - 1, 2):
+        row_cells = cells[index : index + 2]
+        if _looks_like_table_candidate_cells(row_cells):
+            out.append(" | ".join(row_cells))
+    return out
+
+
+def _is_flattened_header_cells(cells: list[str]) -> bool:
+    joined = " ".join(cells).lower()
+    return "programme" in joined and ("degree" in joined or "award" in joined)
+
+
+def _looks_like_table_candidate_cells(cells: list[str]) -> bool:
+    if len(cells) < 2:
+        return False
+    if _is_table_header(cells):
+        return False
+    if _looks_like_programme_name_cell(cells[0]) and _looks_like_award(cells[1]):
+        return True
+    return any(_category_for_name(cell, " | ".join(cells)) for cell in cells)
 
 
 def _parse_candidate(line: str, *, faculty_hint: str | None, allow_unknown_category: bool = False) -> dict[str, object] | None:
@@ -157,6 +202,8 @@ def _parse_candidate(line: str, *, faculty_hint: str | None, allow_unknown_categ
 
     name = _extract_name(line)
     if not name:
+        return None
+    if _looks_like_longform_prose_candidate(line):
         return None
     category = _category_for_name(name, line)
     if category is None:
@@ -216,6 +263,10 @@ def _parse_table_candidate(cells: list[str]) -> dict[str, object] | None:
         listed["duration_or_units"] = listed.get("duration_or_units") or _duration_from_values(remaining)
         return listed
 
+    named_award = _parse_named_award_table_candidate(cells)
+    if named_award:
+        return named_award
+
     name = next((cell for cell in cells if _category_for_name(cell, cell)), "")
     if not name:
         return None
@@ -223,15 +274,45 @@ def _parse_table_candidate(cells: list[str]) -> dict[str, object] | None:
     if category is None:
         return None
     remaining = [cell for cell in cells if cell != name]
+    faculty_or_school = _first_matching(remaining, _looks_like_faculty_or_school)
+    non_faculty_remaining = [cell for cell in remaining if cell != faculty_or_school]
     return {
         "name": name,
-        "degree_or_award": _first_matching(remaining, _looks_like_award) or _degree_for_name(name, " | ".join(cells), category),
+        "faculty_or_school": faculty_or_school,
+        "degree_or_award": _first_matching(non_faculty_remaining, _looks_like_award) or _degree_for_name(name, " | ".join(cells), category),
         "category": category,
         "mode": _mode_from_values(remaining),
         "duration_or_units": _duration_from_values(remaining),
-        "admissions_choice_name": _first_matching(remaining, _looks_like_admissions_choice),
+        "admissions_choice_name": _first_matching(non_faculty_remaining, _looks_like_admissions_choice),
         "specialisations_or_majors": [],
         "_category_inferred": False,
+    }
+
+
+def _parse_named_award_table_candidate(cells: list[str]) -> dict[str, object] | None:
+    if len(cells) < 2:
+        return None
+    name = _clean_name(cells[0])
+    degree_or_award = _clean(cells[1])
+    if not _looks_like_programme_name_cell(name) or not _looks_like_award(degree_or_award):
+        return None
+    context = " | ".join(cells)
+    category = _category_for_name(name, context) or _category_for_name(degree_or_award, context)
+    if category is None:
+        return None
+    remaining = cells[2:]
+    faculty_or_school = _first_matching(remaining, _looks_like_faculty_or_school)
+    non_faculty_remaining = [cell for cell in remaining if cell != faculty_or_school]
+    return {
+        "name": name,
+        "faculty_or_school": faculty_or_school,
+        "degree_or_award": degree_or_award,
+        "category": category,
+        "mode": _mode_from_values(remaining),
+        "duration_or_units": _duration_from_values(remaining),
+        "admissions_choice_name": _first_matching(non_faculty_remaining, _looks_like_admissions_choice),
+        "specialisations_or_majors": [],
+        "_category_inferred": _category_for_name(name, name) is None,
     }
 
 
@@ -470,6 +551,44 @@ def _clean_name(name: str) -> str:
 def _is_table_header(cells: list[str]) -> bool:
     joined = " ".join(cells).lower()
     return "programme" in joined and "degree" in joined and not any(_category_for_name(cell, cell) for cell in cells)
+
+
+def _looks_like_programme_name_cell(value: str) -> bool:
+    cleaned = _clean(value)
+    if len(cleaned) < 3 or len(cleaned) > 160:
+        return False
+    lower = cleaned.lower()
+    if lower in {"programme", "program", "degree", "degree title", "award", "all", "filter"}:
+        return False
+    if any(token in lower for token in ("programme level", "programme type", "select a", "view all", "read more")):
+        return False
+    if _looks_like_longform_prose_candidate(cleaned):
+        return False
+    return bool(
+        _category_for_name(cleaned, cleaned)
+        or re.search(
+            r"\b(?:accountancy|architecture|arts?|business|computing|communication|design|economics|education|engineering|humanities|law|medicine|psychology|science|sociology)\b",
+            lower,
+        )
+        or re.match(r"^[A-Z][A-Za-z&/(),'+\- ]+$", cleaned)
+    )
+
+
+def _looks_like_faculty_or_school(value: str) -> bool:
+    return bool(re.search(r"\b(?:faculty|school|college|academy|institute|department|centre|center)\b", value, flags=re.IGNORECASE))
+
+
+def _looks_like_longform_prose_candidate(line: str) -> bool:
+    if "|" in line:
+        return False
+    lower = line.lower()
+    if len(line) > 700:
+        return True
+    prose_markers = re.findall(
+        r"\b(?:applicants?|curriculum|students?|graduates?|courses?|requirements?|admissions?|designed|provides?|offers?|learn|career)\b",
+        lower,
+    )
+    return len(line) > 320 and len(prose_markers) >= 3
 
 
 def _first_matching(values: list[str], predicate) -> str | None:

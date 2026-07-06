@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from university_admissions_crawler.crawler.filters import looks_like_blocked_or_challenge_source
 from university_admissions_crawler.extractor.schema import AdmissionsData, PageCategory, SourceType, WarningCode, WarningRecord
@@ -393,6 +393,7 @@ def _extraction_diagnostics_summary(entries: list[object]) -> dict[str, object]:
 
 def _programme_catalog_summary(data: AdmissionsData, extraction_entries: object = None, source_strategy: object = None) -> dict[str, object]:
     rows = data.programme_catalog
+    api_summary = _programme_catalog_api_summary(data)
     programme_types: Counter[str] = Counter()
     faculties: Counter[str] = Counter()
     parse_statuses: Counter[str] = Counter()
@@ -425,11 +426,22 @@ def _programme_catalog_summary(data: AdmissionsData, extraction_entries: object 
     source_urls = sorted(sources)
     candidate_source_urls = _programme_catalog_candidate_source_urls(data, extraction_entries, source_strategy)
     crawled_catalog_source_urls = sorted(set(candidate_source_urls) & {source.source_url for source in data.sources})
+    source_status_counts = _programme_catalog_source_status_counts(candidate_source_urls, extraction_entries, source_strategy)
+    accepted_to_candidate_source_ratio = _programme_catalog_source_ratio(
+        candidate_source_count=len(candidate_source_urls),
+        accepted_row_count=len(rows),
+    )
+    low_row_yield = _programme_catalog_low_row_yield(
+        candidate_source_count=len(candidate_source_urls),
+        accepted_row_count=len(rows),
+    )
     probable_incomplete_catalog = _probable_incomplete_catalog(
         candidate_source_count=len(candidate_source_urls),
         accepted_row_count=len(rows),
         raw_needs_review_count=raw_needs_review_count,
-    )
+        source_status_counts=source_status_counts,
+        low_row_yield=low_row_yield,
+    ) or bool(api_summary.get("api_pagination_incomplete", False))
     return {
         "candidate_count": len(rows),
         "accepted_count": len(rows),
@@ -440,8 +452,21 @@ def _programme_catalog_summary(data: AdmissionsData, extraction_entries: object 
         "crawled_catalog_source_urls": crawled_catalog_source_urls,
         "accepted_row_count": len(rows),
         "raw_needs_review_count": raw_needs_review_count,
+        "accepted_to_candidate_source_ratio": accepted_to_candidate_source_ratio,
+        "low_row_yield": low_row_yield,
+        "source_status_counts": dict(sorted(source_status_counts.items())),
         "probable_incomplete_catalog": probable_incomplete_catalog,
-        "recommended_next_action": _programme_catalog_next_action(len(candidate_source_urls), len(rows), raw_needs_review_count, probable_incomplete_catalog),
+        **api_summary,
+        "recommended_next_action": _programme_catalog_next_action(
+            candidate_source_count=len(candidate_source_urls),
+            accepted_row_count=len(rows),
+            raw_needs_review_count=raw_needs_review_count,
+            warning_count=warning_count,
+            source_status_counts=source_status_counts,
+            low_row_yield=low_row_yield,
+            probable_incomplete_catalog=probable_incomplete_catalog,
+            api_summary=api_summary,
+        ),
         "duplicate_count": duplicate_count,
         "duplicate_names": duplicate_names,
         "by_programme_type": dict(sorted(programme_types.items())),
@@ -519,11 +544,169 @@ def _template_completeness(
             "crawled_catalog_source_count": programme_summary.get("crawled_catalog_source_count", 0),
             "accepted_row_count": programme_summary.get("accepted_row_count", programme_summary.get("accepted_count", 0)),
             "raw_needs_review_count": programme_summary.get("raw_needs_review_count", 0),
+            "accepted_to_candidate_source_ratio": programme_summary.get("accepted_to_candidate_source_ratio"),
+            "api_catalog_candidate_count": programme_summary.get("api_catalog_candidate_count", 0),
+            "api_response_count": programme_summary.get("api_response_count", 0),
+            "api_page_count": programme_summary.get("api_page_count", 0),
+            "api_accepted_row_count": programme_summary.get("api_accepted_row_count", 0),
+            "api_rejected_row_count": programme_summary.get("api_rejected_row_count", 0),
+            "api_total_count": programme_summary.get("api_total_count"),
+            "api_pagination_complete": programme_summary.get("api_pagination_complete", False),
+            "api_pagination_incomplete": programme_summary.get("api_pagination_incomplete", False),
+            "api_filter_dimensions": programme_summary.get("api_filter_dimensions", {}),
+            "api_filter_candidate_dimensions": programme_summary.get("api_filter_candidate_dimensions", {}),
+            "api_filter_attempted_url_count": programme_summary.get("api_filter_attempted_url_count", 0),
+            "api_filter_fetched_url_count": programme_summary.get("api_filter_fetched_url_count", 0),
+            "api_filter_rejected_url_count": programme_summary.get("api_filter_rejected_url_count", 0),
+            "api_filter_enumeration_budget_hit": programme_summary.get("api_filter_enumeration_budget_hit", False),
+            "html_fallback_used": programme_summary.get("html_fallback_used", False),
+            "api_to_csv_ratio": programme_summary.get("api_to_csv_ratio"),
+            "low_row_yield": programme_summary.get("low_row_yield", False),
+            "source_status_counts": programme_summary.get("source_status_counts", {}),
             "probable_incomplete_catalog": programme_summary.get("probable_incomplete_catalog", False),
             "next_action": programme_summary.get("recommended_next_action", "none"),
         },
         "note": "Template completeness diagnostics describe this run's captured-source and extractor state; they do not prove the official site lacks a field.",
     }
+
+
+def _programme_catalog_api_summary(data: AdmissionsData) -> dict[str, object]:
+    raw_entries = data.run.config.get("programme_catalog_api_diagnostics")
+    entries = [item for item in raw_entries if isinstance(item, dict)] if isinstance(raw_entries, list) else []
+    filter_summary = _programme_catalog_filter_summary(data)
+    api_urls = {str(item.get("url")) for item in entries if isinstance(item.get("url"), str)}
+    groups: dict[str, dict[str, object]] = {}
+    for item in entries:
+        key = _api_diagnostic_group_key(item)
+        group = groups.setdefault(
+            key,
+            {
+                "candidate_object_count": 0,
+                "accepted_row_count": 0,
+                "rejected_row_count": 0,
+                "api_total_count": None,
+                "api_page_count": 0,
+                "complete_flag": False,
+                "budget_hit": False,
+                "entry_incomplete": False,
+            },
+        )
+        group["candidate_object_count"] = _int_or_zero(group.get("candidate_object_count")) + _int_or_zero(item.get("candidate_object_count"))
+        group["accepted_row_count"] = _int_or_zero(group.get("accepted_row_count")) + _int_or_zero(item.get("accepted_row_count"))
+        group["rejected_row_count"] = _int_or_zero(group.get("rejected_row_count")) + _int_or_zero(item.get("rejected_row_count"))
+        total_count = _int_or_none(item.get("api_total_count"))
+        current_total = _int_or_none(group.get("api_total_count"))
+        if total_count is not None:
+            group["api_total_count"] = max(total_count, current_total or 0)
+        group["api_page_count"] = max(_int_or_zero(group.get("api_page_count")), _int_or_zero(item.get("api_page_count")) or 1)
+        group["complete_flag"] = bool(group.get("complete_flag")) or bool(item.get("api_pagination_complete"))
+        group["budget_hit"] = bool(group.get("budget_hit")) or bool(item.get("api_pagination_budget_hit"))
+        group["entry_incomplete"] = bool(group.get("entry_incomplete")) or bool(item.get("api_pagination_incomplete"))
+
+    candidate_object_count = sum(_int_or_zero(group.get("candidate_object_count")) for group in groups.values())
+    accepted_row_count = sum(_int_or_zero(group.get("accepted_row_count")) for group in groups.values())
+    rejected_row_count = sum(_int_or_zero(group.get("rejected_row_count")) for group in groups.values())
+    known_total_values = [_int_or_none(group.get("api_total_count")) for group in groups.values()]
+    known_total_values = [value for value in known_total_values if value is not None]
+    api_total_count = sum(known_total_values) if known_total_values else None
+    page_count = sum(_int_or_zero(group.get("api_page_count")) for group in groups.values())
+    incomplete = any(_api_group_incomplete(group) for group in groups.values())
+    complete = bool(groups) and not incomplete and all(_api_group_complete(group) for group in groups.values())
+    html_fallback_used = bool(data.programme_catalog) and any(row.source_url not in api_urls for row in data.programme_catalog)
+    api_to_csv_ratio = round(accepted_row_count / len(data.programme_catalog), 3) if data.programme_catalog else None
+    return {
+        "api_catalog_candidate_count": candidate_object_count,
+        "api_response_count": len(entries),
+        "api_page_count": page_count,
+        "api_accepted_row_count": accepted_row_count,
+        "api_rejected_row_count": rejected_row_count,
+        "api_total_count": api_total_count,
+        "api_pagination_complete": complete,
+        "api_pagination_incomplete": incomplete,
+        "api_filter_dimensions": _api_filter_dimensions(entries),
+        **filter_summary,
+        "html_fallback_used": html_fallback_used,
+        "api_to_csv_ratio": api_to_csv_ratio,
+    }
+
+
+def _programme_catalog_filter_summary(data: AdmissionsData) -> dict[str, object]:
+    raw_outcomes = data.run.config.get("programme_catalog_api_filter_enumeration")
+    outcomes = [item for item in raw_outcomes if isinstance(item, dict)] if isinstance(raw_outcomes, list) else []
+    candidate_dimensions: dict[str, set[str]] = {}
+    attempted_count = 0
+    fetched_count = 0
+    rejected_count = 0
+    budget_hit = False
+    for outcome in outcomes:
+        raw_dimensions = outcome.get("filter_dimensions")
+        if isinstance(raw_dimensions, dict):
+            for key, values in raw_dimensions.items():
+                if not isinstance(values, list):
+                    continue
+                bucket = candidate_dimensions.setdefault(str(key), set())
+                bucket.update(str(value) for value in values if value)
+        attempted = outcome.get("attempted_urls")
+        fetched = outcome.get("fetched_urls")
+        rejected = outcome.get("rejected_urls")
+        attempted_count += len(attempted) if isinstance(attempted, list) else 0
+        fetched_count += len(fetched) if isinstance(fetched, list) else 0
+        rejected_count += len(rejected) if isinstance(rejected, list) else 0
+        budget_hit = budget_hit or bool(outcome.get("budget_hit"))
+    return {
+        "api_filter_candidate_dimensions": {key: sorted(values) for key, values in sorted(candidate_dimensions.items())},
+        "api_filter_attempted_url_count": attempted_count,
+        "api_filter_fetched_url_count": fetched_count,
+        "api_filter_rejected_url_count": rejected_count,
+        "api_filter_enumeration_budget_hit": budget_hit,
+    }
+
+
+def _api_filter_dimensions(entries: list[dict[str, object]]) -> dict[str, list[str]]:
+    dimensions: dict[str, set[str]] = {}
+    for entry in entries:
+        raw_dimensions = entry.get("api_filter_dimensions")
+        if not isinstance(raw_dimensions, dict):
+            continue
+        for key, value in raw_dimensions.items():
+            if value in (None, ""):
+                continue
+            dimensions.setdefault(str(key), set()).add(str(value))
+    return {key: sorted(values) for key, values in sorted(dimensions.items())}
+
+
+def _api_group_incomplete(group: dict[str, object]) -> bool:
+    if group.get("budget_hit"):
+        return True
+    total_count = _int_or_none(group.get("api_total_count"))
+    accepted_row_count = _int_or_zero(group.get("accepted_row_count"))
+    if total_count is not None:
+        return accepted_row_count < total_count
+    return bool(group.get("entry_incomplete")) and not bool(group.get("complete_flag"))
+
+
+def _api_group_complete(group: dict[str, object]) -> bool:
+    total_count = _int_or_none(group.get("api_total_count"))
+    accepted_row_count = _int_or_zero(group.get("accepted_row_count"))
+    if total_count is not None:
+        return accepted_row_count >= total_count
+    return bool(group.get("complete_flag"))
+
+
+def _api_diagnostic_group_key(entry: dict[str, object]) -> str:
+    group = entry.get("pagination_group_url")
+    if isinstance(group, str) and group:
+        return group
+    url = entry.get("url")
+    if not isinstance(url, str):
+        return "unknown"
+    parsed = urlparse(url)
+    filtered = [
+        (key, value)
+        for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+        if _normalise_query_key(key) not in {"page", "pagenumber", "offset", "skip", "cursor", "after"}
+    ]
+    return urlunparse(parsed._replace(query=urlencode(filtered, doseq=True)))
 
 
 def _programme_catalog_candidate_source_urls(data: AdmissionsData, extraction_entries: object, source_strategy: object) -> list[str]:
@@ -554,28 +737,179 @@ def _programme_catalog_candidate_source_urls(data: AdmissionsData, extraction_en
     return sorted(urls)
 
 
-def _probable_incomplete_catalog(*, candidate_source_count: int, accepted_row_count: int, raw_needs_review_count: int) -> bool:
+def _programme_catalog_source_status_counts(candidate_source_urls: list[str], extraction_entries: object, source_strategy: object) -> Counter[str]:
+    candidate_urls = set(candidate_source_urls)
+    statuses_by_url: dict[str, set[str]] = {url: set() for url in candidate_urls}
+    if isinstance(source_strategy, list):
+        for item in source_strategy:
+            if not isinstance(item, dict):
+                continue
+            url = item.get("url")
+            category = item.get("category")
+            if not isinstance(url, str) or (url not in candidate_urls and not _is_programme_catalog_category(category)):
+                continue
+            statuses = statuses_by_url.setdefault(url, set())
+            for key in ("catalog_source_status", "programme_catalog_status", "programme_catalog_source_status"):
+                value = item.get(key)
+                if isinstance(value, str) and value:
+                    statuses.add(value)
+            strategy = item.get("strategy")
+            if strategy in {"blocked_or_challenge", "application_portal"}:
+                statuses.add("source_acquisition_issue")
+            elif strategy == "json_api":
+                statuses.add("api_capture")
+            elif strategy == "html_page":
+                statuses.add("html_candidate")
+            crawl_status = item.get("crawl_status")
+            if isinstance(crawl_status, str) and crawl_status in {"budget_skipped", "not_crawled"}:
+                statuses.add(crawl_status)
+
+    if isinstance(extraction_entries, list):
+        for entry in extraction_entries:
+            if not isinstance(entry, dict):
+                continue
+            url = entry.get("url")
+            if not isinstance(url, str):
+                continue
+            attempts = _programme_catalog_attempts(entry)
+            if not attempts:
+                continue
+            statuses = statuses_by_url.setdefault(url, set())
+            if any(_attempt_record_count(attempt) > 0 for attempt in attempts):
+                statuses.add("parsed_rows")
+            else:
+                statuses.add("parsed_zero_rows")
+            source_acquisition_status = entry.get("source_acquisition_status")
+            if source_acquisition_status in {"blocked_or_challenge", "application_portal"}:
+                statuses.add("source_acquisition_issue")
+
+    counts: Counter[str] = Counter()
+    for statuses in statuses_by_url.values():
+        if not statuses:
+            counts["candidate_source"] += 1
+            continue
+        for status in statuses:
+            counts[status] += 1
+    return counts
+
+
+def _programme_catalog_attempts(entry: dict[str, object]) -> list[dict[str, object]]:
+    attempts = entry.get("attempts")
+    if not isinstance(attempts, list):
+        return []
+    return [attempt for attempt in attempts if isinstance(attempt, dict) and attempt.get("field") == "programme_catalog"]
+
+
+def _attempt_record_count(attempt: dict[str, object]) -> int:
+    value = attempt.get("record_count", 0)
+    return value if isinstance(value, int) else 0
+
+
+def _is_programme_catalog_category(value: object) -> bool:
+    return str(value) in {str(PageCategory.PROGRAMME_LIST), str(PageCategory.PROGRAMME_PREREQUISITES)}
+
+
+def _programme_catalog_source_ratio(*, candidate_source_count: int, accepted_row_count: int) -> float | None:
+    if candidate_source_count == 0:
+        return None
+    return round(accepted_row_count / candidate_source_count, 3)
+
+
+def _programme_catalog_low_row_yield(*, candidate_source_count: int, accepted_row_count: int) -> bool:
+    if candidate_source_count >= 8 and accepted_row_count <= max(3, candidate_source_count // 3):
+        return True
+    if candidate_source_count >= 4 and accepted_row_count <= 2:
+        return True
+    return False
+
+
+def _probable_incomplete_catalog(
+    *,
+    candidate_source_count: int,
+    accepted_row_count: int,
+    raw_needs_review_count: int,
+    source_status_counts: Counter[str],
+    low_row_yield: bool,
+) -> bool:
     if candidate_source_count > 0 and accepted_row_count == 0:
+        return True
+    if low_row_yield:
+        return True
+    if source_status_counts.get("dynamic_shell_no_rows") or _many_zero_row_catalog_sources(candidate_source_count, source_status_counts):
+        return True
+    if source_status_counts.get("budget_skipped") or source_status_counts.get("not_crawled") or source_status_counts.get("source_acquisition_issue"):
         return True
     if accepted_row_count > 0 and raw_needs_review_count > 0:
         return True
     return False
 
 
-def _programme_catalog_next_action(candidate_source_count: int, accepted_row_count: int, raw_needs_review_count: int, probable_incomplete_catalog: bool) -> str:
+def _programme_catalog_next_action(
+    *,
+    candidate_source_count: int,
+    accepted_row_count: int,
+    raw_needs_review_count: int,
+    warning_count: int,
+    source_status_counts: Counter[str],
+    low_row_yield: bool,
+    probable_incomplete_catalog: bool,
+    api_summary: dict[str, object] | None = None,
+) -> str:
+    if api_summary and api_summary.get("api_pagination_incomplete"):
+        return "expand_api_pagination"
+    if api_summary and api_summary.get("api_filter_enumeration_budget_hit"):
+        return "enumerate_api_filters"
+    if (
+        api_summary
+        and api_summary.get("api_filter_candidate_dimensions")
+        and api_summary.get("api_filter_attempted_url_count")
+        and not api_summary.get("api_filter_fetched_url_count")
+    ):
+        return "enumerate_api_filters"
+    if api_summary and api_summary.get("api_response_count") and not api_summary.get("api_accepted_row_count") and not accepted_row_count:
+        return "implement_api_field_mapping"
+    if source_status_counts.get("dynamic_shell_no_rows"):
+        return "enable_browser_or_api_capture"
+    if source_status_counts.get("budget_skipped") or source_status_counts.get("not_crawled"):
+        return "increase_catalog_crawl_budget"
     if not candidate_source_count:
-        return "improve_source_discovery"
+        return "improve_source_acquisition"
+    if source_status_counts.get("source_acquisition_issue"):
+        return "improve_source_acquisition"
     if not accepted_row_count:
-        return "improve_programme_catalog_extractor"
+        return "improve_table_segmentation"
+    if low_row_yield or _many_zero_row_catalog_sources(candidate_source_count, source_status_counts):
+        return "improve_table_segmentation"
     if raw_needs_review_count:
-        return "manual_review_or_catalog_parser"
+        if warning_count >= accepted_row_count:
+            return "tighten_false_positive_filters"
+        return "manual_review_raw_rows"
     if probable_incomplete_catalog:
-        return "manual_check_required"
+        return "manual_review_raw_rows"
     return "none"
+
+
+def _many_zero_row_catalog_sources(candidate_source_count: int, source_status_counts: Counter[str]) -> bool:
+    zero_row_sources = source_status_counts.get("parsed_zero_rows", 0)
+    if candidate_source_count < 2 or zero_row_sources < 2:
+        return False
+    return zero_row_sources >= max(2, candidate_source_count // 2)
 
 
 def _normalise_programme_name(name: str) -> str:
     return " ".join(name.casefold().split())
+
+
+def _normalise_query_key(value: str) -> str:
+    return "".join(char for char in value.lower() if char.isalnum())
+
+
+def _int_or_zero(value: object) -> int:
+    return value if isinstance(value, int) else 0
+
+
+def _int_or_none(value: object) -> int | None:
+    return value if isinstance(value, int) else None
 
 
 def _attempts_by_field(extraction_entries: list[object]) -> dict[str, list[dict[str, object]]]:

@@ -333,8 +333,11 @@ def test_programme_catalog_summary_counts_types_sources_and_manual_review_rows()
     assert summary["crawled_catalog_source_count"] == 1
     assert summary["accepted_row_count"] == 3
     assert summary["raw_needs_review_count"] == 1
+    assert summary["accepted_to_candidate_source_ratio"] == 3.0
+    assert summary["low_row_yield"] is False
+    assert summary["source_status_counts"] == {"candidate_source": 1}
     assert summary["probable_incomplete_catalog"] is True
-    assert summary["recommended_next_action"] == "manual_review_or_catalog_parser"
+    assert summary["recommended_next_action"] == "manual_review_raw_rows"
     assert summary["duplicate_count"] == 1
     assert summary["duplicate_names"] == [{"name": "Bachelor of Science in Data Science", "count": 2}]
     assert summary["by_programme_type"] == {"degree_programme": 2, "major": 1}
@@ -343,6 +346,107 @@ def test_programme_catalog_summary_counts_types_sources_and_manual_review_rows()
     assert summary["sources_count"] == 1
     assert summary["source_urls"] == [source.source_url]
     assert summary["manual_review_count"] == 1
+
+
+def test_programme_catalog_summary_flags_low_row_yield_across_many_candidate_sources():
+    candidate_urls = [f"https://example.edu/programmes/{index}" for index in range(14)]
+    source = source_from_text(
+        source_url=candidate_urls[0],
+        title="Undergraduate Programmes",
+        text="Programme | Degree\nData Science | Bachelor of Science",
+    )
+    data = AdmissionsData(
+        institution=Institution(homepage_url="https://example.edu"),
+        run=RunMetadata(
+            input_url="https://example.edu",
+            config={
+                "source_strategy": [
+                    {
+                        "url": url,
+                        "source_type": "html",
+                        "category": "programme_list",
+                        "strategy": "html_page",
+                    }
+                    for url in candidate_urls
+                ]
+            },
+        ),
+        sources=[source],
+    )
+    for index, name in enumerate(("Data Science", "Computing", "Accountancy")):
+        data.programme_catalog.append(
+            ProgrammeCatalogRecord(
+                name=name,
+                degree_or_award="Bachelor of Science",
+                category="degree_programme",
+                source_url=candidate_urls[index],
+                evidence_snippet=f"{name} | Bachelor of Science",
+                evidence_path=f"/programme_catalog/{index}/name",
+                parse_status="parsed",
+            )
+        )
+
+    attach_run_diagnostics(data)
+    summary = data.run.config["programme_catalog_summary"]
+
+    assert summary["candidate_source_count"] == 14
+    assert summary["accepted_row_count"] == 3
+    assert summary["accepted_to_candidate_source_ratio"] == 0.214
+    assert summary["low_row_yield"] is True
+    assert summary["source_status_counts"] == {"html_candidate": 14}
+    assert summary["probable_incomplete_catalog"] is True
+    assert summary["recommended_next_action"] == "improve_table_segmentation"
+
+
+def test_programme_catalog_summary_recommends_browser_or_api_for_dynamic_shell():
+    url = "https://example.edu/undergraduate-programmes"
+    data = AdmissionsData(
+        institution=Institution(homepage_url="https://example.edu"),
+        run=RunMetadata(
+            input_url="https://example.edu",
+            config={
+                "source_strategy": [
+                    {
+                        "url": url,
+                        "source_type": "html",
+                        "category": "programme_list",
+                        "strategy": "html_page",
+                        "catalog_source_status": "dynamic_shell_no_rows",
+                    }
+                ],
+                "extraction_diagnostics": [
+                    {
+                        "url": url,
+                        "source_type": "html",
+                        "category": "programme_list",
+                        "attempts": [
+                            {
+                                "field": "programme_catalog",
+                                "extractor": "extract_programme_catalog",
+                                "status": "no_match",
+                                "reason": "category_route",
+                                "record_count": 0,
+                                "evidence_count": 0,
+                            }
+                        ],
+                    }
+                ],
+            },
+        ),
+    )
+
+    attach_run_diagnostics(data)
+    summary = data.run.config["programme_catalog_summary"]
+
+    assert summary["candidate_source_count"] == 1
+    assert summary["accepted_row_count"] == 0
+    assert summary["source_status_counts"] == {
+        "dynamic_shell_no_rows": 1,
+        "html_candidate": 1,
+        "parsed_zero_rows": 1,
+    }
+    assert summary["probable_incomplete_catalog"] is True
+    assert summary["recommended_next_action"] == "enable_browser_or_api_capture"
 
 
 def test_extract_programme_catalog_from_table_text():
@@ -380,6 +484,32 @@ def test_extract_programme_catalog_from_table_text():
     assert first.parse_status == "parsed"
     assert first.evidence_path == "/programme_catalog/0/name"
     assert evidence[0].snippet.startswith("Bachelor of Computing in Computer Science")
+
+
+def test_extract_programme_catalog_splits_flattened_programme_degree_table():
+    text = (
+        "Degree Programmes The following single degree programmes are offered. "
+        "Programme | Degree Title . "
+        "Accountancy | Bachelor of Accountancy . "
+        "Aerospace Engineering | Bachelor of Engineering (Aerospace Engineering) . "
+        "Computer Science | Bachelor of Computing in Computer Science . "
+        "Medicine | Bachelor of Medicine and Bachelor of Surgery"
+    )
+    source = source_from_text(
+        source_url="https://www.ntu.edu.sg/admissions/undergraduate-programmes",
+        title="NTU Undergraduate Programmes",
+        text=text,
+    )
+
+    rows = extract_programme_catalog(text, source)
+    by_name = {row.name: row for row, _evidence in rows}
+
+    assert list(by_name) == ["Accountancy", "Aerospace Engineering", "Computer Science", "Medicine"]
+    assert by_name["Accountancy"].degree_or_award == "Bachelor of Accountancy"
+    assert by_name["Aerospace Engineering"].degree_or_award == "Bachelor of Engineering (Aerospace Engineering)"
+    assert by_name["Computer Science"].degree_or_award == "Bachelor of Computing in Computer Science"
+    assert by_name["Medicine"].category == "degree_programme"
+    assert all(row.evidence_path == f"/programme_catalog/{index}/name" for index, (row, _evidence) in enumerate(rows))
 
 
 def test_programme_catalog_marks_duplicate_rows_without_dropping_them():
@@ -525,6 +655,23 @@ def test_extract_programme_catalog_ignores_marketing_bachelor_sentence():
     source = source_from_text(
         source_url="https://example.edu/news/alumni",
         title="Alumni news",
+        text=text,
+    )
+
+    assert extract_programme_catalog(text, source) == []
+
+
+def test_extract_programme_catalog_ignores_longform_overview_sentence():
+    text = (
+        "Undergraduate Programmes\n"
+        "Bachelor of Science in Data Science gives students a broad curriculum and applicants will learn "
+        "through interdisciplinary courses, admissions workshops, industry projects, exchange options, "
+        "career preparation, and graduate pathways across multiple departments before choosing a final "
+        "study plan with advisors and mentors throughout the programme."
+    )
+    source = source_from_text(
+        source_url="https://example.edu/programmes/undergraduate",
+        title="Undergraduate Programmes",
         text=text,
     )
 

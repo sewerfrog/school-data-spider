@@ -25,6 +25,7 @@ def render_markdown_report(data: AdmissionsData) -> str:
     _classification_assist(lines, data)
     _source_strategy(lines, data)
     _source_planning(lines, data)
+    _api_catalog_discovery(lines, data)
     _template_completeness(lines, data)
     _programme_catalog_diagnostics(lines, data)
     _extraction_diagnostics(lines, data)
@@ -269,13 +270,73 @@ def _source_plan_candidates(lines: list[str], title: str, candidates: object) ->
         lines.append(f"  - Omitted candidates: {len(items) - 10}")
 
 
+def _api_catalog_discovery(lines: list[str], data: AdmissionsData) -> None:
+    summary = data.run.config.get("programme_catalog_api_discovery_summary")
+    if not isinstance(summary, dict):
+        return
+    candidate_count = summary.get("api_catalog_candidate_count", 0)
+    if not candidate_count:
+        return
+    candidates = data.run.config.get("programme_catalog_api_candidates")
+    items = [item for item in candidates if isinstance(item, dict)] if isinstance(candidates, list) else []
+
+    lines.append("## API Catalog Discovery Diagnostics")
+    lines.append("")
+    lines.append(f"- API candidate endpoints: {candidate_count}")
+    lines.append(f"- Captured JSON endpoints: {summary.get('captured_json_count', 0)}")
+    lines.append(f"- Rejected endpoints: {summary.get('rejected_count', 0)}")
+    statuses = summary.get("api_candidate_status_counts")
+    if isinstance(statuses, dict) and statuses:
+        lines.append(f"- Candidate statuses: {_format_counts(statuses)}")
+    reasons = summary.get("api_candidate_reason_counts")
+    if isinstance(reasons, dict) and reasons:
+        lines.append(f"- Candidate reasons: {_format_counts(reasons)}")
+    capture = data.run.config.get("programme_catalog_api_capture")
+    if isinstance(capture, dict):
+        attempted = capture.get("attempted_urls")
+        captured = capture.get("captured_urls")
+        rejected = capture.get("rejected_urls")
+        lines.append(f"- Safe capture attempted endpoints: {len(attempted) if isinstance(attempted, list) else 0}")
+        lines.append(f"- Safe capture accepted rows: {capture.get('accepted_row_count', 0)}")
+        lines.append(f"- Safe capture budget hit: {capture.get('budget_hit', False)}")
+        if isinstance(captured, list) and captured:
+            lines.append(f"- Safe captured JSON endpoints: {len(captured)}")
+        if isinstance(rejected, list) and rejected:
+            lines.append("- Safe capture rejected endpoints:")
+            for item in rejected[:10]:
+                if isinstance(item, dict):
+                    lines.append(f"  - {item.get('url', 'unknown')} rejected `{item.get('reason', 'unknown')}`")
+            if len(rejected) > 10:
+                lines.append(f"  - Omitted rejected endpoints: {len(rejected) - 10}")
+    lines.append("- Candidates:")
+    for item in items[:10]:
+        lines.append(
+            f"  - {item.get('api_candidate_url', 'unknown')} "
+            f"`{item.get('api_candidate_status', 'unknown')}` from {item.get('api_candidate_source_page', 'unknown')}"
+        )
+        reason = item.get("api_candidate_reason")
+        if reason:
+            lines.append(f"    - reason: `{reason}`")
+        size = item.get("api_response_size_bytes")
+        if isinstance(size, int):
+            lines.append(f"    - response bytes: {size}")
+    if len(items) > 10:
+        lines.append(f"  - Omitted candidates: {len(items) - 10}")
+    note = summary.get("note")
+    if note:
+        lines.append(f"- Note: {note}")
+    lines.append("- Note: Candidate discovery alone does not create admissions facts; only captured official JSON rows with evidence are applied.")
+    lines.append("")
+
+
 def _programme_catalog_diagnostics(lines: list[str], data: AdmissionsData) -> None:
     summary = data.run.config.get("programme_catalog_summary")
     if not isinstance(summary, dict) or not summary:
         return
     candidate_count = summary.get("candidate_count", 0)
     rejected_count = summary.get("rejected_count", 0)
-    if not candidate_count and not rejected_count:
+    candidate_source_count = summary.get("candidate_source_count", 0)
+    if not candidate_count and not rejected_count and not candidate_source_count:
         return
 
     lines.append("## Programme Catalog Diagnostics")
@@ -283,12 +344,41 @@ def _programme_catalog_diagnostics(lines: list[str], data: AdmissionsData) -> No
     lines.append(f"- Candidate rows: {candidate_count}")
     lines.append(f"- Accepted rows: {summary.get('accepted_count', 0)}")
     lines.append(f"- Rejected rows: {rejected_count}")
-    lines.append(f"- Candidate sources: {summary.get('candidate_source_count', 0)}")
+    lines.append(f"- Candidate sources: {candidate_source_count}")
     lines.append(f"- Crawled catalog sources: {summary.get('crawled_catalog_source_count', 0)}")
     lines.append(f"- Accepted row count: {summary.get('accepted_row_count', summary.get('accepted_count', 0))}")
     lines.append(f"- Raw-needs-review rows: {summary.get('raw_needs_review_count', 0)}")
+    ratio = summary.get("accepted_to_candidate_source_ratio")
+    if ratio is not None:
+        lines.append(f"- Accepted/source ratio: {ratio}")
+    if summary.get("api_response_count") or summary.get("api_catalog_candidate_count"):
+        lines.append(f"- API catalog candidates: {summary.get('api_catalog_candidate_count', 0)}")
+        lines.append(f"- API responses: {summary.get('api_response_count', 0)}")
+        lines.append(f"- API pages: {summary.get('api_page_count', 0)}")
+        lines.append(f"- API accepted rows: {summary.get('api_accepted_row_count', 0)}")
+        lines.append(f"- API rejected rows: {summary.get('api_rejected_row_count', 0)}")
+        if summary.get("api_total_count") is not None:
+            lines.append(f"- API total count: {summary.get('api_total_count')}")
+        lines.append(f"- API pagination complete: {summary.get('api_pagination_complete', False)}")
+        lines.append(f"- API pagination incomplete: {summary.get('api_pagination_incomplete', False)}")
+        if summary.get("api_filter_candidate_dimensions"):
+            lines.append(f"- API filter candidate dimensions: {_format_dimensions(summary.get('api_filter_candidate_dimensions'))}")
+        if summary.get("api_filter_dimensions"):
+            lines.append(f"- API filter dimensions used: {_format_dimensions(summary.get('api_filter_dimensions'))}")
+        if summary.get("api_filter_attempted_url_count") or summary.get("api_filter_fetched_url_count"):
+            lines.append(f"- API filter attempted URLs: {summary.get('api_filter_attempted_url_count', 0)}")
+            lines.append(f"- API filter fetched URLs: {summary.get('api_filter_fetched_url_count', 0)}")
+            lines.append(f"- API filter rejected URLs: {summary.get('api_filter_rejected_url_count', 0)}")
+            lines.append(f"- API filter budget hit: {summary.get('api_filter_enumeration_budget_hit', False)}")
+        lines.append(f"- HTML fallback used: {summary.get('html_fallback_used', False)}")
+        if summary.get("api_to_csv_ratio") is not None:
+            lines.append(f"- API/CSV row ratio: {summary.get('api_to_csv_ratio')}")
+    lines.append(f"- Low row yield: {summary.get('low_row_yield', False)}")
     lines.append(f"- Probable incomplete catalog: {summary.get('probable_incomplete_catalog', False)}")
     lines.append(f"- Recommended next action: `{summary.get('recommended_next_action', 'none')}`")
+    source_statuses = summary.get("source_status_counts")
+    if isinstance(source_statuses, dict) and source_statuses:
+        lines.append(f"- Catalog source statuses: {_format_counts(source_statuses)}")
     lines.append(f"- Duplicate rows: {summary.get('duplicate_count', 0)}")
     lines.append(f"- Manual-review rows: {summary.get('manual_review_count', 0)}")
     lines.append(f"- Row warnings: {summary.get('warning_count', 0)}")
@@ -348,7 +438,12 @@ def _template_completeness(lines: list[str], data: AdmissionsData) -> None:
             f"candidate sources {programme_catalog.get('candidate_source_count', 0)}, "
             f"crawled catalog sources {programme_catalog.get('crawled_catalog_source_count', 0)}, "
             f"accepted rows {programme_catalog.get('accepted_row_count', 0)}, "
+            f"API pages {programme_catalog.get('api_page_count', 0)}, "
+            f"API accepted rows {programme_catalog.get('api_accepted_row_count', 0)}, "
+            f"API pagination incomplete {programme_catalog.get('api_pagination_incomplete', False)}, "
+            f"HTML fallback used {programme_catalog.get('html_fallback_used', False)}, "
             f"raw-needs-review rows {programme_catalog.get('raw_needs_review_count', 0)}, "
+            f"low row yield {programme_catalog.get('low_row_yield', False)}, "
             f"probable incomplete {programme_catalog.get('probable_incomplete_catalog', False)}, "
             f"next action `{programme_catalog.get('next_action', 'none')}`"
         )
@@ -564,3 +659,16 @@ def _parsed(lines: list[str], value: FieldValue, *, indent: str) -> None:
 
 def _format_counts(counts: dict[object, object]) -> str:
     return ", ".join(f"`{key}`: {value}" for key, value in counts.items())
+
+
+def _format_dimensions(dimensions: object) -> str:
+    if not isinstance(dimensions, dict):
+        return "`none`"
+    parts: list[str] = []
+    for key, values in dimensions.items():
+        if isinstance(values, list):
+            rendered_values = ", ".join(str(value) for value in values)
+        else:
+            rendered_values = str(values)
+        parts.append(f"`{key}`={rendered_values}")
+    return "; ".join(parts) if parts else "`none`"

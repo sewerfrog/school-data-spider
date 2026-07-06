@@ -579,6 +579,227 @@ Phase 4 的详细 step 过程已执行完成；这里保留压缩记录，避免
 10. 增加可选 mock LLM programme candidate classification hint；它只对已抓到 source
     text 中的 candidate 做分类提示，不生成专业事实。
 
+## Programme Catalog 完整性修复方案
+
+当前 `programme_catalog.csv` 只写出 `AdmissionsData.programme_catalog` 中已经接受的行；
+CSV renderer 本身不负责发现或补全专业。因此“CSV 只能爬到一部分”的主因应在上游：
+目录源是否抓到、抓到的页面文本是否保留了可解析结构、parser 是否能把表格/列表拆成
+row-level candidate，以及 diagnostics 是否能识别“有目录信号但 accepted rows 很少”的
+不完整状态。
+
+当前样例证据：
+
+- `outputs/ntu-openai-live/report.md` 显示 `candidate sources 14`、`crawled catalog
+  sources 14`，但 `accepted rows 3`，同时 `probable incomplete False`、
+  `next action none`。这说明 diagnostics 没有把“候选目录源很多但输出很少”识别为
+  目录不完整。
+- `outputs/ntu-openai-live/sources/456811f72e86eb31.txt` 只保存到 NTU programme
+  filter shell 文案，例如 programme level / programme type，没有实际专业列表。说明
+  JS/filter 型页面需要专门的动态内容或公开 API 发现策略。
+- `outputs/ntu-live-browser/sources/ae25c9ba9b34de33.txt` 已包含完整
+  `Programme | Degree Title` 表，例如 Accountancy、Computer Science、Medicine 等，
+  但文本被压成一整行，当前 line-based parser 无法稳定拆成多条专业记录。
+- `outputs/ntu-live-browser/report.md` 只有 3 条 candidate/accepted rows，且
+  manual-review rows 也是 3；`outputs/nus-bulletin-programmes-browser/report.md`
+  有 25 条 accepted rows，但 18 条 manual-review rows、39 个 row warnings。说明
+  当前 parser 同时存在漏抽和误抽长段正文的问题。
+
+目标：
+
+- 把 programme catalog 从“少量样本可抽取”提升为“能解释目录覆盖率的通用管线”。
+- 保持 evidence-first：只有 captured official source 中可定位的 row 才进入
+  `programme_catalog` 和 CSV。
+- 不扩大 legacy `programmes` 的语义；高基数专业目录继续只由 `programme_catalog`
+  承载。
+- 下一阶段把公开接口作为 programme catalog 的优先路径：当官网前端背后存在可访问的
+  JSON/API catalog 时，优先从 API object 生成 row-level evidence；HTML/static parser
+  作为兜底，browser/network capture 只在动态壳或低产出时启用。
+- 先增强 diagnostics 和 fixture，再逐步扩大 source acquisition 与 parser 行为，避免
+  用 live 输出作为不可复现测试基线。
+
+### Step A：增强目录源发现与抓取状态
+
+要新增或收敛一套 `programme_catalog` 专用 source-candidate 诊断，而不是只看最终
+`accepted_row_count`：
+
+- 统一记录 catalog source candidates：
+  - 来源：homepage/frontier link、sitemap、common path probing、source planning、
+    captured page 内部链接、公开 JSON/API 或 script hint。
+  - 类型：static table/list、JS/filter shell、faculty/school catalogue、bulletin、
+    programme detail、major/minor page、PDF、public API/JSON。
+  - 证据：URL/title/text signals，例如 `degree-programmes`、`undergraduate-programmes`、
+    `Programme | Degree Title`、`Bachelor`、`Major`、`Minor`、`Programme Type`、
+    `School offering`。
+- 对每个 candidate source 记录 crawl status：
+  - `not_crawled_budget_skipped`
+  - `crawled_html`
+  - `crawled_pdf`
+  - `blocked_or_challenge`
+  - `dynamic_shell_no_rows`
+  - `public_api_candidate`
+  - `rejected_off_domain_or_low_value`
+- 对 JS/filter shell 页面，若浏览器保存文本只有筛选器、没有 row-level programme 文本，
+  不应当算作成功 source；应标记 `dynamic_shell_no_rows`，并尝试从 captured HTML /
+  script / network metadata 中提取公开 API 或分页 URL，再经过 allowed-domain、
+  HTTPS、low-value 过滤后进入 bounded crawl frontier。
+- 不做的事：
+  - 不绕过登录、验证码、portal 或权限限制。
+  - 不把未抓取的 candidate URL 当作招生事实。
+  - 不让 LLM 生成新 URL 后直接写事实；LLM 最多只能提供 bounded source planning hint，
+    并继续受 deterministic validation 约束。
+
+验收：
+
+- fixture 能证明 `/education/degree-programmes`、`/admissions/undergraduate-programmes`、
+  `/bulletin/.../programmes`、`/majors`、`/minors` 等入口会进入 catalog candidate
+  diagnostics。
+- JS shell fixture 在没有 rows 时输出 `dynamic_shell_no_rows`，而不是
+  `probable_incomplete_catalog=False`。
+- candidate URL 进入 crawl frontier 前必须经过 domain、scheme、low-value 和 budget
+  validation；被跳过的 URL 要能在 diagnostics 中解释。
+
+### Step B：新增表格/列表分段解析层
+
+当前 `_candidate_lines()` 偏 line-based，适合已经保留换行的页面，不适合被清洗成单行的
+官方表格。需要在 `extract_programme_catalog()` 前段新增通用 segmentation 层：
+
+- HTML 保留结构时优先走结构化提取：
+  - `<table>` / `<tr>` / `<td>` 转为 row cells。
+  - `<li>`、card list、definition list 转为 candidate rows。
+  - row-level link 如果存在，写入 future `programme_url` 或 diagnostics metadata。
+- HTML 已被保存为扁平 text 时，增加 table-like text segmenter：
+  - 识别 `Programme | Degree Title . Accountancy | Bachelor of Accountancy . ...`
+    这类重复 `cell | cell .` 模式。
+  - 识别 `Second Major | School offering | Offered to students ...`、
+    `Minor Programme | School offering ...` 等三列表。
+  - 根据最近的 section heading 继承 category context，例如 single degree、double major、
+    double degree、integrated programme、minor、second major。
+- 每条 candidate row 必须保留：
+  - `raw_text`
+  - `cells`
+  - `source_url`
+  - `source_title`
+  - `section_heading`
+  - `parse_status`
+  - `evidence_snippet`
+- 加强误抽防线：
+  - 长段正文不能因为出现 `Bachelor` / `programme` 就被当作专业名。
+  - 对 `name` 设定长度、标点密度、句子数量和 table-cell density gate。
+  - overview/admissions/curriculum 长段可以进入 diagnostics 的 rejected/raw review，
+    但不能静默进入 CSV。
+- 泛化原则：
+  - 通用 parser 不依赖学校名。
+  - 学校 hint 只用于补 faculty/category 等上下文，不生成不存在的专业。
+  - LLM programme hint 只能对 captured candidate row 做分类提示，不能凭空新增 row。
+
+验收：
+
+- NTU `Programme | Degree Title` 单行 saved-source fixture 应抽出多条 row，例如
+  Accountancy、Aerospace Engineering、Computer Science、Medicine 等，而不是一条长文本。
+- NUS bulletin / CHS 长篇 overview fixture 不应把整段 overview 当成专业名；必要时标
+  `raw_needs_manual_review` 或 rejected diagnostic。
+- `programme_catalog.csv` 字段顺序不变；新增 metadata 如果还没进入稳定 schema，
+  先放 diagnostics，不破坏 CSV 消费方。
+- 每条 accepted row 都必须有 row-level evidence path 和 snippet；没有 captured
+  snippet 的候选只能留在 diagnostics。
+
+### Step C：重做完整性诊断与下一步建议
+
+`programme_catalog_summary` 不能只统计已经接受的 rows。它需要同时解释“抓到了哪些疑似
+目录源、哪些源没有解析出 row、为什么当前 CSV 可能不完整”。
+
+建议新增或补齐指标：
+
+- source 级：
+  - `candidate_source_count`
+  - `crawled_catalog_source_count`
+  - `eligible_catalog_source_count`
+  - `dynamic_shell_source_count`
+  - `table_like_source_count`
+  - `parsed_zero_row_source_count`
+  - `blocked_catalog_source_count`
+- row 级：
+  - `accepted_row_count`
+  - `raw_needs_review_count`
+  - `rejected_candidate_row_count`
+  - `long_text_rejected_count`
+  - `duplicate_count`
+  - `row_warning_count`
+- coverage signal：
+  - `table_marker_count`
+  - `degree_keyword_count`
+  - `programme_link_count`
+  - `estimated_row_signal_count`
+  - `accepted_to_signal_ratio`
+
+`probable_incomplete_catalog=True` 的触发条件应至少覆盖：
+
+- `candidate_source_count` 很高但 `accepted_row_count` 很低，例如 NTU 样例中
+  `14 -> 3`。
+- 存在 `dynamic_shell_no_rows` source。
+- source text 中有强 table marker，例如 `Programme | Degree Title` 或
+  `Minor Programme | School offering`，但 parser 接受行数为 0 或很少。
+- accepted rows 大量 `manual_review` / warnings，或 accepted row name 明显过长。
+- crawl budget 跳过了高分 catalog candidates。
+
+`recommended_next_action` 应从单个 `none` 扩成可执行分类：
+
+- `improve_source_acquisition`
+- `enable_browser_or_api_capture`
+- `increase_catalog_crawl_budget`
+- `improve_table_segmentation`
+- `tighten_false_positive_filters`
+- `manual_review_raw_rows`
+- `none`
+
+report 中要明确区分：
+
+- `programme_catalog.csv` 当前有多少 accepted rows。
+- 这些 rows 是否足以代表完整目录。
+- 哪些 candidate sources 没有转成 rows。
+- 下一步是抓取问题、动态页面问题、parser 问题，还是人工复核问题。
+
+验收：
+
+- 当样例呈现 `candidate sources 14`、`accepted rows 3` 时，不能再输出
+  `probable incomplete False` 和 `next action none`。
+- 当保存文本只有 filter shell 时，报告应指向 `enable_browser_or_api_capture` 或
+  `improve_source_acquisition`。
+- 当保存文本包含 `Programme | Degree Title` 但没有 rows 时，报告应指向
+  `improve_table_segmentation`。
+- 当 fixture 中预期 rows 被稳定抽出、warning 低且没有 skipped 高分 catalog source 时，
+  才允许 `recommended_next_action=none`。
+
+### 推荐执行顺序
+
+1. 先做 diagnostics-only slice：新增 source/row completeness metrics 和 report 展示，
+   不改变 accepted rows，先让“不完整”可见。
+2. 再做 generic table segmenter：优先修 NTU `Programme | Degree Title` 单行表，
+   用 saved-source fixture 固定行为。
+3. 再处理 JS/filter shell：浏览器等待、公开 API/link hint 和 bounded crawl frontier
+   作为独立 slice，避免和 parser 改动混在一起。
+4. 最后收紧 false-positive 过滤：降低长篇 overview/申请说明被误写入 CSV 的概率。
+
+验证命令：
+
+```bash
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_programme_catalog.py tests/test_pipeline.py tests/test_report_cli.py
+python3 -m pytest -q
+git diff --check
+```
+
+主要风险与控制：
+
+- 过度抓取：catalog candidates 必须走 budget 和 allowed-domain validation，并记录被跳过
+  的原因。
+- 误抽正文：增加 row length、cell density、section context 和 long-text rejection，
+  默认宁可 diagnostics/raw review，也不要把长段正文写进 CSV。
+- 学校特例膨胀：先用 generic fixtures 证明表格/列表模式，再把 HKU/NUS/NTU/PolyU hint
+  限制在上下文补充。
+- 输出契约漂移：CSV 字段保持稳定；新增未稳定字段先进入 `run.config` diagnostics。
+- LLM 幻觉：LLM 只做 classification/source-planning hint，所有写入仍必须通过 captured
+  source snippet 和 claim path validation。
+
 最近验证状态：
 
 ```bash
@@ -588,6 +809,381 @@ env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovid
 git diff --check
 # passed
 ```
+
+### 下一阶段：API Catalog 主路径升级计划
+
+当前 `programme_catalog.csv` 仍无法稳定爬取完整专业目录，说明前一阶段的
+diagnostics、table segmenter 和 false-positive 过滤只能缓解 HTML 文本路径的问题，不能
+根治 JS/filter shell 和高基数目录的完整性问题。下一阶段应把专业目录管线升级为：
+
+```text
+API catalog path 优先
+HTML/static parser 兜底
+browser/network capture 只在动态壳或低产出时启用
+diagnostics 判断是否完整
+```
+
+目标不是绕过权限或登录系统，而是在官网公开接口存在时，用接口更完整、清晰、可验证地
+拉取专业目录。
+
+#### 总体判断
+
+如果学校官网前端背后有公开 JSON/API，并且接口返回完整 catalog、分页/筛选参数可枚举，
+接口爬取通常比 HTML/browser 文本解析更稳定：
+
+- JSON 字段天然结构化，能减少 table/card/list 文本清洗。
+- 每个 JSON object 可作为 row-level evidence snippet。
+- 分页接口常暴露 `total`、`count`、`pageInfo`、`hasNextPage`，更容易判断完整性。
+- 可以枚举 `level=undergraduate`、`programmeType=degree`、`studyMode=full-time`、
+  `faculty` / `school` 等筛选参数。
+- 可以避开 HTML 表格压平、卡片布局变化、导航正文混入和长篇介绍文误抽。
+
+限制也必须明确：
+
+- 不能保证所有学校都有公开接口。
+- 不绕过登录、验证码、WAF、签名、动态 token 或权限接口。
+- 接口可能只返回当前筛选页，必须处理分页、筛选枚举和完整性校验。
+- GraphQL、Algolia、Sitecore、Next.js data、ElasticSearch 等结构需要 adapter 或字段
+  mapping，不能用一套固定 key 假设覆盖所有学校。
+
+#### 当前实现状态
+
+当前分支已经从“API 只进入 legacy `programmes`”前进到“公开 JSON/API 可直接贡献
+`programme_catalog`”：
+
+- 已新增 `extractor/programme_catalog_api.py`，能把 captured public JSON object 转成
+  `ProgrammeCatalogRecord`，并把单条 JSON object 作为 row-level evidence。
+- `run_university_scan.py` 的 `SourceType.JSON` 分支已经接入 API catalog extractor；
+  高基数 catalog API 不再把每条专业同步膨胀到 legacy `programmes`。
+- 已新增 API pagination proof，支持 `page/pageSize`、`offset/limit`、
+  `cursor/hasNextPage/endCursor` 三类最小翻页，并把分页结果写入 diagnostics。
+- 已新增 diagnostics-only API discovery，能从 captured HTML/script/link/browser URL 中记录
+  API endpoint candidate、source page、reason、status、response content type / size 和
+  rejection reason。
+- 已新增 safe JSON response capture 首版：对 discovery 发现但未进入 frontier 的
+  `not_fetched` / `captured_url_only` 候选，在同域/allowed-domain、公开 GET、无敏感
+  query、小响应体预算内主动抓取；抓到的 JSON 复用 API extractor 与 pagination path，
+  只有 row-level JSON evidence 通过校验后才写入 `programme_catalog`。
+- 已新增 filter enumeration proof：只从 captured official JSON 里的 `filters` / `facets` /
+  `filterOptions` metadata 读取低风险筛选值，生成 bounded GET JSON 请求，并复用 API
+  extractor 与 pagination path；programme row 里的普通 `faculty` / `level` 字段不会被误当成
+  filter options。
+- `programme_catalog_summary` 与 Markdown report 已展示 API response/page/accepted/rejected/
+  total/pagination/filter/html fallback 等核心指标。
+
+仍未完成的能力：
+
+- Browser network capture 仍主要保留 URL；尚未保存 HAR-like request params、response header
+  或完整 network body metadata。
+- 筛选枚举仍是保守首版：不 fuzz 未知参数，不自动推断没有官方 filter metadata 的参数，
+  尚未做复杂多维组合覆盖率证明。
+- `detail_url`、逐条 rejected API object reason、filter coverage proof、`api_adapter_used`
+  仍未进入稳定 diagnostics。
+- GraphQL、Algolia、Sitecore、Next.js data、ElasticSearch 等 adapter 尚未实现。
+
+#### 目标架构
+
+新增 programme catalog 专用 API path，保持现有 CSV 输出契约：
+
+```text
+catalog candidate discovery
+  -> API/network candidate classification
+  -> safe API capture
+  -> pagination/filter expansion
+  -> programme_catalog_api_extractor
+  -> ProgrammeCatalogRecord + row-level JSON evidence
+  -> completeness diagnostics
+  -> programme_catalog.csv
+```
+
+输出原则：
+
+- `programme_catalog.csv` 仍只渲染 `AdmissionsData.programme_catalog`。
+- API row 必须来自 captured official JSON object，不能由模型或页面标题生成。
+- `source_url` 可以是公开 API endpoint 或 programme detail URL；如果两者都存在，API
+  endpoint 作为 evidence source，detail URL 先进入 diagnostics/future metadata，等 schema
+  稳定后再进入正式字段。
+- `evidence_snippet` 使用单条 JSON object 的压缩片段，而不是整份响应。
+- 旧 `programmes` 字段继续保持低基数兼容语义，不承载完整目录。
+
+#### 模型的角色边界
+
+模型可以加速接口发现和字段 mapping，但不能直接写招生事实。
+
+模型适合做：
+
+- 从 HTML、JS、network log、HAR、JSON sample 中找接口候选。
+- 判断哪个 response 像 programme catalog API。
+- 推断分页模式，例如 `page/pageSize`、`offset/limit`、`skip/take`、
+  `cursor/endCursor/hasNextPage`。
+- 推断筛选参数，例如 `level=undergraduate`、`programmeType=degree`、
+  `studyMode=full-time`、`faculty` / `school`。
+- 生成字段映射建议，例如 `name`、`degree_or_award`、`faculty_or_school`、
+  `category`、`detail_url`、`duration`、`mode`。
+
+模型不能做：
+
+- 编造接口 URL。
+- 绕过登录、验证码、token、签名或权限限制。
+- 在没有 captured official source 的情况下写入 `programme_catalog`。
+- 根据页面标题或模型常识生成专业列表。
+- 不做 `total` / `count` / `page` 校验就判断“已经完整”。
+- 在运行时对每条 row 调模型生成事实。
+
+正确边界是：
+
+```text
+模型提出候选接口和分页策略
+代码按规则验证和抓取
+只有真实抓到的 JSON object 才能写入 programme_catalog
+```
+
+#### Step D：API Discovery 与 Safe JSON Capture
+
+先把“是否存在公开 catalog API”和“是否能抓到官方 JSON body”变成可见状态；safe capture
+可以写入 facts，但前提是抓到公开 JSON response，且 row-level evidence 通过现有校验。
+
+候选来源：
+
+- captured HTML 里的 `.json`、`/api/`、`/_next/data/`、`graphql`、`search`、
+  `programme`、`course`、`catalog` endpoint hint。
+- `<script>` / embedded JSON / data attributes 中的 endpoint、build id、API base URL。
+- browser network response 中的 JSON URL，尤其是由 programme list / filter 页面触发的
+  GET JSON。
+- sitemap、frontier links 和 source planning hints 中的 JSON/API URL。
+
+记录 discovery/capture diagnostics；只有 safe capture 抓到的官方 JSON row 才能写 facts：
+
+- `api_catalog_candidate_count`
+- `api_candidate_urls`
+- `api_candidate_source_page`
+- `api_candidate_reason`
+- `api_candidate_status`: `not_fetched`、`captured_url_only`、`captured_json`、
+  `rejected_off_domain`、`rejected_non_get`、`rejected_auth_or_token`、
+  `rejected_too_large`、`capture_failed`、`non_json_response`、`blocked_or_challenge`
+- `api_response_content_type`
+- `api_response_size_bytes`
+- `programme_catalog_api_capture`: attempted/captured/rejected URL、accepted row count、
+  budget hit、是否实际写入 facts。
+
+安全边界：
+
+- 只抓同域或 allowed-domain 内的 HTTPS/HTTP GET JSON。
+- 不保存 cookie、Authorization、CSRF header、个人信息 header。
+- 不 replay POST、GraphQL mutation、登录后接口或带明显签名/一次性 token 的请求。
+- 候选 URL 和重定向后的 `final_url` 都必须留在 allowed-domain 内。
+- 设置每站最大 API candidates、最大响应体、最大总请求数。
+
+验收：
+
+- JS/filter shell fixture 应能输出 `dynamic_shell_no_rows`，同时列出公开 API candidate。
+- 没有公开 API 时，diagnostics 明确 `api_catalog_candidate_count=0`，不影响 HTML 兜底。
+- 被拒绝的 API candidate 必须有 rejection reason。
+- 嵌入 HTML/script 且不在 discovery frontier 内的安全 JSON candidate 可被 bounded capture
+  抓取，并经 API extractor 写入 `programme_catalog`。
+- 抓取失败、非 JSON response 或响应过大时，只更新 diagnostics，不写 facts。
+
+#### Step E：Programme Catalog API Extractor
+
+新增 `extractor/programme_catalog_api.py`，专门把公开 JSON object 转成
+`ProgrammeCatalogRecord`，不再复用 legacy `extract_api_claims()` 的 `programmes` 写入路径。
+
+通用对象识别：
+
+- 支持 payload 包裹层：`items`、`results`、`data`、`records`、`nodes`、`edges[].node`、
+  `programmes`、`courses`。
+- 候选 object 必须同时满足：
+  - 有 programme-like name key：`name`、`title`、`programmeName`、`programName`、
+    `courseTitle`、`degreeTitle`。
+  - 有 undergraduate/catalog signal：`undergraduate`、`bachelor`、`degree`、`major`、
+    `minor`、`full-time`、`programme`、`course`，或来源 API 已被 catalog classifier
+    标为高置信。
+  - object 不是导航、筛选器、统计项或纯院系列表。
+
+字段 mapping：
+
+- `name`：来自稳定 title/name 字段，要求长度、标点密度和 HTML 噪声通过 gate。
+- `degree_or_award`：`degree`、`award`、`qualification`、`degreeTitle`、`awardName`。
+- `faculty_or_school`：`faculty`、`school`、`college`、`department`、`schoolName`。
+- `category`：从 `type`、`programmeType`、`level`、`award`、`degree`、`major/minor`
+  signal 映射为 `degree_programme`、`major`、`minor`、`dual_degree`、
+  `special_programme` 或 `unknown`。
+- `mode`：`mode`、`studyMode`、`attendance`、`fullTimePartTime`。
+- `duration_or_units`：`duration`、`studyPeriod`、`units`、`credits`。
+- `admissions_choice_name`：`choice`、`admissionChoice`、`jupasCode`、`applicationCode`。
+- `detail_url`：先作为 diagnostics metadata；等 schema 稳定后再进入正式字段。
+
+row-level evidence：
+
+- 每条 accepted row 的 `evidence_snippet` 是对应 JSON object 的 compact JSON。
+- `evidence_path` 仍使用 `/programme_catalog/{index}/name`。
+- 如果 API object 没有 stable name 或无法和 official source 绑定，只进入 rejected
+  diagnostics，不进入 CSV。
+
+验收：
+
+- fixture API 返回多条 undergraduate programmes 时，`data.programme_catalog` 和
+  `programme_catalog.csv` 行数一致。
+- 每条 API row 的 evidence snippet 能定位到原始 JSON object。
+- legacy `programmes` 不因高基数 API catalog 膨胀。
+
+#### Step F：分页与筛选枚举
+
+接口完整性的关键不是抓到一个 API，而是确认抓完了所有页和必要筛选。
+
+分页识别：
+
+- page 模式：`page` + `pageSize` / `limit`。
+- offset 模式：`offset` / `skip` + `limit` / `take`。
+- cursor 模式：`cursor` / `after` + `endCursor` / `hasNextPage`。
+- total 模式：`total`、`count`、`totalCount`、`recordsTotal`。
+
+筛选枚举：
+
+- 只枚举低风险、可解释、官方 JSON filter metadata 已暴露的维度：
+  - `level=undergraduate`
+  - `programmeType=degree`
+  - `studyMode=full-time`
+  - `faculty` / `school`
+- 不暴力枚举未知参数，不 fuzz，不尝试绕过 token。
+- 不把 programme row 里的普通字段当成 filter option；必须来自 `filters`、`facets`、
+  `filterOptions`、`searchFilters` 等 filter metadata 容器。
+
+预算：
+
+- 每站最大 API endpoint 数。
+- 每 endpoint 最大页数。
+- 每 endpoint 最大 accepted row 数。
+- 每 endpoint 最大空页 / 重复页次数。
+- 每 endpoint 最大 filter URL 数；filter URL、重定向后的 final URL、响应类型和响应体大小
+  都要继续通过安全校验。
+- 所有扩展请求必须记录在 diagnostics。
+
+完整性判定：
+
+- 如果 API 暴露 `total=120`，accepted rows 只有 40，必须标记
+  `api_pagination_incomplete=True`。
+- 如果没有 total，但分页连续返回直到空页 / `hasNextPage=False`，可标记
+  `api_pagination_complete=True`。
+- 如果只抓了第一页且无法证明无下一页，不能输出 `recommended_next_action=none`。
+
+验收：
+
+- fixture 覆盖 page、offset、cursor 三种分页。
+- API 返回 total 与 accepted row mismatch 时，report 标记 incomplete。
+- fixture 覆盖官方 filter metadata -> bounded filter URL -> `programme_catalog` 写入。
+- API 完整抓取后，report 显示 `api_pagination_complete=True`，且
+  `recommended_next_action=none` 仅在 warnings/duplicates/HTML skipped signals 可接受时出现。
+
+#### Step G：API 优先的 Source Strategy 与 Report
+
+`programme_catalog_summary` 需要新增 API 维度，避免只从 HTML candidate 角度解释完整性：
+
+- `api_catalog_candidate_count`
+- `api_response_count`
+- `api_accepted_row_count`
+- `api_rejected_row_count`
+- `api_total_count`
+- `api_page_count`
+- `api_pagination_complete`
+- `api_pagination_incomplete`
+- `api_filter_dimensions`
+- `api_adapter_used`
+- `html_fallback_used`
+- `api_to_csv_ratio`
+
+`recommended_next_action` 需要扩展：
+
+- `discover_public_catalog_api`
+- `capture_browser_network_api`
+- `implement_api_field_mapping`
+- `expand_api_pagination`
+- `enumerate_api_filters`
+- `fallback_html_parser`
+- `manual_review_api_rows`
+- `none`
+
+触发规则：
+
+- 有 JS/filter shell 且没有 API candidate：`capture_browser_network_api`。
+- 有 API candidate 但未抓 body：`capture_browser_network_api` 或
+  `discover_public_catalog_api`。
+- 有 JSON body 但 row 为 0：`implement_api_field_mapping`。
+- row 数少于 API total：`expand_api_pagination`。
+- 只抓默认筛选页：`enumerate_api_filters`。
+- API 不存在或受限，但 HTML table marker 强：`fallback_html_parser`。
+- API row warnings 多：`manual_review_api_rows`。
+
+#### 推荐执行顺序（API 升级）
+
+1. **Diagnostics-only API discovery（已完成首版）**：记录 API candidates、rejection
+   reasons、network URL；candidate discovery 本身不改变 CSV。
+2. **Capture safe JSON responses（已完成首版）**：只保存公开 GET JSON body 和 response
+   metadata，不 replay 需要权限的请求。
+3. **API -> programme_catalog extractor（已完成首版）**：新增 catalog 专用 JSON extractor，
+   先覆盖 fixture 和 saved API sample。
+4. **Pagination proof（已完成首版）**：支持 page/offset/cursor 三类最小分页，并把 total
+   mismatch 写入 diagnostics。
+5. **Filter enumeration proof（已完成首版）**：只枚举 undergraduate/degree/full-time/faculty
+   等低风险参数。
+6. **HTML fallback integration（部分完成）**：API 成功时优先使用 API；API 不存在、不完整
+   或受限时，继续使用 HTML/static parser，并在 report 中解释 fallback 原因。
+7. **Adapter layer（未完成）**：仅当通用 mapping 不足且站点价值高时，增加 GraphQL/
+   Algolia/Sitecore/Next.js/ElasticSearch adapter；adapter 只负责解析官方响应结构，不生成事实。
+
+#### 测试计划
+
+- `tests/test_api_catalog_discovery.py`
+  - HTML script 中发现 API candidate。
+  - 未进入 frontier 的安全 JSON candidate 会被 bounded capture 抓取并写入
+    `programme_catalog`。
+  - safe capture 抓取失败、非 JSON response 或过大 response 只更新 diagnostics。
+  - browser network 中发现 JSON API URL。
+  - off-domain、POST、auth/token-like candidate 被拒绝并记录原因。
+- `tests/test_programme_catalog_api.py`
+  - JSON list 写入 `programme_catalog` 和 CSV。
+  - nested payload、edges/nodes、items/results/data 结构都能抽取。
+  - 缺 name、疑似导航/筛选器、长文本 object 被 rejected。
+- `tests/test_api_catalog_pagination.py`
+  - page/pageSize、offset/limit、cursor/hasNextPage 三种分页。
+  - `total` mismatch 标记 incomplete。
+  - budget hit 时 report 指向 `expand_api_pagination` 或 `increase_catalog_crawl_budget`。
+- `tests/test_api_catalog_filters.py`
+  - 官方 JSON filter metadata 暴露 `level` / `programmeType` / `studyMode` 时，生成 bounded
+    filter URL 并写入 `programme_catalog`。
+  - report 展示 `api_filter_candidate_dimensions`、`api_filter_dimensions`、attempted/fetched/
+    rejected URL 计数和 budget hit。
+- `tests/test_pipeline.py`
+  - API path 优先于 HTML fallback。
+  - API 受限时 fallback 到 HTML parser。
+  - legacy `programmes` 不承载高基数完整目录。
+- `tests/test_report_cli.py`
+  - report 展示 API candidate、pagination、accepted/rejected row、next action。
+
+验证命令：
+
+```bash
+env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider \
+  tests/test_api_catalog_discovery.py \
+  tests/test_programme_catalog_api.py \
+  tests/test_api_catalog_pagination.py \
+  tests/test_programme_catalog.py \
+  tests/test_pipeline.py \
+  tests/test_report_cli.py
+
+.venv314/bin/python -m pytest -q
+git diff --check
+```
+
+#### 风险与控制
+
+- **完整性误判**：没有 `total` / `hasNextPage` / 末页证据时，不允许标记 complete。
+- **权限边界**：不 replay 登录态请求，不保存敏感 header，不尝试签名/token 绕过。
+- **过度抓取**：所有 API expansion 必须有 endpoint/page/row/byte budget。
+- **schema 漂移**：CSV 字段先不变；`detail_url`、API metadata 等先进入 diagnostics。
+- **adapter 膨胀**：默认用通用 extractor；adapter 需要 fixture 和明确站点结构证据。
+- **模型幻觉**：模型只产出候选和 mapping suggestion；写事实必须经过 captured JSON object
+  与 claim path validation。
 
 ## Phase 5 已完成基线
 

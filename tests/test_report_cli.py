@@ -12,7 +12,7 @@ from university_admissions_crawler.crawler.fetcher import FetchResult
 from university_admissions_crawler.crawler.relevance import keyword_plan_from_query
 from university_admissions_crawler.evidence.provenance import source_from_text
 from university_admissions_crawler.extractor.llm_provider import MockSourcePlanProvider
-from university_admissions_crawler.extractor.schema import SourceType
+from university_admissions_crawler.extractor.schema import AdmissionsData, Institution, RunMetadata, SourceType
 from university_admissions_crawler.pipeline.output_writer import write_result_files
 from university_admissions_crawler.pipeline.run_university_scan import run_fixture_scan, run_scan
 from university_admissions_crawler.pipeline.source_planning import attach_source_plan_diagnostics
@@ -251,6 +251,40 @@ def test_markdown_report_shows_programme_catalog_diagnostics_before_facts():
     assert "programme catalog diagnostics summarize table extraction and are not admissions facts" in report
 
 
+def test_markdown_report_shows_zero_row_catalog_candidate_sources():
+    data = AdmissionsData(
+        institution=Institution(homepage_url="https://example.edu"),
+        run=RunMetadata(
+            input_url="https://example.edu",
+            config={
+                "programme_catalog_summary": {
+                    "candidate_count": 0,
+                    "accepted_count": 0,
+                    "rejected_count": 0,
+                    "candidate_source_count": 1,
+                    "crawled_catalog_source_count": 1,
+                    "accepted_row_count": 0,
+                    "raw_needs_review_count": 0,
+                    "accepted_to_candidate_source_ratio": 0.0,
+                    "low_row_yield": False,
+                    "source_status_counts": {"dynamic_shell_no_rows": 1, "parsed_zero_rows": 1},
+                    "probable_incomplete_catalog": True,
+                    "recommended_next_action": "enable_browser_or_api_capture",
+                    "sources_count": 0,
+                }
+            },
+        ),
+    )
+
+    report = render_markdown_report(data)
+
+    assert "## Programme Catalog Diagnostics" in report
+    assert "- Candidate rows: 0" in report
+    assert "- Candidate sources: 1" in report
+    assert "- Catalog source statuses: `dynamic_shell_no_rows`: 1, `parsed_zero_rows`: 1" in report
+    assert "- Recommended next action: `enable_browser_or_api_capture`" in report
+
+
 def test_cli_fixture_mock_classification_assist_records_diagnostics_only():
     with TemporaryDirectory() as tmp:
         code = main(
@@ -355,7 +389,7 @@ def test_cli_bm25_like_relevance_strategy_requires_keyword_query():
 
 
 def test_write_result_files_writes_json_and_markdown():
-    data = run_fixture_scan(ROOT, max_pages=1, max_depth=0)
+    data = run_fixture_scan(ROOT, seed_url="https://fixture.test/admissions/index.html", max_pages=1, max_depth=0)
     with TemporaryDirectory() as tmp:
         result_path, report_path = write_result_files(data, tmp)
         assert result_path == Path(tmp) / "result.json"
