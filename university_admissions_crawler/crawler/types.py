@@ -9,6 +9,20 @@ from university_admissions_crawler.extractor.schema import SourceRecord, Warning
 
 
 @dataclass(slots=True)
+class NetworkResponseRecord:
+    url: str
+    method: str = "GET"
+    status: int | None = None
+    content_type: str = ""
+    response_size_bytes: int | None = None
+    request_query_params: dict[str, str] = field(default_factory=dict)
+    response_headers: dict[str, str] = field(default_factory=dict)
+    body_text: str | None = None
+    body_sha256: str | None = None
+    body_truncated: bool = False
+
+
+@dataclass(slots=True)
 class FetchResult:
     url: str
     final_url: str
@@ -20,6 +34,8 @@ class FetchResult:
     text: str = ""
     markdown: str | None = None
     links: list[str] = field(default_factory=list)
+    network_response_urls: list[str] = field(default_factory=list)
+    network_responses: list[NetworkResponseRecord] = field(default_factory=list)
     source: SourceRecord | None = None
     warnings: list[WarningRecord] = field(default_factory=list)
 

@@ -63,6 +63,7 @@ def extract_programme_catalog_api(
 def programme_catalog_api_diagnostics(text: str, *, accepted_row_count: int) -> dict[str, object]:
     """Summarize API catalog extraction without creating admissions facts."""
 
+    body_profile = catalog_api_body_profile(text)
     payload = _json_payload(text)
     if payload is None:
         return {
@@ -72,6 +73,7 @@ def programme_catalog_api_diagnostics(text: str, *, accepted_row_count: int) -> 
             "api_total_count": None,
             "api_pagination_complete": False,
             "api_pagination_incomplete": False,
+            **body_profile,
         }
 
     candidate_object_count = sum(1 for _item in _candidate_objects(payload))
@@ -85,6 +87,58 @@ def programme_catalog_api_diagnostics(text: str, *, accepted_row_count: int) -> 
         "api_total_count": total_count,
         "api_pagination_complete": pagination_complete,
         "api_pagination_incomplete": pagination_incomplete,
+        **body_profile,
+    }
+
+
+def catalog_api_body_profile(text: str) -> dict[str, object]:
+    """Classify whether a JSON response body looks like a programme catalog.
+
+    This is a candidate/source diagnostic only.  It does not create admissions
+    facts; row creation still goes through ``extract_programme_catalog_api``.
+    """
+
+    payload = _json_payload(text)
+    if payload is None:
+        return {
+            "api_body_likely_catalog": False,
+            "api_body_signals": [],
+            "api_body_candidate_object_count": 0,
+            "api_body_parseable_row_count": 0,
+            "api_body_filter_keys": [],
+            "api_body_sample_keys": [],
+            "api_body_rejection_reason": "invalid_json",
+        }
+
+    candidate_objects = list(_candidate_objects(payload))
+    parseable_row_count = sum(1 for item in candidate_objects if _parse_catalog_object(item) is not None)
+    total_count = _find_total_count(payload)
+    filter_keys = _filter_metadata_keys(payload)
+    sample_keys = _sample_keys(payload)
+    signals: list[str] = []
+    if candidate_objects:
+        signals.append("programme_like_object_keys")
+    if parseable_row_count:
+        signals.append("parseable_programme_rows")
+    if total_count is not None:
+        signals.append("pagination_total_count")
+    if filter_keys:
+        signals.append("catalog_filter_metadata")
+    if _has_catalog_vocabulary(payload):
+        signals.append("catalog_vocabulary")
+
+    likely = bool(parseable_row_count) or bool(filter_keys and "catalog_vocabulary" in signals) or bool(
+        candidate_objects and total_count is not None and "catalog_vocabulary" in signals
+    )
+    rejection_reason = None if likely else "body_not_catalog_like"
+    return {
+        "api_body_likely_catalog": likely,
+        "api_body_signals": signals,
+        "api_body_candidate_object_count": len(candidate_objects),
+        "api_body_parseable_row_count": parseable_row_count,
+        "api_body_filter_keys": filter_keys,
+        "api_body_sample_keys": sample_keys,
+        "api_body_rejection_reason": rejection_reason,
     }
 
 
@@ -305,6 +359,64 @@ def _find_total_count(value: Any) -> int | None:
     return None
 
 
+def _filter_metadata_keys(value: Any) -> list[str]:
+    found: set[str] = set()
+
+    def visit(item: Any, *, in_filter_container: bool = False) -> None:
+        if isinstance(item, dict):
+            for key, subvalue in item.items():
+                normalised = _normalize_key(key)
+                if normalised in {"filters", "facets", "filteroptions", "filtermetadata", "searchfilters"}:
+                    visit(subvalue, in_filter_container=True)
+                    continue
+                if in_filter_container and normalised in _FILTER_METADATA_KEYS and isinstance(subvalue, (list, tuple, dict)):
+                    found.add(key)
+                visit(subvalue, in_filter_container=in_filter_container)
+        elif isinstance(item, list):
+            for subvalue in item:
+                visit(subvalue, in_filter_container=in_filter_container)
+
+    visit(value)
+    return sorted(found, key=str.casefold)
+
+
+def _sample_keys(value: Any, *, limit: int = 20) -> list[str]:
+    found: list[str] = []
+    seen: set[str] = set()
+
+    def visit(item: Any) -> None:
+        if len(found) >= limit:
+            return
+        if isinstance(item, dict):
+            for key, subvalue in item.items():
+                if key not in seen:
+                    seen.add(key)
+                    found.append(str(key))
+                    if len(found) >= limit:
+                        return
+                visit(subvalue)
+                if len(found) >= limit:
+                    return
+        elif isinstance(item, list):
+            for subvalue in item:
+                visit(subvalue)
+                if len(found) >= limit:
+                    return
+
+    visit(value)
+    return found
+
+
+def _has_catalog_vocabulary(value: Any) -> bool:
+    text = json.dumps(value, ensure_ascii=False)[:12000].lower()
+    return bool(
+        re.search(
+            r"\b(?:undergraduate|bachelor|bsc|ba|beng|bba|llb|mbbs|degree|programme|program|major|minor|faculty|school)\b",
+            text,
+        )
+    )
+
+
 _NAME_KEYS = (
     "name",
     "title",
@@ -320,3 +432,17 @@ _FACULTY_KEYS = ("faculty", "school", "college", "department", "schoolName", "fa
 _MODE_KEYS = ("mode", "studyMode", "attendance", "fullTimePartTime")
 _DURATION_KEYS = ("duration", "studyPeriod", "durationOrUnits", "units", "credits")
 _ADMISSIONS_CHOICE_KEYS = ("choice", "admissionChoice", "admissionsChoice", "jupasCode", "applicationCode", "code")
+_FILTER_METADATA_KEYS = {
+    "level",
+    "programmetype",
+    "studytype",
+    "studymode",
+    "mode",
+    "faculty",
+    "school",
+    "college",
+    "department",
+    "degree",
+    "award",
+    "category",
+}

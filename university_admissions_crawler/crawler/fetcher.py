@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
-from urllib.parse import urldefrag, urljoin, urlparse
+from urllib.parse import parse_qsl, urldefrag, urljoin, urlparse
 from urllib.request import Request, urlopen
 import re
 
@@ -24,9 +24,38 @@ from university_admissions_crawler.crawler.source_types import (
     source_type_for_fixture_path,
     source_type_for_url_or_content,
 )
-from university_admissions_crawler.crawler.types import FetchResult, Fetcher
+from university_admissions_crawler.crawler.types import FetchResult, Fetcher, NetworkResponseRecord
 from university_admissions_crawler.evidence.provenance import content_hash
 from university_admissions_crawler.extractor.schema import SourceRecord, SourceType, WarningCode, WarningRecord
+
+_MAX_NETWORK_RESPONSE_BODY_BYTES = 2_000_000
+_SAFE_RESPONSE_HEADER_NAMES = {
+    "cache-control",
+    "content-length",
+    "content-type",
+    "etag",
+    "last-modified",
+    "link",
+    "x-total-count",
+}
+_SENSITIVE_QUERY_KEYS = {
+    "accesskey",
+    "accesstoken",
+    "apikey",
+    "auth",
+    "authorization",
+    "csrf",
+    "csrftoken",
+    "jwt",
+    "key",
+    "nonce",
+    "password",
+    "secret",
+    "session",
+    "sig",
+    "signature",
+    "token",
+}
 
 _dedupe_preserve_order = dedupe_preserve_order
 _extract_json_links = extract_json_links
@@ -268,8 +297,8 @@ class PlaywrightBrowserFetcher:
                     context = browser.new_context(**context_kwargs)
                     try:
                         page = context.new_page()
-                        api_links: list[str] = []
-                        page.on("response", lambda response: _capture_api_response_url(response, api_links))
+                        network_responses: list[NetworkResponseRecord] = []
+                        page.on("response", lambda response: _capture_api_response_record(response, network_responses))
                         response = page.goto(url, wait_until=self.wait_until, timeout=int(self.timeout_seconds * 1000))
                         page.wait_for_load_state("domcontentloaded", timeout=int(self.timeout_seconds * 1000))
                         html = page.content()
@@ -345,7 +374,9 @@ class PlaywrightBrowserFetcher:
             engine=self.engine,
             text=html,
             markdown=_html_to_text(html),
-            links=_dedupe_preserve_order(list(dom_links) + api_links),
+            links=_dedupe_preserve_order(list(dom_links) + [record.url for record in network_responses]),
+            network_response_urls=_dedupe_preserve_order([record.url for record in network_responses]),
+            network_responses=network_responses,
             source=source,
         )
 
@@ -453,20 +484,82 @@ def _text_for_source(text: str, source_type: SourceType) -> str:
     return text
 
 
-def _capture_api_response_url(response, links: list[str]) -> None:
+def _capture_api_response_record(response, records: list[NetworkResponseRecord]) -> None:
     try:
-        content_type = response.headers.get("content-type", "").split(";", 1)[0].lower()
+        headers = {str(key).lower(): str(value) for key, value in response.headers.items()}
+        content_type = headers.get("content-type", "").split(";", 1)[0].lower()
         url = response.url
+        method = str(response.request.method or "GET").upper()
+        status = int(response.status)
     except Exception:
         return
     if content_type in {"application/json", "application/ld+json"} or _looks_like_api_url(url):
-        links.append(url)
+        response_size = _int_or_none(headers.get("content-length"))
+        body_text: str | None = None
+        body_sha256: str | None = None
+        body_truncated = bool(response_size is not None and response_size > _MAX_NETWORK_RESPONSE_BODY_BYTES)
+        if method == "GET" and content_type in {"application/json", "application/ld+json"} and not body_truncated:
+            try:
+                body = response.body()
+            except Exception:
+                body = b""
+            if body:
+                response_size = len(body)
+                if len(body) <= _MAX_NETWORK_RESPONSE_BODY_BYTES:
+                    body_text = _decode_bytes(body)
+                    body_sha256 = content_hash(body)
+                else:
+                    body_truncated = True
+        records.append(
+            NetworkResponseRecord(
+                url=url,
+                method=method,
+                status=status,
+                content_type=content_type,
+                response_size_bytes=response_size,
+                request_query_params=_safe_query_params(url),
+                response_headers=_safe_response_headers(headers),
+                body_text=body_text,
+                body_sha256=body_sha256,
+                body_truncated=body_truncated,
+            )
+        )
 
 
 def _looks_like_api_url(url: str) -> bool:
     parsed = urlparse(url)
     path = parsed.path.lower()
     return "/api/" in path or path.endswith(".json") or "/graphql" in path or "/odata/" in path
+
+
+def _safe_query_params(url: str) -> dict[str, str]:
+    params: dict[str, str] = {}
+    for key, value in parse_qsl(urlparse(url).query, keep_blank_values=True):
+        normalised = re.sub(r"[^a-z0-9]", "", key.lower())
+        params[key] = "[redacted]" if normalised in _SENSITIVE_QUERY_KEYS else _truncate_metadata_value(value)
+    return params
+
+
+def _safe_response_headers(headers: dict[str, str]) -> dict[str, str]:
+    return {
+        key: _truncate_metadata_value(value)
+        for key, value in sorted(headers.items())
+        if key in _SAFE_RESPONSE_HEADER_NAMES
+    }
+
+
+def _truncate_metadata_value(value: str, limit: int = 160) -> str:
+    value = str(value)
+    if len(value) <= limit:
+        return value
+    return value[: limit - 3] + "..."
+
+
+def _int_or_none(value: object) -> int | None:
+    try:
+        return int(str(value))
+    except (TypeError, ValueError):
+        return None
 
 
 def _browser_fallback_reason(result: FetchResult, seed_url: str | None) -> str | None:

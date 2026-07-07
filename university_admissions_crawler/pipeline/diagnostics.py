@@ -427,6 +427,14 @@ def _programme_catalog_summary(data: AdmissionsData, extraction_entries: object 
     candidate_source_urls = _programme_catalog_candidate_source_urls(data, extraction_entries, source_strategy)
     crawled_catalog_source_urls = sorted(set(candidate_source_urls) & {source.source_url for source in data.sources})
     source_status_counts = _programme_catalog_source_status_counts(candidate_source_urls, extraction_entries, source_strategy)
+    catalog_source_family_counts = _source_family_counts(candidate_source_urls)
+    accepted_source_family_counts = _source_family_counts(source_urls)
+    source_family_bias = _source_family_bias(
+        catalog_source_family_counts=catalog_source_family_counts,
+        accepted_source_family_counts=accepted_source_family_counts,
+        accepted_row_count=len(rows),
+    )
+    false_positive_rejected_count = _false_positive_rejected_count(extraction_entries)
     accepted_to_candidate_source_ratio = _programme_catalog_source_ratio(
         candidate_source_count=len(candidate_source_urls),
         accepted_row_count=len(rows),
@@ -442,10 +450,15 @@ def _programme_catalog_summary(data: AdmissionsData, extraction_entries: object 
         source_status_counts=source_status_counts,
         low_row_yield=low_row_yield,
     ) or bool(api_summary.get("api_pagination_incomplete", False))
+    api_candidate_zero_reason = _api_candidate_zero_reason(
+        data,
+        candidate_source_count=len(candidate_source_urls),
+        source_status_counts=source_status_counts,
+    )
     return {
         "candidate_count": len(rows),
         "accepted_count": len(rows),
-        "rejected_count": 0,
+        "rejected_count": false_positive_rejected_count,
         "candidate_source_count": len(candidate_source_urls),
         "candidate_source_urls": candidate_source_urls,
         "crawled_catalog_source_count": len(crawled_catalog_source_urls),
@@ -455,6 +468,13 @@ def _programme_catalog_summary(data: AdmissionsData, extraction_entries: object 
         "accepted_to_candidate_source_ratio": accepted_to_candidate_source_ratio,
         "low_row_yield": low_row_yield,
         "source_status_counts": dict(sorted(source_status_counts.items())),
+        "catalog_source_family_counts": dict(sorted(catalog_source_family_counts.items())),
+        "accepted_source_family_counts": dict(sorted(accepted_source_family_counts.items())),
+        "source_family_bias": source_family_bias["source_family_bias"],
+        "source_family_bias_reason": source_family_bias["source_family_bias_reason"],
+        "dominant_source_family": source_family_bias["dominant_source_family"],
+        "false_positive_rejected_count": false_positive_rejected_count,
+        "api_candidate_zero_reason": api_candidate_zero_reason,
         "probable_incomplete_catalog": probable_incomplete_catalog,
         **api_summary,
         "recommended_next_action": _programme_catalog_next_action(
@@ -466,6 +486,9 @@ def _programme_catalog_summary(data: AdmissionsData, extraction_entries: object 
             low_row_yield=low_row_yield,
             probable_incomplete_catalog=probable_incomplete_catalog,
             api_summary=api_summary,
+            api_candidate_zero_reason=api_candidate_zero_reason,
+            source_family_bias=bool(source_family_bias["source_family_bias"]),
+            false_positive_rejected_count=false_positive_rejected_count,
         ),
         "duplicate_count": duplicate_count,
         "duplicate_names": duplicate_names,
@@ -559,6 +582,14 @@ def _template_completeness(
             "api_filter_fetched_url_count": programme_summary.get("api_filter_fetched_url_count", 0),
             "api_filter_rejected_url_count": programme_summary.get("api_filter_rejected_url_count", 0),
             "api_filter_enumeration_budget_hit": programme_summary.get("api_filter_enumeration_budget_hit", False),
+            "api_endpoint_candidate_count": programme_summary.get("api_endpoint_candidate_count", 0),
+            "browser_network_candidate_count": programme_summary.get("browser_network_candidate_count", 0),
+            "network_body_available_count": programme_summary.get("network_body_available_count", 0),
+            "api_candidate_zero_reason": programme_summary.get("api_candidate_zero_reason"),
+            "catalog_source_family_counts": programme_summary.get("catalog_source_family_counts", {}),
+            "accepted_source_family_counts": programme_summary.get("accepted_source_family_counts", {}),
+            "source_family_bias": programme_summary.get("source_family_bias", False),
+            "false_positive_rejected_count": programme_summary.get("false_positive_rejected_count", 0),
             "html_fallback_used": programme_summary.get("html_fallback_used", False),
             "api_to_csv_ratio": programme_summary.get("api_to_csv_ratio"),
             "low_row_yield": programme_summary.get("low_row_yield", False),
@@ -573,6 +604,9 @@ def _template_completeness(
 def _programme_catalog_api_summary(data: AdmissionsData) -> dict[str, object]:
     raw_entries = data.run.config.get("programme_catalog_api_diagnostics")
     entries = [item for item in raw_entries if isinstance(item, dict)] if isinstance(raw_entries, list) else []
+    discovery_summary = data.run.config.get("programme_catalog_api_discovery_summary")
+    if not isinstance(discovery_summary, dict):
+        discovery_summary = {}
     filter_summary = _programme_catalog_filter_summary(data)
     api_urls = {str(item.get("url")) for item in entries if isinstance(item.get("url"), str)}
     groups: dict[str, dict[str, object]] = {}
@@ -624,6 +658,11 @@ def _programme_catalog_api_summary(data: AdmissionsData) -> dict[str, object]:
         "api_pagination_complete": complete,
         "api_pagination_incomplete": incomplete,
         "api_filter_dimensions": _api_filter_dimensions(entries),
+        "api_endpoint_candidate_count": _int_or_zero(discovery_summary.get("api_catalog_candidate_count")),
+        "browser_network_candidate_count": _int_or_zero(discovery_summary.get("browser_network_candidate_count")),
+        "network_body_available_count": _int_or_zero(discovery_summary.get("network_body_available_count")),
+        "captured_json_endpoint_count": _int_or_zero(discovery_summary.get("captured_json_count")),
+        "api_endpoint_rejected_count": _int_or_zero(discovery_summary.get("rejected_count")),
         **filter_summary,
         "html_fallback_used": html_fallback_used,
         "api_to_csv_ratio": api_to_csv_ratio,
@@ -793,6 +832,108 @@ def _programme_catalog_source_status_counts(candidate_source_urls: list[str], ex
     return counts
 
 
+def _source_family_counts(urls: list[str]) -> Counter[str]:
+    counts: Counter[str] = Counter()
+    for url in urls:
+        family = _source_family(url)
+        if family:
+            counts[family] += 1
+    return counts
+
+
+def _source_family(url: str) -> str:
+    parsed = urlparse(url)
+    host = parsed.netloc or "unknown"
+    segments = [segment for segment in parsed.path.split("/") if segment]
+    if not segments:
+        return host
+    if len(segments) == 1:
+        return f"{host}/{segments[0]}"
+    return f"{host}/{segments[0]}/{segments[1]}"
+
+
+def _source_family_bias(
+    *,
+    catalog_source_family_counts: Counter[str],
+    accepted_source_family_counts: Counter[str],
+    accepted_row_count: int,
+) -> dict[str, object]:
+    if accepted_row_count < 5 or len(catalog_source_family_counts) < 2 or not accepted_source_family_counts:
+        return {
+            "source_family_bias": False,
+            "source_family_bias_reason": None,
+            "dominant_source_family": None,
+        }
+    dominant_family, dominant_count = accepted_source_family_counts.most_common(1)[0]
+    share = dominant_count / accepted_row_count
+    is_biased = share >= 0.75
+    return {
+        "source_family_bias": is_biased,
+        "source_family_bias_reason": (
+            f"{dominant_count}/{accepted_row_count} accepted rows came from {dominant_family}"
+            if is_biased
+            else None
+        ),
+        "dominant_source_family": dominant_family if is_biased else None,
+    }
+
+
+def _false_positive_rejected_count(extraction_entries: object) -> int:
+    if not isinstance(extraction_entries, list):
+        return 0
+    count = 0
+    for entry in extraction_entries:
+        if not isinstance(entry, dict):
+            continue
+        for attempt in _programme_catalog_attempts(entry):
+            haystack = " ".join(
+                str(attempt.get(key, ""))
+                for key in ("status", "reason", "extractor", "message", "rejection_reason")
+            ).lower()
+            if "false_positive" in haystack or "course_table" in haystack:
+                count += max(1, _attempt_record_count(attempt))
+    return count
+
+
+def _api_candidate_zero_reason(
+    data: AdmissionsData,
+    *,
+    candidate_source_count: int,
+    source_status_counts: Counter[str],
+) -> str | None:
+    discovery_summary = data.run.config.get("programme_catalog_api_discovery_summary")
+    if isinstance(discovery_summary, dict) and _int_or_zero(discovery_summary.get("api_catalog_candidate_count")) > 0:
+        return None
+    static_asset_discovery = data.run.config.get("programme_catalog_static_asset_discovery")
+    if isinstance(static_asset_discovery, dict) and static_asset_discovery.get("triggered"):
+        candidate_assets = static_asset_discovery.get("candidate_asset_urls")
+        fetched_assets = static_asset_discovery.get("fetched_asset_urls")
+        rejected_assets = static_asset_discovery.get("rejected_asset_urls")
+        endpoint_hint_count = _int_or_zero(static_asset_discovery.get("endpoint_hint_count"))
+        if isinstance(fetched_assets, list) and fetched_assets and endpoint_hint_count == 0:
+            return "static_asset_no_endpoint_hints"
+        if isinstance(candidate_assets, list) and candidate_assets and isinstance(rejected_assets, list) and rejected_assets and not fetched_assets:
+            return "static_asset_fetch_failed"
+        if isinstance(candidate_assets, list) and not candidate_assets:
+            return "static_asset_no_script_assets"
+    browser_capture = data.run.config.get("programme_catalog_browser_capture")
+    if isinstance(browser_capture, dict) and browser_capture.get("triggered"):
+        captured = browser_capture.get("captured_urls")
+        rejected = browser_capture.get("rejected_urls")
+        network_response_count = _int_or_zero(browser_capture.get("network_response_count"))
+        if isinstance(captured, list) and captured and network_response_count == 0:
+            return "browser_capture_no_network_json"
+        if isinstance(rejected, list) and rejected and not captured:
+            return "browser_capture_failed"
+        if network_response_count > 0:
+            return "browser_capture_no_catalog_api_candidate"
+    if source_status_counts.get("dynamic_shell_no_rows"):
+        return "browser_network_capture_not_triggered"
+    if candidate_source_count == 0:
+        return "no_catalog_source"
+    return "no_api_endpoint_hints"
+
+
 def _programme_catalog_attempts(entry: dict[str, object]) -> list[dict[str, object]]:
     attempts = entry.get("attempts")
     if not isinstance(attempts, list):
@@ -854,6 +995,9 @@ def _programme_catalog_next_action(
     low_row_yield: bool,
     probable_incomplete_catalog: bool,
     api_summary: dict[str, object] | None = None,
+    api_candidate_zero_reason: str | None = None,
+    source_family_bias: bool = False,
+    false_positive_rejected_count: int = 0,
 ) -> str:
     if api_summary and api_summary.get("api_pagination_incomplete"):
         return "expand_api_pagination"
@@ -868,8 +1012,22 @@ def _programme_catalog_next_action(
         return "enumerate_api_filters"
     if api_summary and api_summary.get("api_response_count") and not api_summary.get("api_accepted_row_count") and not accepted_row_count:
         return "implement_api_field_mapping"
-    if source_status_counts.get("dynamic_shell_no_rows"):
-        return "enable_browser_or_api_capture"
+    if api_summary and api_summary.get("api_endpoint_candidate_count") and not api_summary.get("api_response_count") and not accepted_row_count:
+        return "discover_public_catalog_api"
+    if api_candidate_zero_reason == "browser_capture_no_network_json":
+        return "discover_public_catalog_api"
+    if api_candidate_zero_reason == "browser_capture_failed":
+        return "capture_browser_network_api"
+    if api_candidate_zero_reason == "browser_capture_no_catalog_api_candidate":
+        return "inspect_api_response_body"
+    if api_candidate_zero_reason in {
+        "static_asset_no_endpoint_hints",
+        "static_asset_fetch_failed",
+        "static_asset_no_script_assets",
+    }:
+        return "discover_public_catalog_api"
+    if source_status_counts.get("dynamic_shell_no_rows") and not accepted_row_count:
+        return "capture_browser_network_api"
     if source_status_counts.get("budget_skipped") or source_status_counts.get("not_crawled"):
         return "increase_catalog_crawl_budget"
     if not candidate_source_count:
@@ -878,11 +1036,15 @@ def _programme_catalog_next_action(
         return "improve_source_acquisition"
     if not accepted_row_count:
         return "improve_table_segmentation"
+    if false_positive_rejected_count:
+        return "tighten_catalog_false_positive_filters"
+    if source_family_bias:
+        return "review_source_family_bias"
     if low_row_yield or _many_zero_row_catalog_sources(candidate_source_count, source_status_counts):
         return "improve_table_segmentation"
     if raw_needs_review_count:
         if warning_count >= accepted_row_count:
-            return "tighten_false_positive_filters"
+            return "tighten_catalog_false_positive_filters"
         return "manual_review_raw_rows"
     if probable_incomplete_catalog:
         return "manual_review_raw_rows"

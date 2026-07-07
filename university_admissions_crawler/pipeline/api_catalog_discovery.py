@@ -8,6 +8,8 @@ from urllib.parse import parse_qsl, urljoin, urlparse
 
 from university_admissions_crawler.crawler.discovery import DiscoveredPage, DiscoveryConfig
 from university_admissions_crawler.crawler.filters import DomainPolicy, canonicalize_url
+from university_admissions_crawler.crawler.types import NetworkResponseRecord
+from university_admissions_crawler.extractor.programme_catalog_api import catalog_api_body_profile
 from university_admissions_crawler.extractor.schema import AdmissionsData, SourceType
 
 
@@ -37,6 +39,7 @@ def attach_api_catalog_discovery_diagnostics(
 
     for page in pages:
         result = page.result
+        seen_network_urls: set[str] = set()
         if result.source is not None and result.source.source_type == SourceType.JSON:
             _add_candidate(
                 candidates_by_url,
@@ -45,6 +48,32 @@ def attach_api_catalog_discovery_diagnostics(
                 source_page=result.final_url,
                 reason="captured_json_source",
                 source_kind="captured_json",
+                policy=policy,
+                fetched_json_by_url=fetched_json_by_url,
+            )
+        for network_response in result.network_responses:
+            seen_network_urls.add(canonicalize_url(network_response.url))
+            _add_candidate(
+                candidates_by_url,
+                raw_url=network_response.url,
+                base_url=result.final_url,
+                source_page=result.final_url,
+                reason="browser_network_json_response",
+                source_kind="browser_network_json",
+                policy=policy,
+                fetched_json_by_url=fetched_json_by_url,
+                network_response=network_response,
+            )
+        for response_url in result.network_response_urls:
+            if canonicalize_url(response_url) in seen_network_urls:
+                continue
+            _add_candidate(
+                candidates_by_url,
+                raw_url=response_url,
+                base_url=result.final_url,
+                source_page=result.final_url,
+                reason="browser_network_json_response",
+                source_kind="browser_network_json",
                 policy=policy,
                 fetched_json_by_url=fetched_json_by_url,
             )
@@ -115,6 +144,7 @@ def mark_api_catalog_candidate_capture(
     response_size_bytes: int | None = None,
     captured_url: str | None = None,
     rejection_reason: str | None = None,
+    body_profile: dict[str, object] | None = None,
 ) -> None:
     """Update a candidate status after bounded capture and refresh its summary."""
 
@@ -132,6 +162,8 @@ def mark_api_catalog_candidate_capture(
             item["api_captured_url"] = canonicalize_url(captured_url)
         if rejection_reason:
             item["api_capture_rejection_reason"] = rejection_reason
+        if body_profile:
+            _attach_body_profile(item, body_profile)
         break
     refresh_api_catalog_discovery_summary(data)
 
@@ -147,6 +179,8 @@ def refresh_api_catalog_discovery_summary(data: AdmissionsData) -> None:
         "api_candidate_urls": [str(item.get("api_candidate_url")) for item in candidates if item.get("api_candidate_url")],
         "api_candidate_status_counts": dict(sorted(status_counts.items())),
         "api_candidate_reason_counts": dict(sorted(reason_counts.items())),
+        "browser_network_candidate_count": reason_counts.get("browser_network_json_response", 0),
+        "network_body_available_count": sum(1 for item in candidates if item.get("api_network_body_available") is True),
         "captured_json_count": status_counts.get("captured_json", 0),
         "rejected_count": sum(count for status, count in status_counts.items() if status.startswith("rejected_")),
         "safe_capture_pending_count": sum(status_counts.get(status, 0) for status in SAFE_API_CAPTURE_STATUSES),
@@ -171,24 +205,38 @@ def _add_candidate(
     source_kind: str,
     policy: DomainPolicy,
     fetched_json_by_url: dict[str, object],
+    network_response: NetworkResponseRecord | None = None,
 ) -> None:
     url = canonicalize_url(urljoin(base_url, raw_url))
-    if not _looks_like_catalog_api_url(url):
-        return
-    status = _candidate_status(url, policy, source_kind, fetched_json_by_url)
     captured = fetched_json_by_url.get(url)
+    body_profile = _body_profile_for(captured) or _body_profile_for_network_response(network_response)
+    if not _should_consider_candidate_url(url, source_kind=source_kind, body_profile=body_profile):
+        return
+    status = _candidate_status(url, policy, source_kind, fetched_json_by_url, network_response=network_response)
     response_content_type = getattr(captured, "content_type", None) if captured is not None else None
+    if response_content_type is None and network_response is not None:
+        response_content_type = network_response.content_type or None
     response_size = len(getattr(captured, "text", "").encode("utf-8")) if captured is not None else None
+    if response_size is None and network_response is not None:
+        response_size = network_response.response_size_bytes
     if isinstance(response_size, int) and response_size > MAX_API_RESPONSE_SIZE_BYTES:
         status = "rejected_too_large"
+    elif status == "captured_json" and body_profile and not body_profile.get("api_body_likely_catalog"):
+        status = "rejected_body_not_catalog"
+    elif network_response is not None and network_response.body_text and body_profile and not body_profile.get("api_body_likely_catalog"):
+        status = "rejected_body_not_catalog"
     existing = candidates_by_url.get(url)
     if existing is not None:
         if existing.get("api_candidate_status") != "captured_json" and status == "captured_json":
             existing["api_candidate_status"] = status
             existing["api_response_content_type"] = response_content_type
             existing["api_response_size_bytes"] = response_size
+            if body_profile:
+                _attach_body_profile(existing, body_profile)
+        if network_response is not None:
+            _attach_network_response_metadata(existing, network_response)
         return
-    candidates_by_url[url] = {
+    candidate = {
         "api_candidate_url": url,
         "api_candidate_source_page": source_page,
         "api_candidate_reason": reason,
@@ -196,10 +244,27 @@ def _add_candidate(
         "api_response_content_type": response_content_type,
         "api_response_size_bytes": response_size,
     }
+    if status == "rejected_body_not_catalog":
+        candidate["api_capture_rejection_reason"] = "body_not_catalog_like"
+    if body_profile:
+        _attach_body_profile(candidate, body_profile)
+    if network_response is not None:
+        _attach_network_response_metadata(candidate, network_response)
+    candidates_by_url[url] = candidate
 
 
-def _candidate_status(url: str, policy: DomainPolicy, source_kind: str, fetched_json_by_url: dict[str, object]) -> str:
+def _candidate_status(
+    url: str,
+    policy: DomainPolicy,
+    source_kind: str,
+    fetched_json_by_url: dict[str, object],
+    *,
+    network_response: NetworkResponseRecord | None = None,
+) -> str:
     parsed = urlparse(url)
+    method = network_response.method.upper() if network_response is not None and network_response.method else "GET"
+    if method != "GET":
+        return "rejected_non_get"
     if parsed.scheme not in {"http", "https"}:
         return "rejected_non_get"
     if _has_sensitive_query(parsed.query):
@@ -208,7 +273,7 @@ def _candidate_status(url: str, policy: DomainPolicy, source_kind: str, fetched_
         return "rejected_off_domain"
     if url in fetched_json_by_url:
         return "captured_json"
-    if source_kind == "captured_url":
+    if source_kind in {"captured_url", "browser_network_json"}:
         return "captured_url_only"
     return "not_fetched"
 
@@ -236,7 +301,19 @@ def _embedded_endpoint_hints(text: str, base_url: str) -> list[str]:
 def _looks_like_catalog_api_url(url: str) -> bool:
     parsed = urlparse(url)
     haystack = f"{parsed.path} {parsed.query}".lower()
-    has_api_shape = any(marker in haystack for marker in (".json", "/api/", "/_next/data/", "graphql", "/odata/"))
+    has_api_shape = any(
+        marker in haystack
+        for marker in (
+            ".json",
+            "/api/",
+            "/_next/data/",
+            "graphql",
+            "/odata/",
+            "sitecore",
+            "/search",
+            "search?",
+        )
+    )
     has_catalog_signal = any(
         marker in haystack
         for marker in (
@@ -246,10 +323,63 @@ def _looks_like_catalog_api_url(url: str) -> bool:
             "catalog",
             "degree",
             "major",
-            "search",
         )
     )
     return has_api_shape and has_catalog_signal
+
+
+def _should_consider_candidate_url(url: str, *, source_kind: str, body_profile: dict[str, object] | None) -> bool:
+    if _looks_like_catalog_api_url(url):
+        return True
+    if source_kind == "browser_network_json":
+        return True
+    return bool(source_kind == "captured_json" and body_profile and body_profile.get("api_body_likely_catalog"))
+
+
+def _body_profile_for(result: object | None) -> dict[str, object] | None:
+    text = getattr(result, "text", None)
+    if not isinstance(text, str) or not text:
+        return None
+    return catalog_api_body_profile(text)
+
+
+def _body_profile_for_network_response(record: NetworkResponseRecord | None) -> dict[str, object] | None:
+    if record is None or not record.body_text:
+        return None
+    return catalog_api_body_profile(record.body_text)
+
+
+def _attach_body_profile(candidate: dict[str, object], body_profile: dict[str, object]) -> None:
+    for key in (
+        "api_body_likely_catalog",
+        "api_body_signals",
+        "api_body_candidate_object_count",
+        "api_body_parseable_row_count",
+        "api_body_filter_keys",
+        "api_body_sample_keys",
+        "api_body_rejection_reason",
+    ):
+        if key in body_profile:
+            candidate[key] = body_profile[key]
+
+
+def _attach_network_response_metadata(candidate: dict[str, object], record: NetworkResponseRecord) -> None:
+    candidate["api_network_method"] = record.method
+    if record.status is not None:
+        candidate["api_network_status"] = record.status
+    if record.content_type:
+        candidate["api_network_content_type"] = record.content_type
+    if record.response_size_bytes is not None:
+        candidate["api_network_response_size_bytes"] = record.response_size_bytes
+    if record.request_query_params:
+        candidate["api_network_query_params"] = dict(sorted(record.request_query_params.items()))
+        candidate["api_network_query_param_keys"] = sorted(record.request_query_params)
+    if record.response_headers:
+        candidate["api_network_response_headers"] = dict(sorted(record.response_headers.items()))
+    candidate["api_network_body_available"] = bool(record.body_text)
+    candidate["api_network_body_truncated"] = record.body_truncated
+    if record.body_sha256:
+        candidate["api_network_body_sha256"] = record.body_sha256
 
 
 def _has_sensitive_query(query: str) -> bool:
@@ -279,6 +409,6 @@ def _has_sensitive_query(query: str) -> bool:
 
 
 _QUOTED_URL_RE = re.compile(
-    r"""(?P<quote>["'])(?P<url>(?:https?://|/|\.\.?/)[^"']*(?:\.json|/api/|/_next/data/|graphql|/odata/)[^"']*)\1""",
+    r"""(?P<quote>["'])(?P<url>(?:https?://|/|\.\.?/)[^"']*(?:\.json|/api/|/_next/data/|graphql|/odata/|sitecore|search|listing)[^"']*)\1""",
     flags=re.IGNORECASE,
 )

@@ -25,6 +25,8 @@ def render_markdown_report(data: AdmissionsData) -> str:
     _classification_assist(lines, data)
     _source_strategy(lines, data)
     _source_planning(lines, data)
+    _programme_catalog_browser_capture(lines, data)
+    _programme_catalog_static_asset_discovery(lines, data)
     _api_catalog_discovery(lines, data)
     _template_completeness(lines, data)
     _programme_catalog_diagnostics(lines, data)
@@ -284,6 +286,8 @@ def _api_catalog_discovery(lines: list[str], data: AdmissionsData) -> None:
     lines.append("")
     lines.append(f"- API candidate endpoints: {candidate_count}")
     lines.append(f"- Captured JSON endpoints: {summary.get('captured_json_count', 0)}")
+    lines.append(f"- Browser network candidates: {summary.get('browser_network_candidate_count', 0)}")
+    lines.append(f"- Network bodies available: {summary.get('network_body_available_count', 0)}")
     lines.append(f"- Rejected endpoints: {summary.get('rejected_count', 0)}")
     statuses = summary.get("api_candidate_status_counts")
     if isinstance(statuses, dict) and statuses:
@@ -296,9 +300,12 @@ def _api_catalog_discovery(lines: list[str], data: AdmissionsData) -> None:
         attempted = capture.get("attempted_urls")
         captured = capture.get("captured_urls")
         rejected = capture.get("rejected_urls")
+        network_body_urls = capture.get("network_body_urls")
         lines.append(f"- Safe capture attempted endpoints: {len(attempted) if isinstance(attempted, list) else 0}")
         lines.append(f"- Safe capture accepted rows: {capture.get('accepted_row_count', 0)}")
         lines.append(f"- Safe capture budget hit: {capture.get('budget_hit', False)}")
+        if isinstance(network_body_urls, list) and network_body_urls:
+            lines.append(f"- Safe capture used browser network bodies: {len(network_body_urls)}")
         if isinstance(captured, list) and captured:
             lines.append(f"- Safe captured JSON endpoints: {len(captured)}")
         if isinstance(rejected, list) and rejected:
@@ -320,12 +327,90 @@ def _api_catalog_discovery(lines: list[str], data: AdmissionsData) -> None:
         size = item.get("api_response_size_bytes")
         if isinstance(size, int):
             lines.append(f"    - response bytes: {size}")
+        network_method = item.get("api_network_method")
+        network_content_type = item.get("api_network_content_type")
+        if network_method or network_content_type:
+            lines.append(
+                f"    - network: method `{network_method or 'unknown'}`, "
+                f"content `{network_content_type or 'unknown'}`, "
+                f"body captured {item.get('api_network_body_available', False)}"
+            )
     if len(items) > 10:
         lines.append(f"  - Omitted candidates: {len(items) - 10}")
     note = summary.get("note")
     if note:
         lines.append(f"- Note: {note}")
     lines.append("- Note: Candidate discovery alone does not create admissions facts; only captured official JSON rows with evidence are applied.")
+    lines.append("")
+
+
+def _programme_catalog_browser_capture(lines: list[str], data: AdmissionsData) -> None:
+    diagnostics = data.run.config.get("programme_catalog_browser_capture")
+    if not isinstance(diagnostics, dict) or not diagnostics.get("triggered"):
+        return
+    attempted = diagnostics.get("attempted_urls")
+    captured = diagnostics.get("captured_urls")
+    rejected = diagnostics.get("rejected_urls")
+    lines.append("## Programme Catalog Browser Capture Diagnostics")
+    lines.append("")
+    lines.append(f"- Triggered: {diagnostics.get('triggered', False)}")
+    lines.append(f"- Attempted pages: {len(attempted) if isinstance(attempted, list) else 0}")
+    lines.append(f"- Captured pages: {len(captured) if isinstance(captured, list) else 0}")
+    lines.append(f"- Network responses: {diagnostics.get('network_response_count', 0)}")
+    lines.append(f"- Network bodies: {diagnostics.get('network_body_count', 0)}")
+    if isinstance(rejected, list) and rejected:
+        lines.append("- Rejected pages:")
+        for item in rejected[:10]:
+            if isinstance(item, dict):
+                line = f"  - {item.get('url', 'unknown')} rejected `{item.get('reason', 'unknown')}`"
+                message = item.get("message")
+                if message:
+                    line += f": {message}"
+                lines.append(line)
+        if len(rejected) > 10:
+            lines.append(f"  - Omitted rejected pages: {len(rejected) - 10}")
+    note = diagnostics.get("note")
+    if note:
+        lines.append(f"- Note: {note}")
+    lines.append("")
+
+
+def _programme_catalog_static_asset_discovery(lines: list[str], data: AdmissionsData) -> None:
+    diagnostics = data.run.config.get("programme_catalog_static_asset_discovery")
+    if not isinstance(diagnostics, dict) or not diagnostics.get("triggered"):
+        return
+    source_pages = diagnostics.get("candidate_source_pages")
+    candidate_assets = diagnostics.get("candidate_asset_urls")
+    fetched_assets = diagnostics.get("fetched_asset_urls")
+    rejected_assets = diagnostics.get("rejected_asset_urls")
+    api_urls = diagnostics.get("candidate_api_urls")
+    lines.append("## Programme Catalog Static Asset Discovery Diagnostics")
+    lines.append("")
+    lines.append(f"- Triggered: {diagnostics.get('triggered', False)}")
+    lines.append(f"- Candidate source pages: {len(source_pages) if isinstance(source_pages, list) else 0}")
+    lines.append(f"- Candidate static assets: {len(candidate_assets) if isinstance(candidate_assets, list) else 0}")
+    lines.append(f"- Fetched static assets: {len(fetched_assets) if isinstance(fetched_assets, list) else 0}")
+    lines.append(f"- API endpoint hints from assets: {diagnostics.get('endpoint_hint_count', 0)}")
+    if isinstance(api_urls, list) and api_urls:
+        lines.append("- Candidate API endpoints from assets:")
+        for url in api_urls[:10]:
+            lines.append(f"  - {url}")
+        if len(api_urls) > 10:
+            lines.append(f"  - Omitted API endpoints: {len(api_urls) - 10}")
+    if isinstance(rejected_assets, list) and rejected_assets:
+        lines.append("- Rejected static assets:")
+        for item in rejected_assets[:10]:
+            if isinstance(item, dict):
+                line = f"  - {item.get('url', 'unknown')} rejected `{item.get('reason', 'unknown')}`"
+                message = item.get("message")
+                if message:
+                    line += f": {message}"
+                lines.append(line)
+        if len(rejected_assets) > 10:
+            lines.append(f"  - Omitted rejected static assets: {len(rejected_assets) - 10}")
+    note = diagnostics.get("note")
+    if note:
+        lines.append(f"- Note: {note}")
     lines.append("")
 
 
@@ -351,8 +436,17 @@ def _programme_catalog_diagnostics(lines: list[str], data: AdmissionsData) -> No
     ratio = summary.get("accepted_to_candidate_source_ratio")
     if ratio is not None:
         lines.append(f"- Accepted/source ratio: {ratio}")
-    if summary.get("api_response_count") or summary.get("api_catalog_candidate_count"):
+    if (
+        summary.get("api_response_count")
+        or summary.get("api_catalog_candidate_count")
+        or summary.get("api_endpoint_candidate_count")
+        or summary.get("browser_network_candidate_count")
+        or summary.get("network_body_available_count")
+    ):
         lines.append(f"- API catalog candidates: {summary.get('api_catalog_candidate_count', 0)}")
+        lines.append(f"- API endpoint candidates: {summary.get('api_endpoint_candidate_count', 0)}")
+        lines.append(f"- Browser network candidates: {summary.get('browser_network_candidate_count', 0)}")
+        lines.append(f"- Network bodies available: {summary.get('network_body_available_count', 0)}")
         lines.append(f"- API responses: {summary.get('api_response_count', 0)}")
         lines.append(f"- API pages: {summary.get('api_page_count', 0)}")
         lines.append(f"- API accepted rows: {summary.get('api_accepted_row_count', 0)}")
@@ -375,10 +469,24 @@ def _programme_catalog_diagnostics(lines: list[str], data: AdmissionsData) -> No
             lines.append(f"- API/CSV row ratio: {summary.get('api_to_csv_ratio')}")
     lines.append(f"- Low row yield: {summary.get('low_row_yield', False)}")
     lines.append(f"- Probable incomplete catalog: {summary.get('probable_incomplete_catalog', False)}")
+    if summary.get("api_candidate_zero_reason"):
+        lines.append(f"- API candidate zero reason: `{summary.get('api_candidate_zero_reason')}`")
+    lines.append(f"- False-positive rejected rows: {summary.get('false_positive_rejected_count', 0)}")
     lines.append(f"- Recommended next action: `{summary.get('recommended_next_action', 'none')}`")
     source_statuses = summary.get("source_status_counts")
     if isinstance(source_statuses, dict) and source_statuses:
         lines.append(f"- Catalog source statuses: {_format_counts(source_statuses)}")
+    catalog_families = summary.get("catalog_source_family_counts")
+    if isinstance(catalog_families, dict) and catalog_families:
+        lines.append(f"- Catalog source families: {_format_counts(catalog_families)}")
+    accepted_families = summary.get("accepted_source_family_counts")
+    if isinstance(accepted_families, dict) and accepted_families:
+        lines.append(f"- Accepted source families: {_format_counts(accepted_families)}")
+    if summary.get("source_family_bias"):
+        lines.append(f"- Source family bias: `{summary.get('dominant_source_family', 'unknown')}`")
+        reason = summary.get("source_family_bias_reason")
+        if reason:
+            lines.append(f"  - reason: {reason}")
     lines.append(f"- Duplicate rows: {summary.get('duplicate_count', 0)}")
     lines.append(f"- Manual-review rows: {summary.get('manual_review_count', 0)}")
     lines.append(f"- Row warnings: {summary.get('warning_count', 0)}")

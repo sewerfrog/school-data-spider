@@ -173,6 +173,8 @@ def _is_flattened_header_cells(cells: list[str]) -> bool:
 def _looks_like_table_candidate_cells(cells: list[str]) -> bool:
     if len(cells) < 2:
         return False
+    if _looks_like_course_table_candidate(" | ".join(cells)):
+        return False
     if _is_table_header(cells):
         return False
     if _looks_like_programme_name_cell(cells[0]) and _looks_like_award(cells[1]):
@@ -181,6 +183,8 @@ def _looks_like_table_candidate_cells(cells: list[str]) -> bool:
 
 
 def _parse_candidate(line: str, *, faculty_hint: str | None, allow_unknown_category: bool = False) -> dict[str, object] | None:
+    if _looks_like_course_table_candidate(line):
+        return None
     specialisations = _specialisations(line)
     labelled = _parse_labelled_catalog_candidate(line)
     if labelled:
@@ -589,6 +593,35 @@ def _looks_like_longform_prose_candidate(line: str) -> bool:
         lower,
     )
     return len(line) > 320 and len(prose_markers) >= 3
+
+
+def _looks_like_course_table_candidate(line: str) -> bool:
+    lower = line.lower()
+    if "programme | degree" in lower or "program | degree" in lower:
+        return False
+    strong_table_headers = (
+        "course code",
+        "course title",
+        "major pe courses",
+        "pre-req",
+        "pre req",
+        "pre-requisite",
+        "prerequisite",
+        "open to",
+    )
+    header_hits = sum(1 for token in strong_table_headers if token in lower)
+    if "major pe courses" in lower:
+        return True
+    if "course code" in lower and ("course title" in lower or "open to" in lower):
+        return True
+    if "open to" in lower and ("course" in lower or " au " in f" {lower} " or "pre-req" in lower):
+        return True
+    if header_hits >= 3:
+        return True
+    has_course_code = bool(re.search(r"\b[A-Z]{2,4}\d{4}[A-Z]?\b", line))
+    if has_course_code and ("open to" in lower or " au " in f" {lower} " or "pre-req" in lower or "course title" in lower):
+        return True
+    return False
 
 
 def _first_matching(values: list[str], predicate) -> str | None:

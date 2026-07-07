@@ -398,7 +398,7 @@ def test_programme_catalog_summary_flags_low_row_yield_across_many_candidate_sou
     assert summary["recommended_next_action"] == "improve_table_segmentation"
 
 
-def test_programme_catalog_summary_recommends_browser_or_api_for_dynamic_shell():
+def test_programme_catalog_summary_recommends_browser_network_capture_for_dynamic_shell():
     url = "https://example.edu/undergraduate-programmes"
     data = AdmissionsData(
         institution=Institution(homepage_url="https://example.edu"),
@@ -446,7 +446,109 @@ def test_programme_catalog_summary_recommends_browser_or_api_for_dynamic_shell()
         "parsed_zero_rows": 1,
     }
     assert summary["probable_incomplete_catalog"] is True
-    assert summary["recommended_next_action"] == "enable_browser_or_api_capture"
+    assert summary["api_candidate_zero_reason"] == "browser_network_capture_not_triggered"
+    assert summary["recommended_next_action"] == "capture_browser_network_api"
+
+
+def test_programme_catalog_summary_distinguishes_browser_capture_without_network_json():
+    url = "https://example.edu/undergraduate-programmes"
+    data = AdmissionsData(
+        institution=Institution(homepage_url="https://example.edu"),
+        run=RunMetadata(
+            input_url="https://example.edu",
+            config={
+                "programme_catalog_browser_capture": {
+                    "triggered": True,
+                    "attempted_urls": [url],
+                    "captured_urls": [f"{url}?page=1"],
+                    "rejected_urls": [],
+                    "network_response_count": 0,
+                    "network_body_count": 0,
+                },
+                "source_strategy": [
+                    {
+                        "url": f"{url}?page=1",
+                        "source_type": "html",
+                        "category": "programme_list",
+                        "strategy": "html_page",
+                        "catalog_source_status": "dynamic_shell_no_rows",
+                    }
+                ],
+                "extraction_diagnostics": [
+                    {
+                        "url": f"{url}?page=1",
+                        "source_type": "html",
+                        "category": "programme_list",
+                        "attempts": [
+                            {
+                                "field": "programme_catalog",
+                                "extractor": "extract_programme_catalog",
+                                "status": "no_match",
+                                "reason": "category_route",
+                                "record_count": 0,
+                                "evidence_count": 0,
+                            }
+                        ],
+                    }
+                ],
+            },
+        ),
+    )
+
+    attach_run_diagnostics(data)
+    summary = data.run.config["programme_catalog_summary"]
+
+    assert summary["api_candidate_zero_reason"] == "browser_capture_no_network_json"
+    assert summary["recommended_next_action"] == "discover_public_catalog_api"
+
+
+def test_programme_catalog_summary_reports_source_family_bias():
+    candidate_urls = [
+        "https://www.ntu.edu.sg/adm/programmes/undergraduate-programmes/bfa",
+        "https://www.ntu.edu.sg/adm/programmes/undergraduate-programmes/media-art",
+        "https://www.ntu.edu.sg/hass/admissions/programmes",
+        "https://www.ntu.edu.sg/admissions/undergraduate-programmes",
+        "https://www.ntu.edu.sg/ase/admissions/undergraduate-programmes",
+        "https://www.ntu.edu.sg/wkwsci/admissions/useful-links/undergraduate",
+    ]
+    data = AdmissionsData(
+        institution=Institution(homepage_url="https://www.ntu.edu.sg"),
+        run=RunMetadata(
+            input_url="https://www.ntu.edu.sg",
+            config={
+                "source_strategy": [
+                    {
+                        "url": url,
+                        "source_type": "html",
+                        "category": "programme_list",
+                        "strategy": "html_page",
+                    }
+                    for url in candidate_urls
+                ]
+            },
+        ),
+    )
+    for index in range(6):
+        data.programme_catalog.append(
+            ProgrammeCatalogRecord(
+                name=f"ADM Programme {index}",
+                degree_or_award="Bachelor of Fine Arts",
+                category="degree_programme",
+                source_url=f"https://www.ntu.edu.sg/adm/programmes/undergraduate-programmes/programme-{index}",
+                evidence_snippet="ADM programme",
+                evidence_path=f"/programme_catalog/{index}/name",
+                parse_status="parsed",
+            )
+        )
+
+    attach_run_diagnostics(data)
+    summary = data.run.config["programme_catalog_summary"]
+
+    assert summary["catalog_source_family_counts"]["www.ntu.edu.sg/adm/programmes"] == 8
+    assert summary["accepted_source_family_counts"] == {"www.ntu.edu.sg/adm/programmes": 6}
+    assert summary["source_family_bias"] is True
+    assert summary["dominant_source_family"] == "www.ntu.edu.sg/adm/programmes"
+    assert summary["recommended_next_action"] == "review_source_family_bias"
 
 
 def test_extract_programme_catalog_from_table_text():
@@ -676,3 +778,22 @@ def test_extract_programme_catalog_ignores_longform_overview_sentence():
     )
 
     assert extract_programme_catalog(text, source) == []
+
+
+def test_extract_programme_catalog_rejects_course_table_open_to_values():
+    source = source_from_text(
+        source_url="https://example.edu/adm/programmes/undergraduate-programmes/design-art",
+        title="Undergraduate Programmes - Design Art",
+        text="Undergraduate Programmes",
+    )
+    text = (
+        "Undergraduate Programmes\n"
+        "Programme | Degree\n"
+        "Design Art | Bachelor of Fine Arts\n"
+        "Major PE Courses | Course Code | Course Title | AU | Pre-req | Open to\n"
+        "DD3010 | Form and Visualization | 3 AU | Nil | BEng SCE | BEng Design Stream"
+    )
+
+    rows = extract_programme_catalog(text, source)
+
+    assert [row.name for row, _evidence in rows] == ["Design Art"]

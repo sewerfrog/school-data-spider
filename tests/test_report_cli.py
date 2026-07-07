@@ -268,8 +268,11 @@ def test_markdown_report_shows_zero_row_catalog_candidate_sources():
                     "accepted_to_candidate_source_ratio": 0.0,
                     "low_row_yield": False,
                     "source_status_counts": {"dynamic_shell_no_rows": 1, "parsed_zero_rows": 1},
+                    "catalog_source_family_counts": {"example.edu/undergraduate-programmes": 1},
+                    "api_candidate_zero_reason": "browser_capture_no_network_json",
+                    "false_positive_rejected_count": 0,
                     "probable_incomplete_catalog": True,
-                    "recommended_next_action": "enable_browser_or_api_capture",
+                    "recommended_next_action": "discover_public_catalog_api",
                     "sources_count": 0,
                 }
             },
@@ -282,7 +285,10 @@ def test_markdown_report_shows_zero_row_catalog_candidate_sources():
     assert "- Candidate rows: 0" in report
     assert "- Candidate sources: 1" in report
     assert "- Catalog source statuses: `dynamic_shell_no_rows`: 1, `parsed_zero_rows`: 1" in report
-    assert "- Recommended next action: `enable_browser_or_api_capture`" in report
+    assert "- API candidate zero reason: `browser_capture_no_network_json`" in report
+    assert "- False-positive rejected rows: 0" in report
+    assert "- Catalog source families: `example.edu/undergraduate-programmes`: 1" in report
+    assert "- Recommended next action: `discover_public_catalog_api`" in report
 
 
 def test_cli_fixture_mock_classification_assist_records_diagnostics_only():
