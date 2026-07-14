@@ -8,6 +8,7 @@ from pathlib import Path
 from university_admissions_crawler.extractor.schema import AdmissionsData
 from university_admissions_crawler.reports.programme_catalog_csv import write_programme_catalog_csv
 from university_admissions_crawler.reports.render_report import render_markdown_report
+from university_admissions_crawler.reports.structured_export import write_structured_outputs
 
 
 def write_result_files(data: AdmissionsData, output_dir: str | Path) -> tuple[Path, Path]:
@@ -18,4 +19,5 @@ def write_result_files(data: AdmissionsData, output_dir: str | Path) -> tuple[Pa
     result_path.write_text(json.dumps(data.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
     report_path.write_text(render_markdown_report(data), encoding="utf-8")
     write_programme_catalog_csv(data, out_dir)
+    write_structured_outputs(data, out_dir / "structured")
     return result_path, report_path

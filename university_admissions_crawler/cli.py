@@ -45,7 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--enable-llm", action="store_true", help="Compatibility flag; live scans enable LLM-assisted crawling by default unless --no-llm is supplied")
     parser.add_argument("--no-llm", action="store_true", help="Disable default LLM-assisted crawling for live scans")
     parser.add_argument("--deterministic-only", action="store_true", help="Alias for --no-llm; run without hosted or mock LLM providers")
-    parser.add_argument("--llm-provider", choices=["auto", "mock", "openai", "anthropic", "gemini", "none"], help="LLM provider; default auto uses UAC_LLM_PROVIDER or OPENAI_API_KEY when available")
+    parser.add_argument("--llm-provider", choices=["auto", "mock", "openai", "openai-chat", "anthropic", "gemini", "none"], help="LLM provider; default auto uses UAC_LLM_PROVIDER or OPENAI_API_KEY when available")
     parser.add_argument("--enable-classification-assist", action="store_true", help="Record mock LLM diagnostics for low-confidence page classifications; does not change extraction")
     parser.add_argument("--enable-source-planning", action="store_true", help="Use guarded mock LLM source candidates as crawl frontier hints; facts still require fetched evidence")
     parser.add_argument("--enable-llm-structured-extraction", action="store_true", help="Run guarded LLM structured extraction fallback on captured sources; only validated candidates may write missing facts")

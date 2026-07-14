@@ -7,6 +7,7 @@ import os
 from typing import Any
 
 from university_admissions_crawler.extractor.llm_provider import (
+    ChatCompletionsProvider,
     MockClassificationAssistProvider,
     MockProgrammeCatalogAssistProvider,
     MockSourcePlanProvider,
@@ -43,6 +44,14 @@ def llm_providers_for_args(args: argparse.Namespace):
         )
     if provider_name == "openai":
         provider = OpenAIProvider()
+        return (
+            provider if args.enable_classification_assist else None,
+            provider if args.enable_classification_assist else None,
+            provider if args.enable_source_planning else None,
+            provider if args.enable_llm_structured_extraction else None,
+        )
+    if provider_name == "openai-chat":
+        provider = ChatCompletionsProvider()
         return (
             provider if args.enable_classification_assist else None,
             provider if args.enable_classification_assist else None,

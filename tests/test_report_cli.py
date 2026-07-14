@@ -491,6 +491,36 @@ def test_cli_fixture_openai_source_planning_fails_closed_without_api_key(monkeyp
         assert "llm_source_plan_fallback" in source_plan["warnings"]
 
 
+def test_cli_fixture_openai_chat_source_planning_fails_closed_without_api_key(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    with TemporaryDirectory() as tmp:
+        code = main(
+            [
+                str(ROOT),
+                "--fixture",
+                "--seed-url",
+                "https://fixture.test/blog.html",
+                "--max-pages",
+                "1",
+                "--max-depth",
+                "0",
+                "--enable-llm",
+                "--llm-provider",
+                "openai-chat",
+                "--enable-source-planning",
+                "--output-dir",
+                tmp,
+            ]
+        )
+        assert code == 0
+        data = json.loads((Path(tmp) / "result.json").read_text())
+        source_plan = data["run"]["config"]["llm_source_plan"]
+        assert source_plan["provider"] == "openai-chat"
+        assert source_plan["fallback"] is True
+        assert source_plan["error_type"] == "RuntimeError"
+        assert "llm_source_plan_fallback" in source_plan["warnings"]
+
+
 def test_cli_fixture_openai_structured_extraction_fails_closed_without_api_key(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     with TemporaryDirectory() as tmp:
@@ -679,8 +709,19 @@ def test_cli_config_batch_writes_per_university_outputs():
         assert code == 0
         result = Path(out_tmp) / "example-u" / "result.json"
         report = Path(out_tmp) / "example-u" / "report.md"
+        batch_structured = Path(out_tmp) / "structured"
         assert result.exists()
         assert report.exists()
+        assert (batch_structured / "all_programme_catalog.jsonl").exists()
+        assert (batch_structured / "all_missing_fields.jsonl").exists()
+        assert (batch_structured / "all_sources.jsonl").exists()
+        all_sources = [
+            json.loads(line)
+            for line in (batch_structured / "all_sources.jsonl").read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        assert all_sources
+        assert {row["university_id"] for row in all_sources} == {"example-u"}
         data = json.loads(result.read_text())
         assert data["institution"]["name"]["value"] == "Example University"
         assert data["run"]["config"]["university_id"] == "example-u"

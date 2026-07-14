@@ -17,6 +17,7 @@ from university_admissions_crawler.pipeline.llm_runtime import attach_llm_runtim
 from university_admissions_crawler.pipeline.merge import merge_data
 from university_admissions_crawler.pipeline.output_writer import write_result_files
 from university_admissions_crawler.pipeline.run_university_scan import run_scan
+from university_admissions_crawler.reports.structured_export import write_structured_batch_outputs
 
 
 def _run_batch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
@@ -25,6 +26,7 @@ def _run_batch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int
     configs = load_university_configs(args.config)
     output_root = Path(args.output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
+    university_output_dirs: list[Path] = []
     for university in configs:
         try:
             data = _run_university_config(args, university)
@@ -34,8 +36,10 @@ def _run_batch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int
             data.institution.name.value = university.name
         out_dir = output_root / university.id
         result_path, report_path = write_result_files(data, out_dir)
+        university_output_dirs.append(out_dir)
         print(f"Wrote {result_path}")
         print(f"Wrote {report_path}")
+    write_structured_batch_outputs(university_output_dirs, output_root / "structured")
     return 0
 
 

@@ -60,7 +60,8 @@ Evidence-first MVP for extracting undergraduate admissions information from offi
   Anthropic and Gemini remain reserved and fail closed. LLM keyword-plan
   generation has been removed from the user-facing workflow.
 - Guards optional live/browser/PDF/LLM/crawl4ai/ScrapeGraphAI capabilities behind interfaces; they are not required for core tests.
-- Writes `result.json` and `report.md`.
+- Writes legacy `result.json`, `report.md`, root `programme_catalog.csv` when
+  programme rows exist, and a cleaning-oriented `structured/` output layer.
 
 ## Current implementation decision
 
@@ -110,8 +111,11 @@ python -m university_admissions_crawler.cli tests/fixtures/mini_university_site 
 
 Outputs:
 
-- `/tmp/uac-smoke/result.json` — structured data, sources, evidence, warnings, and diff metadata.
+- `/tmp/uac-smoke/result.json` — legacy full internal snapshot with facts,
+  sources, evidence, warnings, diagnostics, and diff metadata.
 - `/tmp/uac-smoke/report.md` — human-readable fact/warning/source/evidence report.
+- `/tmp/uac-smoke/structured/` — cleaning-oriented JSON/JSONL/CSV tables for
+  downstream joins.
 
 For extracted key fields, `result.json` now keeps both the original candidate and the cleaned parse status:
 
@@ -148,7 +152,7 @@ it uses OpenAI when `OPENAI_API_KEY` is present, otherwise records
 HTTP-first fetching and uses Playwright as a fallback for high-value rendered
 pages.
 
-For a smaller smoke run, add `--smoke`; it caps the run at `max_pages<=20` and `max_depth<=2` even if larger values are supplied. In batch mode, a university config's own `max_pages` or `max_depth` still overrides the CLI smoke cap for that university. `--enable-scrapegraph` remains a guarded future surface and fails closed. `--llm-provider mock` remains the deterministic test provider, while `--llm-provider openai` is available for source planning, classification assist, programme-catalog hints, and structured extraction fallback. `--keyword-query` is deterministic debug input and no longer enables LLM keyword-plan generation. Anthropic and Gemini provider names remain reserved and fail closed.
+For a smaller smoke run, add `--smoke`; it caps the run at `max_pages<=20` and `max_depth<=2` even if larger values are supplied. In batch mode, a university config's own `max_pages` or `max_depth` still overrides the CLI smoke cap for that university. `--enable-scrapegraph` remains a guarded future surface and fails closed. `--llm-provider mock` remains the deterministic test provider, `--llm-provider openai` uses the OpenAI Responses API, and `--llm-provider openai-chat` uses an OpenAI-compatible `/v1/chat/completions` endpoint. Both hosted providers are available for source planning, classification assist, programme-catalog hints, and structured extraction fallback. `--keyword-query` is deterministic debug input and no longer enables LLM keyword-plan generation. Anthropic and Gemini provider names remain reserved and fail closed.
 
 To compare with a previous run:
 
@@ -177,24 +181,21 @@ Saved-source regression fixtures live under `tests/fixtures/saved_sources/`.
 The `outputs/` directory is for generated run output and should not be required
 by deterministic tests.
 
-Current feature-branch validation after Phase 5 homepage-first discovery,
-source navigation, template completeness diagnostics, and real-school
-fixture-backed programme catalog samples:
+Current feature-branch validation after the structured-output records slice:
 
 ```bash
-env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider
+.venv314/bin/python -m pytest -q
 ```
 
-The latest local pytest run passed `175` tests.
+The latest local pytest run passed `241` tests.
 
-The focused target group used during the Phase 5 real-school fixture-backed
-programme catalog work is:
+The focused target group for the structured-output compatibility slice is:
 
 ```bash
-env PYTHONDONTWRITEBYTECODE=1 .venv314/bin/python -m pytest -q -p no:cacheprovider tests/test_discovery.py tests/test_programme_catalog.py tests/test_pipeline.py
+.venv314/bin/python -m pytest -q tests/test_structured_output.py tests/test_programme_catalog_output.py tests/test_report_cli.py
 ```
 
-The latest target-group run passed `70` tests.
+The latest target-group run passed `38` tests.
 
 ## Evidence and safety policy
 
@@ -266,6 +267,25 @@ All modes write the same output shape:
 
 - `result.json`
 - `report.md`
+- `programme_catalog.csv` when `AdmissionsData.programme_catalog` is non-empty
+- `structured/manifest.json`
+- `structured/institution.json`
+- `structured/facts.jsonl`
+- `structured/sources.jsonl`
+- `structured/evidence.jsonl`
+- `structured/missing_fields.jsonl`
+- `structured/warnings.jsonl`
+- `structured/diagnostics.json`
+- `structured/records/programme_catalog.jsonl`
+- `structured/records/programme_catalog.csv`
+- `structured/records/application_periods.jsonl`
+- `structured/records/fees.jsonl`
+- `structured/records/english_requirements.jsonl`
+- `structured/records/accepted_qualifications.jsonl`
+- `structured/records/required_documents.jsonl`
+- `structured/records/scholarships.jsonl`
+- `structured/records/contacts.jsonl`
+- `structured/records/programmes_legacy.jsonl`
 - `sources/*.json`
 - `sources/*.txt`
 
@@ -301,6 +321,20 @@ rows appear with structured `currency`, `amount`, `student_group`,
 those parts can be inferred. When present, keyword plans, classification
 assist, source planning, extraction diagnostics, and missing reasons are shown
 in diagnostic sections before facts; they are not admissions facts.
+
+`structured/` is the preferred downstream-cleaning entry point. It keeps
+`result.json` as the legacy/debug snapshot and exports joinable `source_id`,
+`evidence_id`, and `record_id` values. `structured/facts.jsonl` currently
+contains programme catalog, application period, fee, English requirement,
+accepted qualification, required document, scholarship, contact, and legacy
+programme rows. `structured/sources.jsonl` also carries normalized source
+host/path helper fields, and programme rows carry
+`normalized_programme_name_key` for initial cross-school cleaning and dedupe.
+The current schema version is `structured-output-v1`; this branch treats the
+structured layer as additive and keeps legacy outputs intact. Downstream
+cleaning should branch on `schema_version`, prefer `structured/facts.jsonl` or
+record-specific JSONL over `result.json`, and treat diagnostics as diagnostics,
+not admissions facts.
 
 ## Relevance and Legacy Keyword Debug
 
@@ -382,6 +416,12 @@ Edit `.env` locally:
 ```bash
 OPENAI_API_KEY=your-real-key
 OPENAI_MODEL=gpt-4.1-mini
+OPENAI_BASE_URL=
+OPENAI_CHAT_COMPLETIONS_PATH=/v1/chat/completions
+OPENAI_CHAT_RESPONSE_FORMAT=json_schema
+OPENAI_REASONING_EFFORT=
+OPENAI_USER_AGENT=
+UAC_LLM_PROVIDER=
 ```
 
 Load it into the current shell before running the crawler:
@@ -407,8 +447,32 @@ python -m university_admissions_crawler.cli https://www.example.edu/ \
 
 `.env` is ignored by git; `.env.example` is the only credential-related file
 that should be committed, and it must not contain real keys. The CLI does not
-auto-load `.env`; it reads `OPENAI_API_KEY` and `OPENAI_MODEL` from the process
-environment.
+auto-load `.env`; it reads provider variables from the process environment.
+
+Provider modes:
+
+- `openai` uses the OpenAI Responses API at `/v1/responses`.
+- `openai-chat` uses an OpenAI-compatible chat completions endpoint. Set
+  `UAC_LLM_PROVIDER=openai-chat` or pass `--llm-provider openai-chat`, set
+  `OPENAI_BASE_URL` to the relay base URL, and keep
+  `OPENAI_CHAT_COMPLETIONS_PATH=/v1/chat/completions` unless the relay uses a
+  different path.
+- `OPENAI_CHAT_RESPONSE_FORMAT` defaults to `json_schema`. Set it to
+  `json_object` or `none` only when a relay or relay WAF rejects the larger
+  schema-constrained `response_format` request body. Disabling schema
+  constraint lowers model-side guarantees, but the crawler still strictly
+  parses JSON and runs the existing payload validators before any result write.
+- `OPENAI_REASONING_EFFORT` is optional. When set, the chat-completions provider
+  sends it as `reasoning_effort`; leave it unset if the relay rejects that
+  parameter.
+- `OPENAI_USER_AGENT` is optional and only affects OpenAI-compatible relay
+  requests. Set it when a relay WAF blocks Python's default `urllib` client
+  signature.
+
+OpenAI-compatible relays vary in JSON schema support. The chat-completions
+provider requests schema-constrained JSON via `response_format` by default,
+then still strictly parses JSON and runs the existing payload validators.
+Provider output never writes admissions facts directly.
 
 Guarded classification assist can also be enabled for low-confidence page
 classifications. The same flag enables bounded programme-catalog category/mode
@@ -477,7 +541,18 @@ Each configured university writes to its own folder:
 
 - `outputs/batch/<university-id>/result.json`
 - `outputs/batch/<university-id>/report.md`
+- `outputs/batch/<university-id>/structured/`
 - `outputs/batch/<university-id>/sources/`
+
+Batch runs also write cross-university cleaning tables:
+
+- `outputs/batch/structured/all_programme_catalog.jsonl`
+- `outputs/batch/structured/all_missing_fields.jsonl`
+- `outputs/batch/structured/all_sources.jsonl`
+
+These `all_*.jsonl` files are concatenations of the already generated
+per-university structured JSONL files. They do not refetch, dedupe, infer, or
+rewrite admissions facts.
 
 Batch configs normally only need a homepage seed and optional domain/limit
 controls:

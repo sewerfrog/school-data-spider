@@ -35,7 +35,17 @@ MAX_STRUCTURED_SOURCE_URL_LENGTH = 300
 MAX_STRUCTURED_OPTIONAL_TEXT_LENGTH = 300
 MAX_STRUCTURED_WARNINGS = 20
 OPENAI_DEFAULT_MODEL = "gpt-4.1-mini"
+OPENAI_DEFAULT_BASE_URL = "https://api.openai.com"
+OPENAI_DEFAULT_CHAT_COMPLETIONS_PATH = "/v1/chat/completions"
+OPENAI_DEFAULT_CHAT_RESPONSE_FORMAT = "json_schema"
+OPENAI_DEFAULT_USER_AGENT = "school-data-spider/0.1"
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
+OPENAI_CHAT_JSON_CONTRACTS = {
+    "source_plan": "Return only strict JSON with keys candidate_urls, candidate_path_patterns, candidate_queries, and warnings. candidate_urls items must use url, reason, and expected_category.",
+    "classification_assist": "Return only strict JSON with keys category, reason, confidence, and signals.",
+    "programme_catalog_hint": "Return only strict JSON with keys category, mode, reason, confidence, and signals.",
+    "structured_extraction": "Return only strict JSON with keys candidate_facts and warnings. candidate_facts items must use claim_path, value, evidence_snippet, source_url, and confidence.",
+}
 PROGRAMME_CATALOG_CATEGORY_VALUES = ("degree_programme", "major", "minor", "special_programme", "dual_degree", "unknown")
 PROGRAMME_CATALOG_MODE_VALUES = ("full-time", "part-time", "unknown")
 STRUCTURED_EXTRACTION_ALLOWED_CLAIM_PATHS = (
@@ -623,6 +633,173 @@ class OpenAIProvider:
         return parsed
 
 
+class ChatCompletionsProvider:
+    """OpenAI-compatible chat completions provider for guarded LLM adapters."""
+
+    name = "openai-chat"
+
+    def __init__(
+        self,
+        *,
+        api_key: str | None = None,
+        model: str | None = None,
+        base_url: str | None = None,
+        chat_completions_path: str | None = None,
+        reasoning_effort: str | None = None,
+        chat_response_format: str | None = None,
+        user_agent: str | None = None,
+        timeout_seconds: float = 45.0,
+        transport: Any | None = None,
+    ) -> None:
+        self.api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
+        self.model = model or os.environ.get("OPENAI_MODEL", OPENAI_DEFAULT_MODEL)
+        self.base_url = (base_url or os.environ.get("OPENAI_BASE_URL") or OPENAI_DEFAULT_BASE_URL).rstrip("/")
+        path = chat_completions_path or os.environ.get("OPENAI_CHAT_COMPLETIONS_PATH") or OPENAI_DEFAULT_CHAT_COMPLETIONS_PATH
+        self.chat_completions_path = "/" + path.lstrip("/")
+        self.url = self.base_url + self.chat_completions_path
+        raw_reasoning_effort = reasoning_effort if reasoning_effort is not None else os.environ.get("OPENAI_REASONING_EFFORT")
+        self.reasoning_effort = raw_reasoning_effort.strip() if isinstance(raw_reasoning_effort, str) else None
+        raw_chat_response_format = chat_response_format if chat_response_format is not None else os.environ.get("OPENAI_CHAT_RESPONSE_FORMAT")
+        self.chat_response_format = _normalise_chat_response_format(raw_chat_response_format)
+        raw_user_agent = user_agent if user_agent is not None else os.environ.get("OPENAI_USER_AGENT")
+        self.user_agent = raw_user_agent.strip() if isinstance(raw_user_agent, str) and raw_user_agent.strip() else OPENAI_DEFAULT_USER_AGENT
+        self.timeout_seconds = timeout_seconds
+        self._transport = transport
+
+    def generate_source_plan_payload(self, context: dict[str, object], schema: dict[str, object]) -> dict[str, object]:
+        return self._json_schema_response(
+            schema_name="source_plan",
+            schema=schema,
+            instructions=(
+                "You help a university admissions crawler find official source pages. "
+                "Return only candidate official HTTPS URLs, path patterns, queries, and warnings. "
+                "Do not invent admissions facts. Prefer undergraduate admissions, programmes, fees, "
+                "requirements, scholarships, and official bulletin/catalog pages. Stay within the "
+                "same official university site context."
+            ),
+            user_payload=context,
+        )
+
+    def classify_page_payload(self, url: str, title: str | None, text: str, schema: dict[str, object]) -> dict[str, object]:
+        return self._json_schema_response(
+            schema_name="classification_assist",
+            schema=schema,
+            instructions=(
+                "Classify one captured official university web page for diagnostics only. "
+                "Use only the supplied URL, title, and text. Return the closest allowed category, "
+                "confidence, short reason, and compact signals. Do not extract admissions facts."
+            ),
+            user_payload={
+                "url": url,
+                "title": title,
+                "text": text[:4000],
+            },
+        )
+
+    def classify_programme_candidate_payload(self, candidate_text: str, source_url: str, title: str | None, schema: dict[str, object]) -> dict[str, object]:
+        return self._json_schema_response(
+            schema_name="programme_catalog_hint",
+            schema=schema,
+            instructions=(
+                "Classify one captured programme catalog candidate row. "
+                "Use only the supplied candidate row, source URL, and page title. "
+                "Return a category and mode hint only. Do not add programme names, requirements, or facts."
+            ),
+            user_payload={
+                "candidate_text": candidate_text[:1200],
+                "source_url": source_url,
+                "title": title,
+            },
+        )
+
+    def extract_structured_candidate_payload(
+        self,
+        source: LLMStructuredExtractionSource,
+        allowed_claim_paths: tuple[str, ...],
+        schema: dict[str, object],
+    ) -> dict[str, object]:
+        return self._json_schema_response(
+            schema_name="structured_extraction",
+            schema=schema,
+            instructions=(
+                "Extract candidate undergraduate admissions facts only from the supplied captured official source text. "
+                "Return candidate facts, not final facts. Do not infer, summarize, complete, or invent missing values. "
+                "Every evidence_snippet must be a contiguous verbatim substring of the supplied source text. "
+                "Every value must be a contiguous verbatim substring inside its evidence_snippet. "
+                "Every source_url must equal the supplied source URL. Every claim_path must be one of the allowed claim paths. "
+                "If the supplied text does not explicitly contain a supported fact with direct evidence, return an empty candidate_facts list. "
+                "Do not return admissions advice, eligibility verdicts, or facts from outside the captured source."
+            ),
+            user_payload={
+                "source_url": source.source_url,
+                "title": source.title,
+                "source_type": source.source_type,
+                "text": source.text[:6000],
+                "allowed_claim_paths": list(allowed_claim_paths),
+            },
+        )
+
+    def _json_schema_response(self, *, schema_name: str, schema: dict[str, object], instructions: str, user_payload: dict[str, object]) -> dict[str, object]:
+        if not self.api_key:
+            raise RuntimeError("OPENAI_API_KEY is required for --llm-provider openai-chat.")
+        effective_instructions = instructions
+        if self.chat_response_format != "json_schema":
+            effective_instructions = f"{instructions} {OPENAI_CHAT_JSON_CONTRACTS.get(schema_name, 'Return only strict JSON.')}"
+        request_payload: dict[str, object] = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": effective_instructions},
+                {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False, sort_keys=True)},
+            ],
+        }
+        if self.chat_response_format == "json_schema":
+            request_payload["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": schema_name,
+                    "strict": True,
+                    "schema": schema,
+                },
+            }
+        elif self.chat_response_format == "json_object":
+            request_payload["response_format"] = {"type": "json_object"}
+        if self.reasoning_effort:
+            request_payload["reasoning_effort"] = self.reasoning_effort
+        raw = self._post_json(request_payload)
+        return _extract_chat_completions_json_payload(raw)
+
+    def _post_json(self, payload: dict[str, object]) -> dict[str, object]:
+        if self._transport is not None:
+            return self._transport(payload)
+        body = json.dumps(payload).encode("utf-8")
+        request = urllib.request.Request(
+            self.url,
+            data=body,
+            method="POST",
+            headers=self._request_headers(),
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
+                response_body = response.read().decode("utf-8")
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"OpenAI chat completions request failed with HTTP {exc.code}: {detail[:500]}") from exc
+        except urllib.error.URLError as exc:
+            raise RuntimeError(f"OpenAI chat completions request failed: {exc.reason}") from exc
+        parsed = json.loads(response_body)
+        if not isinstance(parsed, dict):
+            raise ValueError("OpenAI chat completions response must be a JSON object.")
+        return parsed
+
+    def _request_headers(self) -> dict[str, str]:
+        return {
+            "Authorization": f"Bearer {self.api_key}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "User-Agent": self.user_agent,
+        }
+
+
 def generate_source_plan_diagnostic(context: dict[str, object], provider: SourcePlanProvider) -> dict[str, object]:
     """Return source-planning diagnostics before deterministic URL validation."""
 
@@ -936,11 +1113,44 @@ def _extract_openai_json_payload(response: dict[str, object]) -> dict[str, objec
     raise ValueError("OpenAI response did not include JSON output text.")
 
 
+def _extract_chat_completions_json_payload(response: dict[str, object]) -> dict[str, object]:
+    choices = response.get("choices")
+    if isinstance(choices, list) and choices:
+        first = choices[0]
+        if isinstance(first, dict):
+            message = first.get("message")
+            if isinstance(message, dict):
+                content = message.get("content")
+                if isinstance(content, str) and content.strip():
+                    return _loads_json_object(content)
+                if isinstance(content, list):
+                    for item in content:
+                        if not isinstance(item, dict):
+                            continue
+                        text = item.get("text")
+                        if isinstance(text, str) and text.strip():
+                            return _loads_json_object(text)
+    raise ValueError("OpenAI chat completions response did not include JSON message content.")
+
+
 def _loads_json_object(text: str) -> dict[str, object]:
     payload = json.loads(text)
     if not isinstance(payload, dict):
         raise ValueError("OpenAI structured output must be a JSON object.")
     return payload
+
+
+def _normalise_chat_response_format(value: str | None) -> str:
+    if not isinstance(value, str) or not value.strip():
+        return OPENAI_DEFAULT_CHAT_RESPONSE_FORMAT
+    normalized = value.strip().lower().replace("-", "_")
+    if normalized in {"none", "off", "disabled"}:
+        return "none"
+    if normalized in {"json", "json_object"}:
+        return "json_object"
+    if normalized == "json_schema":
+        return "json_schema"
+    return OPENAI_DEFAULT_CHAT_RESPONSE_FORMAT
 
 
 def _required_dict_list(value: object, *, field: str, max_items: int) -> list[dict[str, object]]:
