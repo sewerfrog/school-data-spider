@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
-from university_admissions_crawler.crawler.filters import canonicalize_url
+from university_admissions_crawler.crawler.filters import DomainPolicy, allowed_scope_suggestion, canonicalize_url
 from university_admissions_crawler.crawler.types import FetchResult, Fetcher
 from university_admissions_crawler.extractor.schema import SourceType
 
@@ -30,7 +30,7 @@ class ApiCatalogFilterOutcome:
     attempted_urls: list[str] = field(default_factory=list)
     attempted_filters: list[dict[str, str]] = field(default_factory=list)
     fetched_urls: list[str] = field(default_factory=list)
-    rejected_urls: list[dict[str, str]] = field(default_factory=list)
+    rejected_urls: list[dict[str, object]] = field(default_factory=list)
     fetched_pages: list[ApiCatalogFilterCapture] = field(default_factory=list)
     budget_hit: bool = False
     stop_reason: str = "filters_not_detected"
@@ -59,6 +59,7 @@ def fetch_api_catalog_filter_pages(
     initial_result: FetchResult,
     *,
     max_requests: int = MAX_API_FILTER_REQUESTS,
+    domain_policy: DomainPolicy | None = None,
 ) -> ApiCatalogFilterOutcome:
     """Fetch safe low-risk filter variants for the same captured JSON endpoint."""
 
@@ -90,18 +91,28 @@ def fetch_api_catalog_filter_pages(
         if url in seen_urls:
             outcome.rejected_urls.append({"url": url, "reason": "duplicate_filter_url"})
             continue
-        reject_reason = _unsafe_filter_url_reason(initial_result.final_url, url)
+        reject_reason = _unsafe_filter_url_reason(initial_result.final_url, url, domain_policy=domain_policy)
         if reject_reason:
-            outcome.rejected_urls.append({"url": url, "reason": reject_reason})
+            rejected_url = {"url": url, "reason": reject_reason}
+            if reject_reason == "rejected_off_domain":
+                rejected_url.update(allowed_scope_suggestion(url))
+            outcome.rejected_urls.append(rejected_url)
             continue
 
         outcome.attempted_urls.append(url)
         outcome.attempted_filters.append(dict(plan.filters))
         fetched = fetcher.fetch(url)
         final_url = canonicalize_url(fetched.final_url)
-        reject_reason = _unsafe_filter_url_reason(initial_result.final_url, final_url)
+        reject_reason = _unsafe_filter_url_reason(initial_result.final_url, final_url, domain_policy=domain_policy)
         if reject_reason:
-            outcome.rejected_urls.append({"url": url, "reason": reject_reason})
+            outcome.rejected_urls.append(
+                {
+                    "url": url,
+                    "reason": reject_reason,
+                    "captured_url": final_url,
+                    **allowed_scope_suggestion(final_url),
+                }
+            )
             continue
         if len(fetched.text.encode("utf-8")) > MAX_API_FILTER_RESPONSE_SIZE_BYTES:
             outcome.rejected_urls.append({"url": url, "reason": "rejected_too_large"})
@@ -322,12 +333,12 @@ def _query_key_for_dimension(url: str, dimension: str, observed_keys: tuple[str,
     return _DEFAULT_QUERY_KEYS[dimension]
 
 
-def _unsafe_filter_url_reason(initial_url: str, next_url: str) -> str | None:
+def _unsafe_filter_url_reason(initial_url: str, next_url: str, *, domain_policy: DomainPolicy | None = None) -> str | None:
     initial = urlparse(initial_url)
     parsed = urlparse(next_url)
     if parsed.scheme not in {"http", "https"}:
         return "rejected_non_http"
-    if parsed.netloc != initial.netloc:
+    if parsed.netloc != initial.netloc and not (domain_policy is not None and domain_policy.is_allowed(next_url)):
         return "rejected_off_domain"
     for url in (initial_url, next_url):
         for key, _value in parse_qsl(urlparse(url).query, keep_blank_values=True):

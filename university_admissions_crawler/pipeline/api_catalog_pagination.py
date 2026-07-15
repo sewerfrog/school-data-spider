@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
+from university_admissions_crawler.crawler.filters import DomainPolicy, allowed_scope_suggestion
 from university_admissions_crawler.crawler.types import FetchResult, Fetcher
 from university_admissions_crawler.extractor.schema import SourceType
 
@@ -25,7 +26,7 @@ class ApiCatalogPaginationOutcome:
     page_count: int = 1
     attempted_urls: list[str] = field(default_factory=list)
     fetched_urls: list[str] = field(default_factory=list)
-    rejected_urls: list[dict[str, str]] = field(default_factory=list)
+    rejected_urls: list[dict[str, object]] = field(default_factory=list)
     fetched_pages: list[ApiCatalogPageCapture] = field(default_factory=list)
     completed: bool = False
     budget_hit: bool = False
@@ -58,6 +59,7 @@ def fetch_additional_api_catalog_pages(
     initial_result: FetchResult,
     *,
     max_pages: int = 5,
+    domain_policy: DomainPolicy | None = None,
 ) -> ApiCatalogPaginationOutcome:
     """Fetch safe next pages for the same captured JSON API endpoint."""
 
@@ -82,9 +84,12 @@ def fetch_additional_api_catalog_pages(
             outcome.stop_reason = plan.reason
             return outcome
 
-        reject_reason = _unsafe_next_url_reason(initial_result.final_url, plan.url)
+        reject_reason = _unsafe_next_url_reason(initial_result.final_url, plan.url, domain_policy=domain_policy)
         if reject_reason:
-            outcome.rejected_urls.append({"url": plan.url, "reason": reject_reason})
+            rejected_url = {"url": plan.url, "reason": reject_reason}
+            if reject_reason == "rejected_off_domain":
+                rejected_url.update(allowed_scope_suggestion(plan.url))
+            outcome.rejected_urls.append(rejected_url)
             outcome.stop_reason = reject_reason
             return outcome
         if plan.url in seen_urls:
@@ -94,6 +99,18 @@ def fetch_additional_api_catalog_pages(
 
         outcome.attempted_urls.append(plan.url)
         fetched = fetcher.fetch(plan.url)
+        final_url_reject_reason = _unsafe_next_url_reason(initial_result.final_url, fetched.final_url, domain_policy=domain_policy)
+        if final_url_reject_reason:
+            outcome.rejected_urls.append(
+                {
+                    "url": plan.url,
+                    "reason": final_url_reject_reason,
+                    "captured_url": fetched.final_url,
+                    **allowed_scope_suggestion(fetched.final_url),
+                }
+            )
+            outcome.stop_reason = final_url_reject_reason
+            return outcome
         if not fetched.ok or fetched.source is None:
             outcome.rejected_urls.append({"url": plan.url, "reason": "fetch_failed"})
             outcome.stop_reason = "fetch_failed"
@@ -288,12 +305,12 @@ def _url_with_query_value(url: str, key: str, value: str) -> str:
     return urlunparse(parsed._replace(query=urlencode(updated, doseq=True)))
 
 
-def _unsafe_next_url_reason(initial_url: str, next_url: str) -> str | None:
+def _unsafe_next_url_reason(initial_url: str, next_url: str, *, domain_policy: DomainPolicy | None = None) -> str | None:
     initial = urlparse(initial_url)
     parsed = urlparse(next_url)
     if parsed.scheme not in {"http", "https"}:
         return "rejected_non_http"
-    if parsed.netloc != initial.netloc:
+    if parsed.netloc != initial.netloc and not (domain_policy is not None and domain_policy.is_allowed(next_url)):
         return "rejected_off_domain"
     for url in (initial_url, next_url):
         for key, _value in parse_qsl(urlparse(url).query, keep_blank_values=True):

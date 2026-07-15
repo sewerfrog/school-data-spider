@@ -7,7 +7,7 @@ from collections import Counter
 from urllib.parse import parse_qsl, urljoin, urlparse
 
 from university_admissions_crawler.crawler.discovery import DiscoveredPage, DiscoveryConfig
-from university_admissions_crawler.crawler.filters import DomainPolicy, canonicalize_url
+from university_admissions_crawler.crawler.filters import DomainPolicy, canonicalize_url, domain_policy_for_seed
 from university_admissions_crawler.crawler.types import NetworkResponseRecord
 from university_admissions_crawler.extractor.programme_catalog_api import catalog_api_body_profile
 from university_admissions_crawler.extractor.schema import AdmissionsData, SourceType
@@ -28,9 +28,9 @@ def attach_api_catalog_discovery_diagnostics(
 ) -> None:
     """Attach API endpoint candidate diagnostics without changing facts."""
 
-    policy = DomainPolicy(
-        seed_url=seed_url,
-        allowed_hosts=set(config.allowed_hosts) | {urlparse(seed_url).netloc},
+    policy = domain_policy_for_seed(
+        seed_url,
+        allowed_hosts=set(config.allowed_hosts),
         allowed_domains=set(config.allowed_domains),
         allow_official_subdomains=config.allow_official_subdomains,
     )
@@ -145,6 +145,8 @@ def mark_api_catalog_candidate_capture(
     captured_url: str | None = None,
     rejection_reason: str | None = None,
     body_profile: dict[str, object] | None = None,
+    suggested_allowed_hosts: list[str] | None = None,
+    suggested_allowed_domains: list[str] | None = None,
 ) -> None:
     """Update a candidate status after bounded capture and refresh its summary."""
 
@@ -162,6 +164,10 @@ def mark_api_catalog_candidate_capture(
             item["api_captured_url"] = canonicalize_url(captured_url)
         if rejection_reason:
             item["api_capture_rejection_reason"] = rejection_reason
+        if suggested_allowed_hosts:
+            item["api_suggested_allowed_hosts"] = list(suggested_allowed_hosts)
+        if suggested_allowed_domains:
+            item["api_suggested_allowed_domains"] = list(suggested_allowed_domains)
         if body_profile:
             _attach_body_profile(item, body_profile)
         break

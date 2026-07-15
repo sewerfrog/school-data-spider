@@ -12,6 +12,7 @@ from university_admissions_crawler.config import (
     TRACKING_QUERY_NAMES,
     TRACKING_QUERY_PREFIXES,
 )
+from university_admissions_crawler.crawler.public_suffix import registrable_domain
 
 
 STATIC_RESOURCE_SUFFIXES: tuple[str, ...] = (
@@ -110,14 +111,13 @@ PROGRAMME_SOURCE_PATH_HINTS: tuple[str, ...] = (
     "/study/undergraduate",
 )
 
-
 @dataclass(slots=True)
 class DomainPolicy:
     """Bounded official-domain policy.
 
     The MVP allows same host by default.  It may also allow controlled official
-    subdomains under the same registrable-domain approximation when configured;
-    this is deterministic and intentionally conservative.
+    subdomains under the same Public Suffix List-backed registrable domain when
+    configured; this is deterministic and intentionally conservative.
     """
 
     seed_url: str
@@ -125,7 +125,7 @@ class DomainPolicy:
     allowed_domains: set[str] | None = None
     allow_official_subdomains: bool = True
     seed_host: str = field(init=False)
-    seed_domain: str = field(init=False)
+    seed_domain: str | None = field(init=False)
 
     def __post_init__(self) -> None:
         seed_host = normalize_host(urlparse(self.seed_url).netloc)
@@ -148,9 +148,30 @@ class DomainPolicy:
         domain = registrable_domain(host)
         if host in self.allowed_domains or domain in self.allowed_domains:
             return True
-        if self.allow_official_subdomains and domain == self.seed_domain:
+        if self.allow_official_subdomains and domain is not None and domain == self.seed_domain:
             return True
         return False
+
+
+def domain_policy_for_seed(
+    seed_url: str,
+    *,
+    allowed_hosts: set[str] | None = None,
+    allowed_domains: set[str] | None = None,
+    allow_official_subdomains: bool = True,
+) -> DomainPolicy:
+    """Build the standard official-source policy for a crawl seed."""
+
+    seed_host = normalize_host(urlparse(seed_url).netloc)
+    hosts = {normalize_host(host) for host in (allowed_hosts or set()) if host}
+    if seed_host:
+        hosts.add(seed_host)
+    return DomainPolicy(
+        seed_url=seed_url,
+        allowed_hosts=hosts,
+        allowed_domains={normalize_host(domain) for domain in (allowed_domains or set()) if domain},
+        allow_official_subdomains=allow_official_subdomains,
+    )
 
 
 def canonicalize_url(url: str, base_url: str | None = None) -> str:
@@ -183,16 +204,17 @@ def normalize_host(host: str) -> str:
     return host
 
 
-def registrable_domain(host: str) -> str:
-    """Small offline approximation sufficient for deterministic policy tests."""
+def allowed_scope_suggestion(url: str) -> dict[str, list[str]]:
+    """Return narrow config suggestions for a rejected final URL."""
 
-    parts = [p for p in normalize_host(host).split(".") if p]
-    if len(parts) <= 2:
-        return ".".join(parts)
-    # Handle common academic country-code domains such as example.edu.sg.
-    if len(parts[-1]) == 2 and parts[-2] in {"ac", "edu", "com", "org", "net", "gov"}:
-        return ".".join(parts[-3:])
-    return ".".join(parts[-2:])
+    host = normalize_host(urlparse(url).netloc)
+    if not host:
+        return {}
+    domain = registrable_domain(host)
+    suggestion = {"suggested_allowed_hosts": [host]}
+    if domain:
+        suggestion["suggested_allowed_domains"] = [domain]
+    return suggestion
 
 
 def is_pdf_url(url: str) -> bool:

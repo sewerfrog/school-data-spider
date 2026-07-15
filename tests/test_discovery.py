@@ -39,6 +39,31 @@ def test_discovery_allows_official_subdomain_discovered_from_seed_domain():
     assert any(page.result.final_url == "https://apply.fixture.test/apply.html" for page in pages)
 
 
+def test_discovery_marks_redirected_external_final_url_non_official():
+    class RedirectFetcher:
+        engine = "fixture"
+
+        def fetch(self, url: str) -> FetchResult:
+            text = "Undergraduate admissions"
+            final_url = "https://mirror.example.com/admissions"
+            return FetchResult(
+                url=url,
+                final_url=final_url,
+                status=200,
+                title="Admissions",
+                content_type="text/html",
+                retrieved_at="2026-06-15T00:00:00+00:00",
+                engine=self.engine,
+                text=text,
+                markdown=text,
+                source=source_from_text(source_url=final_url, title="Admissions", text=text),
+            )
+
+    pages = discover("https://example.edu/", RedirectFetcher(), DiscoveryConfig(max_pages=1, max_depth=0))
+
+    assert pages[0].result.source.is_official is False
+
+
 def test_default_relevance_strategy_uses_admissions_programme_profile():
     default_pages = discover("https://fixture.test/", FixtureFetcher(ROOT), DiscoveryConfig(max_pages=20, max_depth=2))
     assert isinstance(DiscoveryConfig().relevance_strategy, AdmissionsProgrammeRelevanceStrategy)

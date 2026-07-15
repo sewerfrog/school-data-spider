@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 from university_admissions_crawler.classifier.page_classifier import Classification, classify_page, is_low_confidence_classification
 from university_admissions_crawler.crawler.discovery import DiscoveredPage, DiscoveryConfig, discover
 from university_admissions_crawler.crawler.fetcher import Fetcher, FetchResult, FixtureFetcher
-from university_admissions_crawler.crawler.filters import DomainPolicy, canonicalize_url
+from university_admissions_crawler.crawler.filters import DomainPolicy, allowed_scope_suggestion, canonicalize_url, domain_policy_for_seed
 from university_admissions_crawler.crawler.relevance import DEFAULT_RELEVANCE_STRATEGY, KeywordPlan, RelevanceStrategy, relevance_diagnostics
 from university_admissions_crawler.crawler.types import NetworkResponseRecord
 from university_admissions_crawler.evidence.provenance import content_hash
@@ -229,6 +229,15 @@ def _config_with_extra_candidates(config: DiscoveryConfig, extra_candidates: tup
     )
 
 
+def _domain_policy_for_scan(seed_url: str, discovery_config: DiscoveryConfig) -> DomainPolicy:
+    return domain_policy_for_seed(
+        seed_url,
+        allowed_hosts=set(discovery_config.allowed_hosts),
+        allowed_domains=set(discovery_config.allowed_domains),
+        allow_official_subdomains=discovery_config.allow_official_subdomains,
+    )
+
+
 def _initialize_scan_data(
     seed_url: str,
     discovery_config: DiscoveryConfig,
@@ -245,6 +254,7 @@ def _initialize_scan_data(
                 "max_depth": discovery_config.max_depth,
                 "allowed_hosts": sorted(discovery_config.allowed_hosts),
                 "allowed_domains": sorted(discovery_config.allowed_domains),
+                "allow_official_subdomains": discovery_config.allow_official_subdomains,
                 "relevance_strategy": getattr(discovery_config.relevance_strategy, "name", type(discovery_config.relevance_strategy).__name__),
             },
         ),
@@ -276,9 +286,12 @@ def _record_fetch_result(
     *,
     captured_source_texts: dict[str, str],
     source_output_dir: str | Path | None,
+    domain_policy: DomainPolicy | None = None,
 ) -> bool:
     data.warnings.extend(result.warnings)
     if result.source:
+        if domain_policy is not None:
+            result.source.is_official = domain_policy.is_allowed(result.source.source_url)
         captured_text = result.markdown or result.text
         data.sources.append(result.source)
         captured_source_texts[result.source.source_url] = captured_text
@@ -392,6 +405,7 @@ def _run_scan_once(
     structured_extraction_provider: StructuredExtractionProvider | None = None,
 ) -> AdmissionsData:
     discovery_config = config or DiscoveryConfig()
+    source_domain_policy = _domain_policy_for_scan(seed_url, discovery_config)
     pages = discover(seed_url, fetcher, discovery_config)
     data = _initialize_scan_data(
         seed_url,
@@ -426,7 +440,13 @@ def _run_scan_once(
 
     for page in pages:
         result = page.result
-        if not _record_fetch_result(data, result, captured_source_texts=captured_source_texts, source_output_dir=source_output_dir):
+        if not _record_fetch_result(
+            data,
+            result,
+            captured_source_texts=captured_source_texts,
+            source_output_dir=source_output_dir,
+            domain_policy=source_domain_policy,
+        ):
             continue
         context = _build_captured_source_context(
             data,
@@ -461,6 +481,7 @@ def _run_scan_once(
                 depth=page.depth,
                 score=page.score,
                 extraction_recorder=extraction_recorder,
+                domain_policy=source_domain_policy,
             )
             continue
 
@@ -481,6 +502,7 @@ def _run_scan_once(
         captured_source_texts=captured_source_texts,
         source_output_dir=source_output_dir,
         network_responses_by_url=_network_responses_by_url(pages),
+        domain_policy=source_domain_policy,
     )
 
     if not data.admissions.required_documents:
@@ -589,12 +611,7 @@ def _augment_api_discovery_with_static_assets(
     if not candidate_source_pages:
         return [], None
 
-    policy = DomainPolicy(
-        seed_url=seed_url,
-        allowed_hosts=set(discovery_config.allowed_hosts) | {urlparse(seed_url).netloc},
-        allowed_domains=set(discovery_config.allowed_domains),
-        allow_official_subdomains=discovery_config.allow_official_subdomains,
-    )
+    policy = _domain_policy_for_scan(seed_url, discovery_config)
     diagnostic: dict[str, object] = {
         "triggered": True,
         "max_pages": MAX_DYNAMIC_SHELL_STATIC_ASSET_PAGES,
@@ -738,17 +755,13 @@ def _capture_safe_api_catalog_candidates(
     captured_source_texts: dict[str, str],
     source_output_dir: str | Path | None,
     network_responses_by_url: dict[str, NetworkResponseRecord] | None = None,
+    domain_policy: DomainPolicy | None = None,
 ) -> None:
     existing_urls = {canonicalize_url(source.source_url) for source in data.sources}
     candidate_urls = api_catalog_candidate_capture_urls(data, existing_urls=existing_urls)
     network_responses = network_responses_by_url or {}
     seed_url = data.run.input_url or data.institution.homepage_url
-    policy = DomainPolicy(
-        seed_url=seed_url,
-        allowed_hosts=set(discovery_config.allowed_hosts) | {urlparse(seed_url).netloc},
-        allowed_domains=set(discovery_config.allowed_domains),
-        allow_official_subdomains=discovery_config.allow_official_subdomains,
-    )
+    policy = domain_policy or _domain_policy_for_scan(seed_url, discovery_config)
     discovery_summary = data.run.config.get("programme_catalog_api_discovery_summary")
     pending_count = (
         discovery_summary.get("safe_capture_pending_count", 0)
@@ -791,8 +804,16 @@ def _capture_safe_api_catalog_candidates(
 
         response_size = len(result.text.encode("utf-8"))
         if not policy.is_allowed(result.final_url):
+            suggestion = allowed_scope_suggestion(result.final_url)
             data.warnings.extend(result.warnings)
-            diagnostics["rejected_urls"].append({"url": url, "reason": "redirected_off_domain"})
+            diagnostics["rejected_urls"].append(
+                {
+                    "url": url,
+                    "reason": "redirected_off_domain",
+                    "captured_url": result.final_url,
+                    **suggestion,
+                }
+            )
             mark_api_catalog_candidate_capture(
                 data,
                 url,
@@ -801,6 +822,8 @@ def _capture_safe_api_catalog_candidates(
                 response_size_bytes=response_size,
                 captured_url=result.final_url,
                 rejection_reason="redirected_off_domain",
+                suggested_allowed_hosts=suggestion.get("suggested_allowed_hosts"),
+                suggested_allowed_domains=suggestion.get("suggested_allowed_domains"),
             )
             continue
         if not result.ok or result.source is None:
@@ -857,7 +880,13 @@ def _capture_safe_api_catalog_candidates(
                 body_profile=body_profile,
             )
             continue
-        if not _record_fetch_result(data, result, captured_source_texts=captured_source_texts, source_output_dir=source_output_dir):
+        if not _record_fetch_result(
+            data,
+            result,
+            captured_source_texts=captured_source_texts,
+            source_output_dir=source_output_dir,
+            domain_policy=policy,
+        ):
             diagnostics["rejected_urls"].append({"url": url, "reason": "capture_failed"})
             mark_api_catalog_candidate_capture(
                 data,
@@ -920,6 +949,7 @@ def _capture_safe_api_catalog_candidates(
             depth=1,
             score=0.0,
             extraction_recorder=extraction_recorder,
+            domain_policy=policy,
         )
         diagnostics["captured_urls"].append(result.final_url)
         diagnostics["accepted_row_count"] += rows_added
@@ -977,9 +1007,10 @@ def _process_json_api_with_pagination(
     extraction_recorder,
     filter_dimensions: dict[str, str] | None = None,
     enable_filter_enumeration: bool = True,
+    domain_policy: DomainPolicy | None = None,
 ) -> int:
     rows_before = len(data.programme_catalog)
-    pagination_outcome = fetch_additional_api_catalog_pages(fetcher, result)
+    pagination_outcome = fetch_additional_api_catalog_pages(fetcher, result, domain_policy=domain_policy)
     data.run.config.setdefault("programme_catalog_api_pagination", []).append(pagination_outcome.to_dict())
     _extract_json_api_claims_and_catalog(
         data,
@@ -992,7 +1023,13 @@ def _process_json_api_with_pagination(
     )
     for paged_capture in pagination_outcome.fetched_pages:
         paged_result = paged_capture.result
-        if not _record_fetch_result(data, paged_result, captured_source_texts=captured_source_texts, source_output_dir=source_output_dir):
+        if not _record_fetch_result(
+            data,
+            paged_result,
+            captured_source_texts=captured_source_texts,
+            source_output_dir=source_output_dir,
+            domain_policy=domain_policy,
+        ):
             continue
         paged_context = _build_captured_source_context(
             data,
@@ -1033,6 +1070,7 @@ def _process_json_api_with_pagination(
             source_output_dir=source_output_dir,
             depth=depth,
             score=score,
+            domain_policy=domain_policy,
         )
     return len(data.programme_catalog) - rows_before
 
@@ -1049,13 +1087,20 @@ def _process_json_api_filter_pages(
     source_output_dir: str | Path | None,
     depth: int,
     score: float,
+    domain_policy: DomainPolicy | None = None,
 ) -> int:
     rows_before = len(data.programme_catalog)
-    filter_outcome = fetch_api_catalog_filter_pages(fetcher, result)
+    filter_outcome = fetch_api_catalog_filter_pages(fetcher, result, domain_policy=domain_policy)
     data.run.config.setdefault("programme_catalog_api_filter_enumeration", []).append(filter_outcome.to_dict())
     for filter_capture in filter_outcome.fetched_pages:
         filter_result = filter_capture.result
-        if not _record_fetch_result(data, filter_result, captured_source_texts=captured_source_texts, source_output_dir=source_output_dir):
+        if not _record_fetch_result(
+            data,
+            filter_result,
+            captured_source_texts=captured_source_texts,
+            source_output_dir=source_output_dir,
+            domain_policy=domain_policy,
+        ):
             continue
         filter_context = _build_captured_source_context(
             data,
@@ -1089,6 +1134,7 @@ def _process_json_api_filter_pages(
             extraction_recorder=filter_recorder,
             filter_dimensions=filter_capture.filters,
             enable_filter_enumeration=False,
+            domain_policy=domain_policy,
         )
     return len(data.programme_catalog) - rows_before
 

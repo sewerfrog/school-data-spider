@@ -312,7 +312,12 @@ def _api_catalog_discovery(lines: list[str], data: AdmissionsData) -> None:
             lines.append("- Safe capture rejected endpoints:")
             for item in rejected[:10]:
                 if isinstance(item, dict):
-                    lines.append(f"  - {item.get('url', 'unknown')} rejected `{item.get('reason', 'unknown')}`")
+                    line = f"  - {item.get('url', 'unknown')} rejected `{item.get('reason', 'unknown')}`"
+                    captured_url = item.get("captured_url")
+                    if captured_url:
+                        line += f"; final URL {captured_url}"
+                    lines.append(line)
+                    _allowed_scope_suggestion(lines, item, indent="    ")
             if len(rejected) > 10:
                 lines.append(f"  - Omitted rejected endpoints: {len(rejected) - 10}")
     lines.append("- Candidates:")
@@ -324,6 +329,10 @@ def _api_catalog_discovery(lines: list[str], data: AdmissionsData) -> None:
         reason = item.get("api_candidate_reason")
         if reason:
             lines.append(f"    - reason: `{reason}`")
+        captured_url = item.get("api_captured_url")
+        if captured_url:
+            lines.append(f"    - captured URL: {captured_url}")
+        _allowed_scope_suggestion(lines, item, indent="    ")
         size = item.get("api_response_size_bytes")
         if isinstance(size, int):
             lines.append(f"    - response bytes: {size}")
@@ -455,6 +464,7 @@ def _programme_catalog_diagnostics(lines: list[str], data: AdmissionsData) -> No
             lines.append(f"- API total count: {summary.get('api_total_count')}")
         lines.append(f"- API pagination complete: {summary.get('api_pagination_complete', False)}")
         lines.append(f"- API pagination incomplete: {summary.get('api_pagination_incomplete', False)}")
+        _api_rejected_outcomes(lines, data, config_key="programme_catalog_api_pagination", title="API pagination rejected URLs")
         if summary.get("api_filter_candidate_dimensions"):
             lines.append(f"- API filter candidate dimensions: {_format_dimensions(summary.get('api_filter_candidate_dimensions'))}")
         if summary.get("api_filter_dimensions"):
@@ -464,6 +474,9 @@ def _programme_catalog_diagnostics(lines: list[str], data: AdmissionsData) -> No
             lines.append(f"- API filter fetched URLs: {summary.get('api_filter_fetched_url_count', 0)}")
             lines.append(f"- API filter rejected URLs: {summary.get('api_filter_rejected_url_count', 0)}")
             lines.append(f"- API filter budget hit: {summary.get('api_filter_enumeration_budget_hit', False)}")
+        elif summary.get("api_filter_rejected_url_count"):
+            lines.append(f"- API filter rejected URLs: {summary.get('api_filter_rejected_url_count', 0)}")
+        _api_rejected_outcomes(lines, data, config_key="programme_catalog_api_filter_enumeration", title="API filter rejected URL details")
         lines.append(f"- HTML fallback used: {summary.get('html_fallback_used', False)}")
         if summary.get("api_to_csv_ratio") is not None:
             lines.append(f"- API/CSV row ratio: {summary.get('api_to_csv_ratio')}")
@@ -520,6 +533,30 @@ def _programme_catalog_diagnostics(lines: list[str], data: AdmissionsData) -> No
         lines.append(f"- Note: {note}")
     lines.append("- Note: programme catalog diagnostics summarize table extraction and are not admissions facts.")
     lines.append("")
+
+
+def _api_rejected_outcomes(lines: list[str], data: AdmissionsData, *, config_key: str, title: str) -> None:
+    outcomes = data.run.config.get(config_key)
+    items: list[dict[str, object]] = []
+    if isinstance(outcomes, list):
+        for outcome in outcomes:
+            if not isinstance(outcome, dict):
+                continue
+            rejected = outcome.get("rejected_urls")
+            if isinstance(rejected, list):
+                items.extend(item for item in rejected if isinstance(item, dict))
+    if not items:
+        return
+    lines.append(f"- {title}:")
+    for item in items[:10]:
+        line = f"  - {item.get('url', 'unknown')} rejected `{item.get('reason', 'unknown')}`"
+        captured_url = item.get("captured_url")
+        if captured_url:
+            line += f"; final URL {captured_url}"
+        lines.append(line)
+        _allowed_scope_suggestion(lines, item, indent="    ")
+    if len(items) > 10:
+        lines.append(f"  - Omitted rejected URLs: {len(items) - 10}")
 
 
 def _template_completeness(lines: list[str], data: AdmissionsData) -> None:
@@ -767,6 +804,29 @@ def _parsed(lines: list[str], value: FieldValue, *, indent: str) -> None:
 
 def _format_counts(counts: dict[object, object]) -> str:
     return ", ".join(f"`{key}`: {value}" for key, value in counts.items())
+
+
+def _allowed_scope_suggestion(lines: list[str], item: dict[str, object], *, indent: str) -> None:
+    hosts = _string_list(item.get("suggested_allowed_hosts") or item.get("api_suggested_allowed_hosts"))
+    domains = _string_list(item.get("suggested_allowed_domains") or item.get("api_suggested_allowed_domains"))
+    if not hosts and not domains:
+        return
+    parts: list[str] = []
+    if hosts:
+        parts.append("prefer " + ", ".join(f"`--allowed-host {host}`" for host in hosts))
+    if domains:
+        parts.append(
+            "use "
+            + ", ".join(f"`--allowed-domain {domain}`" for domain in domains)
+            + " only if the full domain is institution-controlled"
+        )
+    lines.append(f"{indent}- config suggestion after ownership check: {'; '.join(parts)}")
+
+
+def _string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if item]
 
 
 def _format_dimensions(dimensions: object) -> str:

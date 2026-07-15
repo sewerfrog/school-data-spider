@@ -1,6 +1,17 @@
 from pathlib import Path
 
-from university_admissions_crawler.crawler.filters import DomainPolicy, canonicalize_url, is_low_value_source_url, is_pdf_url, looks_like_blocked_or_challenge_source, score_url, should_follow_url, validate_source_plan_candidate_url
+from university_admissions_crawler.crawler.filters import (
+    DomainPolicy,
+    allowed_scope_suggestion,
+    canonicalize_url,
+    domain_policy_for_seed,
+    is_low_value_source_url,
+    is_pdf_url,
+    looks_like_blocked_or_challenge_source,
+    score_url,
+    should_follow_url,
+    validate_source_plan_candidate_url,
+)
 
 
 SAVED = Path("tests/fixtures/saved_sources")
@@ -21,6 +32,34 @@ def test_domain_policy_allows_same_host_and_official_subdomain():
 def test_domain_policy_can_disable_subdomain_expansion():
     policy = DomainPolicy("https://www.example.edu/", allow_official_subdomains=False)
     assert not policy.is_allowed("https://apply.example.edu/undergraduate")
+
+
+def test_domain_policy_for_seed_keeps_seed_host_when_subdomain_expansion_disabled():
+    policy = domain_policy_for_seed("https://www.example.edu/", allow_official_subdomains=False)
+
+    assert policy.is_allowed("https://www.example.edu/admissions")
+    assert not policy.is_allowed("https://apply.example.edu/undergraduate")
+
+
+def test_domain_policy_does_not_treat_common_public_suffix_as_official_domain():
+    policy = DomainPolicy("https://www.example.co.uk/")
+
+    assert policy.is_allowed("https://apply.example.co.uk/undergraduate")
+    assert not policy.is_allowed("https://other.co.uk/admissions")
+
+
+def test_domain_policy_does_not_treat_private_public_suffix_sites_as_same_official_domain():
+    policy = DomainPolicy("https://school-a.github.io/")
+
+    assert policy.is_allowed("https://admissions.school-a.github.io/undergraduate")
+    assert not policy.is_allowed("https://school-b.github.io/admissions")
+
+
+def test_allowed_scope_suggestion_prefers_narrow_host_and_includes_domain_context():
+    assert allowed_scope_suggestion("https://cdn.vendor-example.com/api/programmes.json") == {
+        "suggested_allowed_hosts": ["cdn.vendor-example.com"],
+        "suggested_allowed_domains": ["vendor-example.com"],
+    }
 
 
 def test_score_url_prefers_admissions_and_penalizes_news():

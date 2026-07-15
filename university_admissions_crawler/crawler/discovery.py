@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from heapq import heappop, heappush
-from urllib.parse import urlparse
 
 from university_admissions_crawler.crawler.fetcher import FetchResult, Fetcher
-from university_admissions_crawler.crawler.filters import DomainPolicy, canonicalize_url, is_low_value_source_url
+from university_admissions_crawler.crawler.filters import DomainPolicy, canonicalize_url, domain_policy_for_seed, is_low_value_source_url
 from university_admissions_crawler.crawler.relevance import DEFAULT_RELEVANCE_STRATEGY, KeywordPlan, RelevanceStrategy, relevance_diagnostics
 from university_admissions_crawler.crawler.sitemap import common_official_path_probe_urls, parse_sitemap_urls, sitemap_probe_urls
 from university_admissions_crawler.extractor.schema import WarningCode, WarningRecord
@@ -46,9 +45,9 @@ class FrontierCandidate:
 
 def discover(seed_url: str, fetcher: Fetcher, config: DiscoveryConfig | None = None) -> list[DiscoveredPage]:
     config = config or DiscoveryConfig()
-    policy = DomainPolicy(
-        seed_url=seed_url,
-        allowed_hosts=set(config.allowed_hosts) | {urlparse(seed_url).netloc},
+    policy = domain_policy_for_seed(
+        seed_url,
+        allowed_hosts=config.allowed_hosts,
         allowed_domains=config.allowed_domains,
         allow_official_subdomains=config.allow_official_subdomains,
     )
@@ -81,6 +80,8 @@ def discover(seed_url: str, fetcher: Fetcher, config: DiscoveryConfig | None = N
         if not policy.is_allowed(normalized):
             continue
         result = _fetch_with_retries(fetcher, normalized, config.retries)
+        if result.source is not None:
+            result.source.is_official = policy.is_allowed(result.source.source_url)
         if not result.ok and "path_probe_candidate" in candidate.reason_signals:
             continue
         page_score = config.relevance_strategy.score(result.final_url, result.title, result.markdown or result.text)

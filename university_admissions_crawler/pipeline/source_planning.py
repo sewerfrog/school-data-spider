@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from university_admissions_crawler.crawler.filters import DomainPolicy, validate_source_plan_candidate_url
+from university_admissions_crawler.crawler.filters import DomainPolicy, domain_policy_for_seed, validate_source_plan_candidate_url
 from university_admissions_crawler.extractor.llm_provider import SourcePlanProvider, generate_source_plan_diagnostic
 from university_admissions_crawler.extractor.schema import AdmissionsData
 
@@ -110,8 +110,10 @@ def _domain_policy_for_data(data: AdmissionsData) -> DomainPolicy:
     config = data.run.config
     allowed_hosts = config.get("allowed_hosts")
     allowed_domains = config.get("allowed_domains")
-    return DomainPolicy(
-        seed_url=data.run.input_url,
+    allow_official_subdomains = config.get("allow_official_subdomains")
+    return domain_policy_for_seed(
+        data.run.input_url,
         allowed_hosts=set(allowed_hosts) if isinstance(allowed_hosts, list) else set(),
         allowed_domains=set(allowed_domains) if isinstance(allowed_domains, list) else set(),
+        allow_official_subdomains=allow_official_subdomains if isinstance(allow_official_subdomains, bool) else True,
     )

@@ -335,6 +335,46 @@ def test_pipeline_source_planning_crawls_validated_candidate_without_creating_mo
     assert all(item.source_url == programme_url for item in data.evidence if item.claim_path.startswith("/programmes/"))
 
 
+def test_pipeline_source_planning_respects_disabled_official_subdomain_expansion():
+    seed_url = "https://www.example.edu/"
+    programme_url = "https://apply.example.edu/programmes"
+    fetcher = SourcePlanningFrontierFetcher(
+        {
+            seed_url: ("Access Denied", "Access denied. Please enable JavaScript and complete the captcha.", []),
+            programme_url: ("Undergraduate Programmes", "Bachelor of Science", []),
+        }
+    )
+
+    data = run_scan(
+        seed_url,
+        fetcher,
+        DiscoveryConfig(max_pages=2, max_depth=1, allow_official_subdomains=False),
+        source_plan_provider=MockSourcePlanProvider(
+            {
+                "candidate_urls": [
+                    {
+                        "url": programme_url,
+                        "reason": "Official programmes subdomain candidate.",
+                        "expected_category": "programme_list",
+                    }
+                ],
+                "candidate_queries": [],
+                "warnings": [],
+            }
+        ),
+    )
+
+    source_plan = data.run.config["llm_source_plan"]
+    assert data.run.config["allow_official_subdomains"] is False
+    assert source_plan["triggered"] is True
+    assert source_plan["applied"] is False
+    assert source_plan["accepted_candidate_urls"] == []
+    rejected = {item["url"]: item["rejection_reason"] for item in source_plan["rejected_candidate_urls"]}
+    assert rejected == {programme_url: "outside_allowed_domain"}
+    assert seed_url in fetcher.fetched
+    assert programme_url not in fetcher.fetched
+
+
 def test_pipeline_source_planning_reports_budget_skipped_candidate():
     seed_url = "https://example.edu/"
     programme_url = "https://example.edu/programmes"

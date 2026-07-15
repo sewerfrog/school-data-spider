@@ -80,6 +80,91 @@ def test_pipeline_enumerates_low_risk_catalog_api_filters():
     assert "Bachelor of Science" in report
 
 
+def test_pipeline_rejects_api_filter_off_domain_redirect():
+    seed_url = "https://example.edu/api/programmes"
+    filtered_url = canonicalize_url(
+        "https://example.edu/api/programmes?level=undergraduate&programmeType=degree&studyMode=full-time"
+    )
+    redirected_url = canonicalize_url(
+        "https://evil.example/api/programmes?level=undergraduate&programmeType=degree&studyMode=full-time"
+    )
+    data = run_scan(
+        seed_url,
+        _JsonApiFilterFetcher(
+            {
+                seed_url: {
+                    "filters": {
+                        "level": [{"label": "Undergraduate", "value": "undergraduate"}],
+                        "programmeType": [{"label": "Degree", "value": "degree"}],
+                        "studyMode": [{"label": "Full-time", "value": "full-time"}],
+                    },
+                    "items": [],
+                },
+                filtered_url: (
+                    {"total": 1, "items": [_programme("Bachelor of Science", "BSc", "Faculty of Science")]},
+                    redirected_url,
+                ),
+            }
+        ),
+        DiscoveryConfig(max_pages=1, max_depth=0, allowed_hosts={"example.edu"}),
+    )
+
+    assert data.programme_catalog == []
+    filter_outcome = data.run.config["programme_catalog_api_filter_enumeration"][0]
+    assert filter_outcome["attempted_urls"] == [filtered_url]
+    assert filter_outcome["fetched_urls"] == []
+    assert filter_outcome["rejected_urls"] == [
+        {
+            "url": filtered_url,
+            "reason": "rejected_off_domain",
+            "captured_url": redirected_url,
+            "suggested_allowed_hosts": ["evil.example"],
+            "suggested_allowed_domains": ["evil.example"],
+        }
+    ]
+    report = render_markdown_report(data)
+    assert "API filter rejected URL details" in report
+    assert "`--allowed-host evil.example`" in report
+
+
+def test_pipeline_allows_api_filter_redirect_to_configured_host():
+    seed_url = "https://example.edu/api/programmes"
+    filtered_url = canonicalize_url(
+        "https://example.edu/api/programmes?level=undergraduate&programmeType=degree&studyMode=full-time"
+    )
+    redirected_url = canonicalize_url(
+        "https://cdn.example-cdn.com/api/programmes?level=undergraduate&programmeType=degree&studyMode=full-time"
+    )
+    data = run_scan(
+        seed_url,
+        _JsonApiFilterFetcher(
+            {
+                seed_url: {
+                    "filters": {
+                        "level": [{"label": "Undergraduate", "value": "undergraduate"}],
+                        "programmeType": [{"label": "Degree", "value": "degree"}],
+                        "studyMode": [{"label": "Full-time", "value": "full-time"}],
+                    },
+                    "items": [],
+                },
+                filtered_url: (
+                    {"total": 1, "items": [_programme("Bachelor of Science", "BSc", "Faculty of Science")]},
+                    redirected_url,
+                ),
+            }
+        ),
+        DiscoveryConfig(max_pages=1, max_depth=0, allowed_hosts={"example.edu", "cdn.example-cdn.com"}),
+    )
+
+    assert [row.name for row in data.programme_catalog] == ["Bachelor of Science"]
+    filter_outcome = data.run.config["programme_catalog_api_filter_enumeration"][0]
+    assert filter_outcome["attempted_urls"] == [filtered_url]
+    assert filter_outcome["fetched_urls"] == [redirected_url]
+    assert filter_outcome["rejected_urls"] == []
+    cdn_source = next(source for source in data.sources if source.source_url == redirected_url)
+    assert cdn_source.is_official is True
+
+
 def _programme(name: str, degree: str, faculty: str) -> dict[str, str]:
     return {
         "programmeName": name,
@@ -93,13 +178,13 @@ def _programme(name: str, degree: str, faculty: str) -> dict[str, str]:
 class _JsonApiFilterFetcher:
     engine = "api-filter-fixture"
 
-    def __init__(self, responses: dict[str, dict]) -> None:
+    def __init__(self, responses: dict[str, dict | tuple[dict, str]]) -> None:
         self.responses = {canonicalize_url(url): payload for url, payload in responses.items()}
 
     def fetch(self, url: str) -> FetchResult:
         final_url = canonicalize_url(url)
-        payload = self.responses.get(final_url)
-        if payload is None:
+        response = self.responses.get(final_url)
+        if response is None:
             return FetchResult(
                 url=url,
                 final_url=final_url,
@@ -110,9 +195,13 @@ class _JsonApiFilterFetcher:
                 engine=self.engine,
                 warnings=[WarningRecord(WarningCode.FETCH_FAILED, f"Missing fixture API page: {final_url}", field=final_url, source_urls=[final_url])],
             )
+        payload = response
+        captured_final_url = final_url
+        if isinstance(response, tuple):
+            payload, captured_final_url = response
         text = json.dumps(payload)
         source = source_from_text(
-            source_url=final_url,
+            source_url=captured_final_url,
             source_type=SourceType.JSON,
             title="Programmes API",
             text=text,
@@ -121,7 +210,7 @@ class _JsonApiFilterFetcher:
         )
         return FetchResult(
             url=url,
-            final_url=final_url,
+            final_url=captured_final_url,
             status=200,
             title="Programmes API",
             content_type="application/json",

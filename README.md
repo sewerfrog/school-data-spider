@@ -10,6 +10,9 @@ Evidence-first MVP for extracting undergraduate admissions information from offi
   allowed-domain inference are applied by default; `--auto` and
   `--enable-live-network` remain compatibility flags.
 - Discovers bounded official links with `max_pages` / `max_depth` limits.
+- Uses a vendored Public Suffix List snapshot for official-domain boundaries,
+  including ICANN and PRIVATE rules such as `co.uk`, `edu.au`, wildcard rules,
+  exceptions, and hosted suffixes like `github.io`.
 - Classifies admissions-related pages into undergraduate admissions, international requirements, deadlines, accepted qualifications, programme lists/prerequisites, fees, scholarships, visa, housing, contact, and irrelevant pages.
 - Extracts only claims that can be tied to source evidence snippets.
 - Emits `unknown` / `needs_manual_check` warnings rather than fabricating unsupported fields.
@@ -152,6 +155,13 @@ it uses OpenAI when `OPENAI_API_KEY` is present, otherwise records
 HTTP-first fetching and uses Playwright as a fallback for high-value rendered
 pages.
 
+Official-source trust uses the vendored Public Suffix List in
+`university_admissions_crawler/resources/public_suffix_list.dat`. The seed host
+is always allowed; sibling official subdomains are allowed only when they share
+the same PSL-backed registrable domain and `allow_official_subdomains` remains
+enabled. PSL failures fail closed rather than falling back to a naive last-two-
+labels domain guess.
+
 For a smaller smoke run, add `--smoke`; it caps the run at `max_pages<=20` and `max_depth<=2` even if larger values are supplied. In batch mode, a university config's own `max_pages` or `max_depth` still overrides the CLI smoke cap for that university. `--enable-scrapegraph` remains a guarded future surface and fails closed. `--llm-provider mock` remains the deterministic test provider, `--llm-provider openai` uses the OpenAI Responses API, and `--llm-provider openai-chat` uses an OpenAI-compatible `/v1/chat/completions` endpoint. Both hosted providers are available for source planning, classification assist, programme-catalog hints, and structured extraction fallback. `--keyword-query` is deterministic debug input and no longer enables LLM keyword-plan generation. Anthropic and Gemini provider names remain reserved and fail closed.
 
 To compare with a previous run:
@@ -242,6 +252,7 @@ python -m university_admissions_crawler.cli https://www.example.edu/ \
   --output-dir outputs/example-auto \
   --max-pages 40 \
   --max-depth 3 \
+  --allowed-host cdn.example.edu \
   --allowed-domain example.edu \
   --timeout-seconds 45
 ```
@@ -526,6 +537,13 @@ common public API fields such as `programmeName`, `applicationDeadline`,
 `tuitionFee`, and `requiredDocuments` are promoted into the normal evidence
 schema when they can be tied to a JSON snippet.
 
+API safe capture, pagination, and filter enumeration reject off-domain final
+redirects by default. If a university-owned API legitimately redirects to a CDN
+or another host, add the exact host with `--allowed-host`; use
+`--allowed-domain` only when the full domain is institution-controlled. Rejected
+API redirects are shown in the Markdown report with the captured final URL and a
+configuration suggestion.
+
 Batch scans can be driven by a JSON config:
 
 ```bash
@@ -562,6 +580,7 @@ controls:
   "id": "example-u",
   "name": "Example University",
   "seed_urls": ["https://example.edu/"],
+  "allowed_hosts": ["cdn.example.edu"],
   "allowed_domains": ["example.edu"],
   "mode": "live-http",
   "max_pages": 80,

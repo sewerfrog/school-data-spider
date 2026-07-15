@@ -65,6 +65,82 @@ def test_api_catalog_discovery_safe_captures_embedded_endpoint_and_writes_catalo
     assert "Candidate discovery alone does not create admissions facts" in report
 
 
+def test_api_catalog_safe_capture_recomputes_source_official_flag_from_policy():
+    seed_url = "https://example.edu/programmes"
+    api_url = "https://example.edu/api/programmes.json?level=undergraduate"
+
+    class SkepticalApiFetcher:
+        engine = "skeptical-api-fixture"
+
+        def fetch(self, url: str) -> FetchResult:
+            if url == seed_url:
+                text = '<script>window.catalogApi = "/api/programmes.json?level=undergraduate";</script>'
+                return FetchResult(
+                    url=url,
+                    final_url=url,
+                    status=200,
+                    title="Programmes",
+                    content_type="text/html",
+                    retrieved_at="2026-06-01T00:00:00+00:00",
+                    engine=self.engine,
+                    text=text,
+                    markdown=text,
+                    source=source_from_text(source_url=url, title="Programmes", text=text),
+                )
+            if url == api_url:
+                text = json.dumps(
+                    {
+                        "items": [
+                            {
+                                "programmeName": "Bachelor of Data Science",
+                                "degree": "BSc",
+                                "faculty": "Faculty of Science",
+                                "level": "undergraduate",
+                            }
+                        ]
+                    }
+                )
+                return FetchResult(
+                    url=url,
+                    final_url=url,
+                    status=200,
+                    title="Programmes API",
+                    content_type="application/json",
+                    retrieved_at="2026-06-01T00:00:00+00:00",
+                    engine=self.engine,
+                    text=text,
+                    markdown=text,
+                    source=source_from_text(
+                        source_url=url,
+                        source_type=SourceType.JSON,
+                        title="Programmes API",
+                        text=text,
+                        is_official=False,
+                    ),
+                )
+            return FetchResult(
+                url=url,
+                final_url=url,
+                status=404,
+                title=None,
+                content_type="text/plain",
+                retrieved_at="2026-06-01T00:00:00+00:00",
+                engine=self.engine,
+                warnings=[WarningRecord(WarningCode.FETCH_FAILED, f"Missing fixture page: {url}", field=url, source_urls=[url])],
+            )
+
+    data = run_scan(
+        seed_url,
+        SkepticalApiFetcher(),
+        DiscoveryConfig(max_pages=1, max_depth=0, allowed_hosts={"example.edu"}),
+    )
+
+    api_source = next(source for source in data.sources if source.source_url == api_url)
+    assert api_source.is_official is True
+    assert [row.name for row in data.programme_catalog] == ["Bachelor of Data Science"]
+    assert not any(w.code == WarningCode.NON_OFFICIAL_SOURCE and api_url in w.source_urls for w in data.warnings)
+
+
 def test_api_catalog_discovery_records_failed_safe_capture_without_changing_facts():
     seed_url = "https://example.edu/programmes"
     api_url = "https://example.edu/api/programmes.json?level=undergraduate"
@@ -629,9 +705,22 @@ def test_api_catalog_safe_capture_rejects_off_domain_redirect():
     assert candidate["api_candidate_status"] == "rejected_off_domain"
     assert candidate["api_captured_url"] == redirected_url
     assert candidate["api_capture_rejection_reason"] == "redirected_off_domain"
+    assert candidate["api_suggested_allowed_hosts"] == ["cdn.evil.example"]
+    assert candidate["api_suggested_allowed_domains"] == ["evil.example"]
     capture = data.run.config["programme_catalog_api_capture"]
     assert capture["attempted_urls"] == [api_url]
-    assert capture["rejected_urls"] == [{"url": api_url, "reason": "redirected_off_domain"}]
+    assert capture["rejected_urls"] == [
+        {
+            "url": api_url,
+            "reason": "redirected_off_domain",
+            "captured_url": redirected_url,
+            "suggested_allowed_hosts": ["cdn.evil.example"],
+            "suggested_allowed_domains": ["evil.example"],
+        }
+    ]
+    report = render_markdown_report(data)
+    assert "`--allowed-host cdn.evil.example`" in report
+    assert "`--allowed-domain evil.example` only if the full domain is institution-controlled" in report
 
 
 def _html_response(

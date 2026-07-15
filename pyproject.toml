@@ -21,6 +21,12 @@ scrapegraph = []
 [project.scripts]
 university-admissions-crawler = "university_admissions_crawler.cli:main"
 
+[tool.setuptools.package-data]
+university_admissions_crawler = ["resources/*.dat"]
+
+[tool.setuptools.packages.find]
+include = ["university_admissions_crawler*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]

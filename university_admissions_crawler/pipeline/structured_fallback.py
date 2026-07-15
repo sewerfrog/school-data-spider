@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import Counter
 
 from university_admissions_crawler.crawler.discovery import DiscoveryConfig
-from university_admissions_crawler.crawler.filters import DomainPolicy
+from university_admissions_crawler.crawler.filters import domain_policy_for_seed
 from university_admissions_crawler.evidence.provenance import evidence_from_source
 from university_admissions_crawler.evidence.validator import validate_llm_candidate_fact
 from university_admissions_crawler.extractor.llm_provider import (
@@ -63,8 +63,8 @@ def attach_llm_structured_extraction_diagnostics(
         return
 
     source_records = {source.source_url: source for source in data.sources}
-    policy = DomainPolicy(
-        seed_url=data.run.input_url,
+    policy = domain_policy_for_seed(
+        data.run.input_url,
         allowed_hosts=set(discovery_config.allowed_hosts),
         allowed_domains=set(discovery_config.allowed_domains),
         allow_official_subdomains=discovery_config.allow_official_subdomains,
