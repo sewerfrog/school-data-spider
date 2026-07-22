@@ -1,4 +1,7 @@
+from pathlib import Path
+
 from university_admissions_crawler.classifier.page_classifier import classify_page
+from university_admissions_crawler.crawler.html_text import extract_html_text_document
 from university_admissions_crawler.extractor.schema import PageCategory
 
 
@@ -79,6 +82,25 @@ def test_programme_catalog_source_signals_classify_as_programme_list():
     )
     for url, title, text in checks:
         assert classify_page(url, title, text).category == PageCategory.PROGRAMME_LIST
+
+
+def test_ntu_canonical_degree_catalog_bypasses_generic_education_path_rejection():
+    html = Path(
+        "tests/fixtures/programme_catalog/ntu_live_regressions/canonical_degree_table.html"
+    ).read_text(encoding="utf-8")
+    document = extract_html_text_document(html)
+
+    result = classify_page(
+        "https://www.ntu.edu.sg/education/degree-programmes",
+        "Degree Programmes | NTU Singapore",
+        document.plain_text,
+    )
+
+    assert result.category == PageCategory.PROGRAMME_LIST
+    assert result.signals == [
+        "canonical_catalog",
+        "institution_profile:ntu_degree_catalog",
+    ]
 
 
 def test_programme_catalog_signals_do_not_override_non_admissions_context():

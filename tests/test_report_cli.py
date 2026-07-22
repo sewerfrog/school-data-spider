@@ -87,6 +87,7 @@ def test_cli_fixture_smoke_writes_json_and_markdown():
         assert data["discovered_categories"]
         assert data["run"]["config"]["max_pages"] == 20
         assert data["run"]["config"]["max_depth"] == 3
+        assert data["run"]["config"]["programme_detail_targeted_reserve"] == 0
         assert data["run"]["config"]["extraction_diagnostics_summary"]["attempts_count"] > 0
         assert set(data["run"]["config"]["missing_reasons"]) == set(data["run"]["config"]["coverage"]["missing"])
         assert "keyword_plan" not in data["run"]["config"]
@@ -265,12 +266,50 @@ def test_markdown_report_shows_zero_row_catalog_candidate_sources():
                     "crawled_catalog_source_count": 1,
                     "accepted_row_count": 0,
                     "raw_needs_review_count": 0,
+                    "catalog_complete": False,
+                    "catalog_completeness_status": "probable_incomplete",
+                    "canonical_catalog_captured": True,
+                    "canonical_catalog_accepted": False,
+                    "candidate_conservation_expected_count": 5,
+                    "candidate_conservation_observed_count": 5,
+                    "candidate_conservation_proven": True,
+                    "identified_catalog_section_count": 1,
+                    "processed_catalog_section_count": 1,
+                    "catalog_section_conservation_proven": True,
+                    "quarantined_candidate_count": 0,
+                    "source_role_counts": {"canonical_catalog": 1},
+                    "accepted_by_source_role": {},
+                    "catalog_completeness_basis": ["candidate_conservation_proven"],
+                    "catalog_completeness_failure_reasons": ["canonical_catalog_accepted"],
+                    "catalog_completeness_failure_stages": ["segmentation"],
+                    "catalog_completeness_failure_stage_counts": {"segmentation": 1},
                     "accepted_to_candidate_source_ratio": 0.0,
                     "low_row_yield": False,
                     "source_status_counts": {"dynamic_shell_no_rows": 1, "parsed_zero_rows": 1},
                     "catalog_source_family_counts": {"example.edu/undergraduate-programmes": 1},
                     "api_candidate_zero_reason": "browser_capture_no_network_json",
                     "false_positive_rejected_count": 0,
+                    "candidate_diagnostic_count": 5,
+                    "candidate_rejected_count": 2,
+                    "candidate_context_count": 1,
+                    "html_false_positive_rejected_count": 1,
+                    "entity_gate_rejected_count": 1,
+                    "accepted_without_structural_anchor_count": 0,
+                    "institution_context_mismatch_count": 1,
+                    "section_context_captured_count": 1,
+                    "section_context_inherited_count": 1,
+                    "group_context_captured_count": 0,
+                    "group_context_inherited_count": 0,
+                    "field_evidence_row_count": 1,
+                    "field_evidence_path_count": 1,
+                    "candidate_decision_counts": {"accepted": 2, "context": 1, "rejected": 2},
+                    "candidate_rejection_reasons": {"admissions_explainer": 1, "unknown_table_shape": 1},
+                    "candidate_context_reason_counts": {"section_context_captured": 1},
+                    "accepted_candidate_shape_counts": {"section_context_candidate": 1, "text": 1},
+                    "candidate_block_kind_counts": {"heading": 2, "list_item": 1, "paragraph": 2},
+                    "accepted_source_role_counts": {"faculty_catalog": 2},
+                    "accepted_structural_anchor_counts": {"faculty_degree_heading": 1, "programme_primary_link": 1},
+                    "field_evidence_field_counts": {"faculty_or_school": 1},
                     "probable_incomplete_catalog": True,
                     "recommended_next_action": "discover_public_catalog_api",
                     "sources_count": 0,
@@ -284,11 +323,116 @@ def test_markdown_report_shows_zero_row_catalog_candidate_sources():
     assert "## Programme Catalog Diagnostics" in report
     assert "- Candidate rows: 0" in report
     assert "- Candidate sources: 1" in report
+    assert "- Catalog completeness status: `probable_incomplete`" in report
+    assert "- Catalog complete: False" in report
+    assert "- Canonical catalog captured: True" in report
+    assert "- Canonical catalog accepted: False" in report
+    assert "- Candidate conservation: 5/5 (proven: True)" in report
+    assert "- Catalog section conservation: 1/1 (proven: True)" in report
+    assert "- Catalog source roles: `canonical_catalog`: 1" in report
+    assert "- Completeness failure stages: `segmentation`: 1" in report
+    assert "- Completeness proof basis: `candidate_conservation_proven`" in report
+    assert "- Completeness proof failures: `canonical_catalog_accepted`" in report
     assert "- Catalog source statuses: `dynamic_shell_no_rows`: 1, `parsed_zero_rows`: 1" in report
     assert "- API candidate zero reason: `browser_capture_no_network_json`" in report
     assert "- False-positive rejected rows: 0" in report
+    assert "- Programme candidate diagnostics: 5" in report
+    assert "- Programme rejected candidates: 2" in report
+    assert "- Programme false-positive candidate rejections: 1" in report
+    assert "- Entity-gate rejections: 1" in report
+    assert "- Accepted rows missing structural anchor: 0" in report
+    assert "- Institution-context mismatches: 1" in report
+    assert "- Section contexts captured: 1" in report
+    assert "- Section-context accepted rows: 1" in report
+    assert "- Field-evidence paths: 1" in report
+    assert "- Programme rejection reasons: `admissions_explainer`: 1, `unknown_table_shape`: 1" in report
+    assert "- Accepted source roles: `faculty_catalog`: 2" in report
+    assert "- Accepted structural anchors: `faculty_degree_heading`: 1, `programme_primary_link`: 1" in report
+    assert "- Field-evidence fields: `faculty_or_school`: 1" in report
     assert "- Catalog source families: `example.edu/undergraduate-programmes`: 1" in report
     assert "- Recommended next action: `discover_public_catalog_api`" in report
+
+
+def test_markdown_report_shows_completeness_failure_before_any_catalog_candidate_is_found():
+    data = AdmissionsData(
+        institution=Institution(homepage_url="https://example.edu"),
+        run=RunMetadata(
+            input_url="https://example.edu",
+            config={
+                "programme_catalog_summary": {
+                    "candidate_count": 0,
+                    "accepted_count": 0,
+                    "rejected_count": 0,
+                    "candidate_source_count": 0,
+                    "catalog_complete": False,
+                    "catalog_completeness_status": "probable_incomplete",
+                    "catalog_completeness_basis": ["no_quarantined_candidates"],
+                    "catalog_completeness_failure_reasons": ["canonical_catalog_captured"],
+                    "catalog_completeness_failure_stages": ["discovery"],
+                    "catalog_completeness_failure_stage_counts": {"discovery": 1},
+                    "probable_incomplete_catalog": True,
+                }
+            },
+        ),
+    )
+
+    report = render_markdown_report(data)
+
+    assert "## Programme Catalog Diagnostics" in report
+    assert "- Candidate rows: 0" in report
+    assert "- Candidate sources: 0" in report
+    assert "- Catalog completeness status: `probable_incomplete`" in report
+    assert "- Completeness failure stages: `discovery`: 1" in report
+    assert "- Completeness proof failures: `canonical_catalog_captured`" in report
+
+
+def test_markdown_report_explains_quality_adjusted_row_yield():
+    data = AdmissionsData(
+        institution=Institution(homepage_url="https://example.edu"),
+        run=RunMetadata(
+            input_url="https://example.edu",
+            config={
+                "programme_catalog_summary": {
+                    "candidate_count": 4,
+                    "accepted_count": 4,
+                    "rejected_count": 0,
+                    "candidate_source_count": 5,
+                    "accepted_row_count": 4,
+                    "accepted_to_candidate_source_ratio": 0.8,
+                    "quality_adjustment_applied": True,
+                    "quality_adjusted_accepted_row_count": 1,
+                    "quality_excluded_accepted_row_count": 3,
+                    "quality_adjusted_accepted_to_candidate_source_ratio": 0.2,
+                    "quality_exclusion_reason_counts": {
+                        "accepted_manual_review": 1,
+                        "missing_structural_anchor": 1,
+                        "name_quality_failed": 1,
+                    },
+                    "raw_low_row_yield": False,
+                    "low_row_yield": True,
+                    "catalog_complete": False,
+                    "catalog_completeness_status": "probable_incomplete",
+                    "catalog_completeness_basis": [],
+                    "catalog_completeness_failure_reasons": ["row_yield_not_suspicious"],
+                    "catalog_completeness_failure_stage_counts": {"segmentation": 1},
+                }
+            },
+        ),
+    )
+
+    report = render_markdown_report(data)
+
+    assert "- Accepted/source ratio: 0.8" in report
+    assert "- Quality-adjusted accepted rows: 1" in report
+    assert "- Quality-excluded accepted rows: 3" in report
+    assert "- Quality-adjusted accepted/source ratio: 0.2" in report
+    assert (
+        "- Quality exclusion reasons: `accepted_manual_review`: 1, "
+        "`missing_structural_anchor`: 1, `name_quality_failed`: 1"
+    ) in report
+    assert "- Raw low row yield: False" in report
+    assert "- Low row yield: True" in report
+    assert "- Completeness proof failures: `row_yield_not_suspicious`" in report
 
 
 def test_cli_fixture_mock_classification_assist_records_diagnostics_only():
@@ -605,6 +749,7 @@ def test_cli_live_http_writes_json_and_markdown_from_local_server():
         assert data["sources"]
         assert data["evidence"]
         assert data["run"]["config"]["allowed_domains"] == ["example.edu"]
+        assert data["run"]["config"]["programme_detail_targeted_effective_reserve"] == 1
         assert any(item["source_url"].endswith("/admissions.html") for item in data["evidence"])
         assert "Evidence appendix" in (Path(out_tmp) / "report.md").read_text()
 
@@ -626,6 +771,8 @@ def test_cli_live_defaults_infer_domain_and_use_homepage_first_limits(monkeypatc
         assert data["run"]["config"]["allowed_domains"] == ["example.edu"]
         assert data["run"]["config"]["max_pages"] == 80
         assert data["run"]["config"]["max_depth"] == 4
+        assert data["run"]["config"]["programme_detail_targeted_reserve"] == 4
+        assert data["run"]["config"]["programme_detail_targeted_effective_reserve"] == 4
         assert data["run"]["config"]["llm_runtime"]["enabled"] is True
         assert data["run"]["config"]["llm_runtime"]["provider"] == "none"
         assert data["run"]["config"]["llm_runtime"]["features"]["source_planning"] is True
@@ -712,9 +859,37 @@ def test_cli_config_batch_writes_per_university_outputs():
         batch_structured = Path(out_tmp) / "structured"
         assert result.exists()
         assert report.exists()
+        assert (batch_structured / "manifest.json").exists()
         assert (batch_structured / "all_programme_catalog.jsonl").exists()
         assert (batch_structured / "all_missing_fields.jsonl").exists()
         assert (batch_structured / "all_sources.jsonl").exists()
+        assert (batch_structured / "all_application_periods.jsonl").exists()
+        assert (batch_structured / "all_visa.jsonl").exists()
+        assert (batch_structured / "all_housing.jsonl").exists()
+        batch_manifest = json.loads((batch_structured / "manifest.json").read_text(encoding="utf-8"))
+        assert batch_manifest["university_output_count"] == 1
+        assert batch_manifest["input_directory_names"] == ["example-u"]
+        assert batch_manifest["files"]["all_visa"] == "all_visa.jsonl"
+        assert batch_manifest["input_coverage"]["all_visa"]["present_file_count"] == 1
+        assert batch_manifest["input_coverage"]["all_visa"]["missing_file_count"] == 0
+        assert batch_manifest["input_coverage"]["all_visa"]["all_input_files_present"] is True
+        assert batch_manifest["input_validation_summary"]["invalid_row_count"] == 12
+        assert batch_manifest["input_validation_summary"]["all_rows_valid"] is False
+        assert batch_manifest["input_validation"]["all_application_periods"]["reason_counts"] == {
+            "duplicate_record_id": 6
+        }
+        assert batch_manifest["input_validation"]["all_required_documents"]["reason_counts"] == {
+            "duplicate_record_id": 6
+        }
+        assert batch_manifest["input_validation"]["all_visa"]["all_rows_valid"] is True
+        assert batch_manifest["reference_index_coverage"]["sources"]["all_index_files_readable"] is True
+        assert batch_manifest["reference_index_coverage"]["evidence"]["all_index_files_readable"] is True
+        assert batch_manifest["evidence_validation"]["invalid_row_count"] == 0
+        assert batch_manifest["evidence_validation"]["all_rows_valid"] is True
+        assert batch_manifest["batch_validation"]["status"] == "invalid"
+        assert batch_manifest["batch_validation"]["ready_for_structured_consumption"] is False
+        assert batch_manifest["batch_validation"]["reason_codes"] == ["invalid_input_rows"]
+        assert batch_manifest["batch_validation"]["metrics"]["invalid_input_row_count"] == 12
         all_sources = [
             json.loads(line)
             for line in (batch_structured / "all_sources.jsonl").read_text(encoding="utf-8").splitlines()
@@ -728,6 +903,7 @@ def test_cli_config_batch_writes_per_university_outputs():
         assert data["run"]["config"]["allowed_domains"] == ["example.edu"]
         assert data["run"]["config"]["max_pages"] == 80
         assert data["run"]["config"]["max_depth"] == 4
+        assert data["run"]["config"]["programme_detail_targeted_reserve"] == 4
 
 
 def test_cli_config_batch_accepts_opt_in_keyword_plan_and_relevance_strategy():

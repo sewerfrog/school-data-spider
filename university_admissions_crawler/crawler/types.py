@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Protocol
 
+from university_admissions_crawler.crawler.html_text import HTMLContentBlock
 from university_admissions_crawler.extractor.schema import SourceRecord, WarningCode, WarningRecord
 
 
@@ -38,6 +39,7 @@ class FetchResult:
     network_responses: list[NetworkResponseRecord] = field(default_factory=list)
     source: SourceRecord | None = None
     warnings: list[WarningRecord] = field(default_factory=list)
+    content_blocks: tuple[HTMLContentBlock, ...] = ()
 
     @property
     def ok(self) -> bool:

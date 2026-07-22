@@ -15,18 +15,30 @@
 - 可选 PDF 文本解析：`--enable-pdf` 使用 `pypdf`，失败时返回 warning；未启用时 live PDF 只记录 warning，不再按 fixture PDF 文本解析。
 - 批量配置扫描：`--config` 读取 JSON 配置并按大学 ID 输出子目录。
 - bounded discovery：通过 `max_pages`、`max_depth` 控制范围。
+- 两阶段 programme detail discovery：live 默认在同一 `max_pages` 总预算内预留 4 页；首轮解析目录，第二轮只补抓能唯一对应缺学院 row 且有 catalog-family 上下文的详情页。fixture 默认关闭，可用 `--programme-detail-reserve` 调整。
 - URL/domain policy：支持 allowed host/domain、官方子域、URL 规范化和简单链接打分。
 - 页面分类：规则分类招生、要求、截止日期、资格、专业、费用、奖学金、签证、住宿、联系信息和 irrelevant。
 - 规则抽取：从 HTML/text 中抽取申请日期、英语要求、资格、专业、先修、费用、奖学金、签证、住宿、联系方式和材料。
 - JSON/API 抽取：从公开 JSON 中保守抽取 programme、deadline、tuition fee、required documents。
+- Programme catalog HTML fallback：支持重排表头、已知 metadata 列、grouped rows 上下文继承和
+  HASS-like faculty/school section 继承；NUS/NTU 专用 name/faculty aliases 由 official registrable
+  domain profile 隔离，继承字段使用独立 evidence，并保持 manual-review warning。
 - 证据与校验：记录 source、snippet、claim path、hash、warnings，并校验 non-unknown claim 是否有 evidence。
 - 报告输出：生成 Markdown evidence report。
-- Structured output records：`structured/` 生成 `manifest.json`、`institution.json`、`facts.jsonl`、`sources.jsonl`、`evidence.jsonl`、`missing_fields.jsonl`、`warnings.jsonl`、`diagnostics.json`，以及 `records/programme_catalog.jsonl`、清洗版 `records/programme_catalog.csv`、`records/application_periods.jsonl`、`records/fees.jsonl`、`records/english_requirements.jsonl`、`records/accepted_qualifications.jsonl`、`records/required_documents.jsonl`、`records/scholarships.jsonl`、`records/contacts.jsonl`、`records/programmes_legacy.jsonl`；batch config 路径还会在 batch 根目录生成 `structured/all_programme_catalog.jsonl`、`structured/all_missing_fields.jsonl` 和 `structured/all_sources.jsonl`。
+- Structured output records：`structured/` 生成 `manifest.json`、`institution.json`、`facts.jsonl`、`sources.jsonl`、`evidence.jsonl`、`missing_fields.jsonl`、`warnings.jsonl`、`diagnostics.json`，以及 `records/programme_catalog.jsonl`、清洗版 `records/programme_catalog.csv`、全部 12 类 requirement collection JSONL 和 `records/programmes_legacy.jsonl`；`diagnostics.diff` 在 `run.config.diff` 存在时（包括 `baseline=none`）无损保留该 payload。batch config 路径在根 `structured/manifest.json` 中记录学校目录数、文件、行数、每表 input coverage、row validation、source/evidence reference-index coverage、evidence-source validation 和统一 `batch_validation` verdict，并生成旧有 programme catalog/missing/source 三表及全部 12 类 requirement 聚合 JSONL。
 - 增量 diff：传入 previous result 时记录 source hash 和字段变化。
 - source filtering：抓取前过滤明显静态资源和 privacy/GDPR/cookie/terms 类低价值文档，并用 admissions prospectus、entry requirements、tuition fees、programme requirements PDF 反例保护误删边界。
-- diagnostics：`classification_assist_summary`、`extraction_diagnostics_summary`、`missing_reasons` 和 `template_completeness` 已写入 `run.config`，报告会在 facts 前展示相关诊断；这些内容不改变事实字段。字段级缺失原因和抽取器修复细节见 `docs/keyword-crawl-design.zh.md`。
+- diagnostics：`classification_assist_summary`、`extraction_diagnostics_summary`、`missing_reasons`、`template_completeness`、programme candidate ledger 和 field-evidence mapping 已写入 `run.config`，报告会在 facts 前展示聚合诊断；这些内容不改变事实字段。字段级缺失原因和抽取器修复细节见 `docs/keyword-crawl-design.zh.md`。
+- programme catalog merge：HTML/API 候选共用 institution/category/name/award 身份规则和
+  source-role 优先级；canonical row 优先，faculty/detail 只补充缺失字段并保留独立 evidence。
+  Step 6 的 completeness evaluator 也已按 canonical/candidate/section/API proof fail closed；Markdown
+  report 和 `structured/diagnostics.json` compact contract 会直接解释 status、basis、failure reason 和
+  discovery/segmentation/entity-gate/completeness-proof failure stage。row-yield 会同时保留 raw accepted
+  count/ratio，并基于 accepted ledger claim path、structural anchor 和 entity-quality signals 输出 adjusted
+  count/ratio/exclusion reasons；这些诊断不改写 programme facts。
 - saved-source 回归：HKU/NTU/PolyU 相关回归 fixture 已迁到 `tests/fixtures/saved_sources/`；NUS/HKU/NTU/PolyU 已有 homepage/admissions -> programme catalog source 的 fixture-backed pipeline 样板。NTU fee 当前能力边界见 `docs/keyword-crawl-design.zh.md`。
-- 测试：`.venv314` 环境下最近完整 pytest 结果为 `241 passed`；structured output 目标组 `tests/test_structured_output.py tests/test_programme_catalog_output.py tests/test_report_cli.py` 为 `38 passed`；OpenAI provider / CLI 目标组 `tests/test_openai_provider.py tests/test_report_cli.py` 为 `42 passed`。
+- 测试：`.venv314` 环境下最近完整 pytest 结果为 `390 passed`；README 所列
+  structured-output 目标组为 `53 passed`，`compileall` 和 `git diff --check` 通过。
 
 ## 3. 未完成或实验性功能
 
@@ -34,8 +46,8 @@
 - ScrapeGraphAI：CLI 有 `--enable-scrapegraph`，但当前直接报错；`ScrapeGraphFetcherStub` 只是 warning stub。
 - crawl4ai：`Crawl4AIFetcherStub` 只是 warning stub，没有真实 adapter。
 - Sitemap：discovery 会探测 sitemap 并把相关招生/专业目录 URL 加入 priority frontier；`parse_sitemap_urls()` 仍由兼容/边界测试覆盖。
-- 复杂专业体系抽取：当前主要是 regex，无法稳定区分 degree、major、minor、second major、special programme 等。
-- 复杂表格/PDF 表格：HTML table 只转文本，`pypdf` 只抽文本；不是结构化表格解析。
+- 复杂专业体系抽取：已有保守的表头映射、group/section context 和误报拒绝路径，但仍无法稳定区分所有 degree、major、minor、second major、special programme 体系。
+- 复杂表格/PDF 表格：HTML table 仍先转文本再按受支持形态解析，`pypdf` 只抽文本；当前不是通用 DOM/PDF table schema parser。
 - Structured output 剩余 schema 讨论：`institution` scalar facts 尚未进入统一 fact envelope；如要加入，应作为 additive schema slice 并补 focused tests。
 - 部分 schema 字段未填充：`international_requirements`、`standardized_tests`、`selection_tests_or_interviews` 当前基本未由 pipeline 写入。用途 partially unclear。
 - `CrawlConfig` / `smoke_config()` 当前不是主要运行路径；作为兼容/未来配置入口保留，并由边界测试固定当前契约。
@@ -93,15 +105,25 @@ python3 -m compileall university_admissions_crawler tests
 - `university_admissions_crawler/crawler/`：fetcher、fetch result 类型、source type/content type helper、HTML/JSON 文本化与链接 helper、discovery、URL filter、招生上下文 gate、sitemap parser。
 - `university_admissions_crawler/crawler/types.py`：`FetchResult` 和 `Fetcher` protocol；`crawler.fetcher` 仍 re-export 旧导入路径。
 - `university_admissions_crawler/crawler/source_types.py`：URL/content-type/fixture path 到 `SourceType` 的判断 helper，以及 `SourceType` 到 content type 的映射 helper；`crawler.fetcher` 仍保留原 private helper 兼容名。
-- `university_admissions_crawler/crawler/html_text.py`：HTML 主内容提取、噪音移除、table 转文本、tag stripping helper。
+- `university_admissions_crawler/crawler/html_text.py`：HTML 主内容提取、噪音移除、typed blocks、table 转文本，
+  以及在可见 blocks 为空时有界提取 JSON-LD `Course` cards。
 - `university_admissions_crawler/crawler/json_content.py`：JSON 文本格式化、JSON link 提取、保序去重 helper；提供 public helper 名称，并保留 underscored 兼容别名。
 - `university_admissions_crawler/crawler/optional_stubs.py`：crawl4ai 和 ScrapeGraphAI warning-only fetcher stub；`fetcher.py` 继续 re-export 原类名。
 - `university_admissions_crawler/classifier/`：规则页面分类器。
 - `university_admissions_crawler/extractor/`：schema、HTML/API/PDF/LLM 抽取和标准化解析。
+- `university_admissions_crawler/extractor/institution_profiles.py`：按 official registrable domain
+  选择 NUS/NTU profile，集中保存 domain-scoped programme name patterns 和 faculty aliases。
+- `university_admissions_crawler/extractor/programme_catalog.py`：保守的 HTML programme catalog parser；负责候选账本、表头映射、group/section context、误报 gate 和字段级 evidence。
 - `university_admissions_crawler/evidence/`：source/evidence helper、hash、source 文件写入、previous result 加载。
-- `university_admissions_crawler/pipeline/`：扫描主流程、batch orchestration、batch 结果合并、结果写出 helper、diff、coverage/source strategy diagnostics。
+- `university_admissions_crawler/pipeline/`：扫描编排、source capture/context、category extraction、API catalog capture/augmentation、batch/merge、结果写出、diff 和 diagnostics。
 - `university_admissions_crawler/pipeline/batch.py`：`--config` 批量扫描 orchestration；负责读取配置、计算 batch scan limits、按 university id 调用写出 helper、调用 `run_scan()`。
 - `university_admissions_crawler/pipeline/merge.py`：批量多 seed 扫描结果合并；负责合并 requirement/programme/evidence claim path。
+- `university_admissions_crawler/pipeline/programme_catalog_merge.py`：programme row 的跨来源身份匹配、
+  canonical-first replacement、补充字段 evidence 和 merge/quarantine ledger。
+- `university_admissions_crawler/pipeline/programme_detail_selection.py`：从首轮 pending/budget-skipped frontier
+  中选择与未完整目录 row 唯一匹配的详情页，并记录 catalog-family、family budget 和拒绝原因。
+- `university_admissions_crawler/pipeline/programme_catalog_completeness.py`：基于 canonical source、candidate/section
+  conservation、source acquisition 和 API pagination/filter proof 生成 fail-closed completeness 结论。
 - `university_admissions_crawler/pipeline/output_writer.py`：写出 `result.json`、`report.md`、legacy `programme_catalog.csv` 和 `structured/` 的小 helper；当前 CLI 单次扫描和 batch config 路径都已复用。
 - `university_admissions_crawler/reports/`：Markdown 报告、legacy programme catalog CSV 和 structured output 渲染。
 - `university_admissions_crawler/reports/structured_export.py`：清洗输出 export layer；只渲染 `AdmissionsData`，不改变 extractor 行为或 legacy 输出契约。
@@ -120,11 +142,13 @@ python3 -m compileall university_admissions_crawler tests
 - `pipeline.batch._scan_limits_for_config()`：集中计算 batch config 的 `max_pages` / `max_depth`，保留 university config 覆盖 CLI/smoke 默认值的现有行为。
 - `pipeline.merge.merge_data()`：合并多个 `AdmissionsData`，并重新指向合并后的 evidence claim path；`_merge_data` 仍作为兼容别名保留。
 - `pipeline.output_writer.write_result_files()`：创建输出目录并写出 `result.json`、`report.md`、legacy `programme_catalog.csv` 和 `structured/`；返回 legacy result/report 两个输出路径以保留兼容。
+- `extractor.programme_catalog.extract_programme_catalog()`：输出 evidence-backed catalog rows，并可记录每个 HTML candidate 的 accepted/rejected/context 诊断。
 - `reports.structured_export.write_structured_outputs()`：写出清洗主表和证据表；当前 `facts.jsonl` 聚合 programme catalog、第二批 requirement records 和 legacy programme rows。
-- `reports.structured_export.write_structured_batch_outputs()`：合并 batch 路径下每所学校已生成的 structured JSONL，写出 `all_programme_catalog.jsonl`、`all_missing_fields.jsonl` 和 `all_sources.jsonl`；不重新解析或改写招生事实。
+- `reports.structured_export.write_structured_batch_outputs()`：合并 batch 路径下每所学校已生成的 structured JSONL，写出 batch manifest、旧有三表和 12 类 requirement 聚合表；manifest 逐表区分 missing、present-empty 和 present-nonempty 输入，审计 row envelope、表级最小字段、同校 source/evidence 引用链、source/evidence ID 歧义和跨 record 表 ID 重复，再聚合为 `valid` / `incomplete` / `invalid` 三态 `batch_validation`。verdict 仅表示 structured artifact integrity，不表示官网信息完整；审计不丢弃、改写或去重异常行，也不改变 CLI 退出码。
 - `run_fixture_scan()` / `run_scan()`：fixture 和通用扫描主入口。
 - `pipeline.run_university_scan._default_pdf_extractor()`：默认 PDF extractor 策略；fixture fetcher 使用 `FixturePDFExtractor`，其他 fetcher 使用 `MissingPDFExtractor`，除非调用方显式传入 parser。
-- `DiscoveryConfig` / `discover()`：扫描范围配置、全局 priority frontier、sitemap/path probing、extra candidates 和 bounded discovery。
+- `DiscoveryConfig` / `discover()`：扫描范围配置、全局 priority frontier、sitemap/path probing、extra candidates、
+  programme source-family budget 和可选 pending frontier capture。
 - `DomainPolicy` / `canonicalize_url()` / `score_url()`：域名允许规则、URL 规范化、链接排序。
 - `FetchResult` / `Fetcher`：抓取结果和 fetcher protocol。
 - `FixtureFetcher` / `LiveHTTPFetcher` / `PlaywrightBrowserFetcher`：三种实际抓取实现。
@@ -136,7 +160,7 @@ python3 -m compileall university_admissions_crawler tests
 - `FixturePDFExtractor` / `MissingPDFExtractor` / `PypdfPDFExtractor`：fixture PDF、未启用 PDF parser 的 warning guard、可选真实 PDF 文本解析。
 - `validate_llm_candidates()`：只接受能匹配已有 evidence 的 LLM 候选。
 - `pipeline.source_planning`：校验 mock LLM source navigation 输出，accepted URL candidates 可作为 bounded crawl frontier hints；facts 仍必须来自抓到的官方 source 和 evidence。
-- `attach_run_diagnostics()`：写入 coverage、source strategy、classification assist summary、extraction diagnostics summary 和 missing reasons。
+- `attach_run_diagnostics()`：写入 coverage、source strategy、classification assist summary、extraction diagnostics summary、missing reasons 和 programme catalog 候选/evidence 聚合。
 - `attach_validation_warnings()` / `normalize_admissions_data()`：证据、冲突、过期、非官方来源等 warning policy。
 - `render_markdown_report()`：生成 Markdown 报告。
 
@@ -147,8 +171,8 @@ python3 -m compileall university_admissions_crawler tests
 - `pipeline/output_writer.py` 当前已被 CLI 单次扫描和 batch config 路径复用，并默认追加 `structured/` 输出。风险是未来修改该 helper 会同时影响两条输出路径，因此需要继续保留 CLI/report/structured-output 测试覆盖。
 - `pipeline/merge.py` 已提供公开 `merge_data()`，并通过测试明确 `_merge_data` 兼容别名仍等同于 `merge_data`。后续需要决定是否长期保留该别名，或在确认没有外部依赖后删除。
 - `cli.py` 和 `pipeline/batch.py` 之间仍有相似 URL/domain helper 逻辑；为避免扩大行为变更，本轮未抽公共 helper。
-- `pipeline/run_university_scan.py` 职责偏重：调度、分类分流、抽取、PDF、补抽取、diff 混在一起。
-- `pipeline/run_university_scan.py` 新增 diagnostics 插桩后可读性继续下降；当前已用 `_ExtractionDiagnosticsRecorder` 收敛重复记录，但后续不应继续把更多诊断逻辑塞进主循环。
+- `pipeline/run_university_scan.py` 已收敛为中心编排入口；source capture、captured context、category extraction、API catalog capture/augmentation 和 incremental diff 已拆成模块。后续仍应避免把新业务细节重新塞回编排文件。
+- `pipeline/category_extraction.py` 目前集中分类路由、核心补抽取和 extraction diagnostics recorder；继续扩字段时应优先拆独立 extractor/helper，并保留 route-level 回归。
 - `missing_reasons` 是当前抓取和 extractor 尝试的诊断，不是官网字段缺失证明；字段级 reason 的详细边界和后续修复循环见 `docs/keyword-crawl-design.zh.md`。
 - source filtering 对 HKU 类站点有降噪收益，但低价值文档过滤仍有少量误删风险；招生 prospectus / entry requirements / tuition fees / programme requirements PDF 反例测试需要继续保留。
 - NTU undergraduate fees 当前只能抽到官网 fee table/reference raw candidate，不是结构化金额。若要拿到具体金额，需要后续解析或抓取实际 fee table 内容。
@@ -184,16 +208,17 @@ python3 -m compileall university_admissions_crawler tests
 13. 已补 diagnostics/source filtering 与 Phase 2 字段级诊断能力：classification assist summary、source-level extraction diagnostics、field-level missing reasons、低价值 source 过滤边界测试，以及 NTU fee raw/reference 与 amount-row 解析边界测试。专题设计和执行记录见 `docs/keyword-crawl-design.zh.md`。
 14. 已将旧临时归档的 handoff、fixture smoke run 和 NUS one-off programme sample 摘要归并到 `docs/keyword-crawl-design.zh.md` 与本文件，临时归档目录不再作为项目结构保留。
 15. 已新增 `structured/` output layer：保留 legacy `result.json` / `report.md` / root `programme_catalog.csv`，同时输出 joinable sources/evidence/facts/missing/warnings/diagnostics、`records/programme_catalog.*` 和第二批 requirement/legacy programme records。
-16. 已新增 batch 级 structured 合并输出：`structured/all_programme_catalog.jsonl`、`structured/all_missing_fields.jsonl`、`structured/all_sources.jsonl`，并补充 schema migration / compatibility policy。
+16. 已新增 batch 级 structured 合并输出：根 manifest、programme catalog/missing/source 旧表和全部 12 类 requirement 聚合表，并补充 schema migration / compatibility policy。
+17. 已完成 programme catalog HTML hardening：覆盖重排/partial header、metadata columns、grouped rows、HASS-like section context、字段级 evidence、候选拒绝 ledger，以及 Markdown/structured diagnostics 输出。
+18. 已为 batch structured manifest 新增非阻断 `batch_validation`：`valid` 表示当前结构完整性校验通过，`incomplete` 表示仅有文件缺口或空输入，`invalid` 表示存在坏行、不可读索引、非法/歧义 ID 或证据断链；`invalid` 优先级最高。
 
 当前验证基线见第 2 节；本清单不再保留旧阶段测试数，避免把历史验证误读为当前结果。
 
 建议的后续顺序：
 
 1. 继续找 NTU 公开 catalog API，并补 Sitecore/Next.js/GraphQL/Algolia/ElasticSearch 等高价值 adapter。风险：MEDIUM 到 HIGH。
-2. 继续 HTML false-positive cleanup 和 NTU/HASS segment fallback。风险：MEDIUM。
-3. 评估是否把 `institution` scalar facts 纳入统一 fact envelope；如做，只做 additive schema slice。风险：MEDIUM。
-4. 继续拆 `crawler/fetcher.py`，但只做一类边界：优先考虑 PDF HTTP fallback 或 fixed/retrieved-at time helper，暂不同时拆 fixture/live/browser 类。风险：MEDIUM。
-5. 继续收敛 pipeline 边界：`pipeline/batch.py` 仍依赖 `argparse.Namespace`、`parser.error()` 和 `print()`；如需拆，应先抽 options/diagnostic 小 helper，并用 `tests/test_report_cli.py` 覆盖。风险：MEDIUM。
-6. 处理兼容出口：`crawler.fetcher.FetchResult` / `Fetcher` re-export、`crawler.fetcher._source_type_*`、`crawler.json_content._*`、`pipeline.merge._merge_data`。短期继续保留；如要删除，先 `rg` 全仓库并单独提交。风险：SAFE 到 MEDIUM。
-7. 不要一次性重写 extractor，也不要随便引入新依赖；先用 fixture-backed tests 支撑小步重构，再针对复杂 table、PDF、programme 抽取补专项能力。风险：HIGH。
+2. 评估是否把 `institution` scalar facts 纳入统一 fact envelope；如做，只做 additive schema slice。风险：MEDIUM。
+3. 继续拆 `crawler/fetcher.py`，但只做一类边界：优先考虑 PDF HTTP fallback 或 fixed/retrieved-at time helper，暂不同时拆 fixture/live/browser 类。风险：MEDIUM。
+4. 继续收敛 pipeline 边界：`pipeline/batch.py` 仍依赖 `argparse.Namespace`、`parser.error()` 和 `print()`；如需拆，应先抽 options/diagnostic 小 helper，并用 `tests/test_report_cli.py` 覆盖。风险：MEDIUM。
+5. 处理兼容出口：`crawler.fetcher.FetchResult` / `Fetcher` re-export、`crawler.fetcher._source_type_*`、`crawler.json_content._*`、`pipeline.merge._merge_data`。短期继续保留；如要删除，先 `rg` 全仓库并单独提交。风险：SAFE 到 MEDIUM。
+6. 不要一次性重写 extractor，也不要随便引入新依赖；先用 fixture-backed tests 支撑小步重构，再针对未覆盖的跨区块 table、PDF、programme 体系补专项能力。风险：HIGH。

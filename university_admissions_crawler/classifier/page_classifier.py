@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from university_admissions_crawler.crawler.admissions_context import has_english_requirement_context, has_undergraduate_admissions_context
+from university_admissions_crawler.crawler.programme_sources import classify_programme_source_role
 from university_admissions_crawler.extractor.schema import PageCategory
 
 
@@ -83,6 +84,13 @@ def classify_page(url: str, title: str | None, text: str) -> Classification:
     negative_hits = [kw for kw in NEGATIVE if kw in haystack]
     if _is_strongly_irrelevant(url_lower, title_lower, haystack, negative_hits):
         return Classification(PageCategory.IRRELEVANT, -len(negative_hits), negative_hits)
+    programme_source_role = classify_programme_source_role(url, title, text)
+    if programme_source_role.role == "canonical_catalog":
+        return Classification(
+            PageCategory.PROGRAMME_LIST,
+            4,
+            ["canonical_catalog", *programme_source_role.signals],
+        )
     if _is_contextually_irrelevant(url, title, text):
         return Classification(PageCategory.IRRELEVANT, 0, ["non-admissions-context"])
 

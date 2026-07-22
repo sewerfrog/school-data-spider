@@ -361,6 +361,18 @@ def validate_evidence_links(data: AdmissionsData) -> list[WarningRecord]:
 
 def _validate_programme_catalog_rows(data: AdmissionsData, evidence_paths: set[str]) -> list[WarningRecord]:
     warnings: list[WarningRecord] = []
+    evidence_by_path = {item.claim_path: item for item in data.evidence}
+    raw_field_evidence = data.run.config.get("programme_catalog_field_evidence")
+    field_evidence = raw_field_evidence if isinstance(raw_field_evidence, dict) else {}
+    known_row_evidence_paths = {row.evidence_path for row in data.programme_catalog if row.evidence_path}
+    if raw_field_evidence is not None and not isinstance(raw_field_evidence, dict):
+        warnings.append(
+            WarningRecord(
+                WarningCode.MISSING_EVIDENCE,
+                "Programme catalog field evidence mapping must be an object.",
+                field="/run/config/programme_catalog_field_evidence",
+            )
+        )
     for index, row in enumerate(data.programme_catalog):
         row_path = f"/programme_catalog/{index}"
         source_urls = [row.source_url] if row.source_url else []
@@ -400,6 +412,135 @@ def _validate_programme_catalog_rows(data: AdmissionsData, evidence_paths: set[s
                     source_urls=source_urls,
                 )
             )
+        row_field_evidence = field_evidence.get(row.evidence_path)
+        if row_field_evidence is None:
+            continue
+        if not isinstance(row_field_evidence, dict):
+            warnings.append(
+                WarningRecord(
+                    WarningCode.MISSING_EVIDENCE,
+                    "Programme catalog row field evidence mapping must be an object.",
+                    field=f"{row_path}/evidence_path",
+                    source_urls=source_urls,
+                )
+            )
+            continue
+        for field_name, field_claim_path in row_field_evidence.items():
+            expected_path = f"{row_path}/{field_name}"
+            if field_name not in {"category", "degree_or_award", "faculty_or_school"} or field_claim_path != expected_path:
+                warnings.append(
+                    WarningRecord(
+                        WarningCode.MISSING_EVIDENCE,
+                        "Programme catalog field evidence mapping has an unsupported field or claim path.",
+                        field=expected_path,
+                        source_urls=source_urls,
+                    )
+                )
+                continue
+            if field_claim_path not in evidence_paths:
+                warnings.append(
+                    WarningRecord(
+                        WarningCode.MISSING_EVIDENCE,
+                        "Programme catalog field evidence path has no matching evidence item.",
+                        field=field_claim_path,
+                        source_urls=source_urls,
+                    )
+                )
+                continue
+            field_evidence_item = evidence_by_path.get(field_claim_path)
+            if field_evidence_item is not None and field_evidence_item.source_url != row.source_url:
+                warnings.append(
+                    WarningRecord(
+                        WarningCode.MISSING_EVIDENCE,
+                        "Programme catalog field evidence must come from the same captured source as the row.",
+                        field=field_claim_path,
+                        source_urls=[field_evidence_item.source_url, *source_urls],
+                    )
+                )
+    for row_evidence_path in field_evidence:
+        if row_evidence_path not in known_row_evidence_paths:
+            warnings.append(
+                WarningRecord(
+                    WarningCode.MISSING_EVIDENCE,
+                    "Programme catalog field evidence mapping does not match an emitted row.",
+                    field=str(row_evidence_path),
+                )
+            )
+    warnings.extend(_validate_programme_catalog_enrichment_evidence(data, evidence_by_path))
+    return warnings
+
+
+def _validate_programme_catalog_enrichment_evidence(
+    data: AdmissionsData,
+    evidence_by_path: dict[str, EvidenceItem],
+) -> list[WarningRecord]:
+    raw_mapping = data.run.config.get("programme_catalog_enrichment_evidence")
+    if raw_mapping is None:
+        return []
+    if not isinstance(raw_mapping, dict):
+        return [
+            WarningRecord(
+                WarningCode.MISSING_EVIDENCE,
+                "Programme catalog enrichment evidence mapping must be an object.",
+                field="/run/config/programme_catalog_enrichment_evidence",
+            )
+        ]
+
+    warnings: list[WarningRecord] = []
+    rows_by_evidence_path = {row.evidence_path: index for index, row in enumerate(data.programme_catalog)}
+    captured_source_urls = {source.source_url for source in data.sources}
+    supported_fields = {
+        "admissions_choice_name",
+        "degree_or_award",
+        "duration_or_units",
+        "faculty_or_school",
+        "mode",
+        "specialisations_or_majors",
+    }
+    for row_evidence_path, raw_fields in raw_mapping.items():
+        row_index = rows_by_evidence_path.get(row_evidence_path)
+        if row_index is None or not isinstance(raw_fields, dict):
+            warnings.append(
+                WarningRecord(
+                    WarningCode.MISSING_EVIDENCE,
+                    "Programme catalog enrichment mapping does not match an emitted row.",
+                    field=str(row_evidence_path),
+                )
+            )
+            continue
+        for field_name, raw_entry in raw_fields.items():
+            expected_path = f"/programme_catalog/{row_index}/{field_name}"
+            if field_name not in supported_fields or not isinstance(raw_entry, dict):
+                warnings.append(
+                    WarningRecord(
+                        WarningCode.MISSING_EVIDENCE,
+                        "Programme catalog enrichment evidence has an unsupported field or malformed entry.",
+                        field=expected_path,
+                    )
+                )
+                continue
+            claim_path = raw_entry.get("claim_path")
+            source_url = raw_entry.get("source_url")
+            evidence = evidence_by_path.get(claim_path) if isinstance(claim_path, str) else None
+            if claim_path != expected_path or not isinstance(source_url, str) or source_url not in captured_source_urls:
+                warnings.append(
+                    WarningRecord(
+                        WarningCode.MISSING_EVIDENCE,
+                        "Programme catalog enrichment evidence must reference a captured source and the enriched field path.",
+                        field=expected_path,
+                        source_urls=[source_url] if isinstance(source_url, str) else [],
+                    )
+                )
+                continue
+            if evidence is None or evidence.source_url != source_url:
+                warnings.append(
+                    WarningRecord(
+                        WarningCode.MISSING_EVIDENCE,
+                        "Programme catalog enrichment field has no matching evidence item from its captured source.",
+                        field=expected_path,
+                        source_urls=[source_url],
+                    )
+                )
     return warnings
 
 

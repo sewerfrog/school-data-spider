@@ -22,7 +22,6 @@ from university_admissions_crawler.extractor.schema import (
     Confidence,
     FieldValue,
     PageCategory,
-    ProgrammeCatalogRecord,
     RequirementRecord,
     SourceRecord,
 )
@@ -46,7 +45,7 @@ def attach_llm_structured_extraction_diagnostics(
             "triggered": bool(trigger_reasons),
             "trigger_reasons": trigger_reasons,
             "applied_to_facts": False,
-            "note": "LLM structured extraction fallback writes only validated candidates into missing fields; rejected or skipped candidates remain diagnostics.",
+            "note": "LLM structured extraction fallback writes only validated candidates that also pass target-specific gates; rejected or skipped candidates remain diagnostics.",
         }
     )
     if not trigger_reasons:
@@ -129,7 +128,7 @@ def attach_llm_structured_extraction_diagnostics(
     diagnostic["applied_to_facts"] = applied_count > 0
     diagnostic["applied_count"] = applied_count
     diagnostic["write_status_counts"] = dict(sorted(write_status_counts.items()))
-    diagnostic["note"] = "LLM structured extraction fallback writes only validated candidates into missing fields; rejected or skipped candidates remain diagnostics."
+    diagnostic["note"] = "LLM structured extraction fallback writes only validated candidates that also pass target-specific gates; rejected or skipped candidates remain diagnostics."
     data.run.config["llm_structured_extraction"] = diagnostic
     if applied_count:
         refresh_run_diagnostics(data)
@@ -177,19 +176,24 @@ def _apply_llm_structured_candidate(
     if candidate.claim_path == "programme_catalog[].name":
         if _has_programme_catalog_name(data.programme_catalog, candidate.value):
             return _llm_write_result(write_status="duplicate_value", applied=False)
-        evidence_path = f"/programme_catalog/{len(data.programme_catalog)}/name"
-        data.programme_catalog.append(
-            ProgrammeCatalogRecord(
-                name=candidate.value,
-                source_url=candidate.source_url,
-                evidence_snippet=candidate.evidence_snippet,
-                evidence_path=evidence_path,
-                evidence_confidence=_llm_confidence(candidate.confidence),
-                parse_status="llm_fallback_validated",
-            )
+        data.run.config.setdefault("programme_catalog_candidate_diagnostics", []).append(
+            {
+                "source_url": candidate.source_url,
+                "source_title": source.title,
+                "candidate_text": candidate.evidence_snippet,
+                "decision": "rejected",
+                "reason": "llm_candidate_without_structural_anchor",
+                "parser_stage": "entity_gate",
+                "candidate_shape": "llm_candidate",
+                "block_kind": "llm_candidate",
+                "parser_branch": "llm_structured_fallback",
+                "source_role": "unclassified",
+                "name": candidate.value,
+                "name_quality_passed": True,
+                "institution_consistent": True,
+            }
         )
-        data.evidence.append(_llm_evidence(candidate, source, evidence_path))
-        return _llm_write_result(write_status="applied", applied=True, evidence_path=evidence_path)
+        return _llm_write_result(write_status="entity_gate_required", applied=False)
 
     return _llm_write_result(write_status="unsupported_claim_path_for_write", applied=False)
 

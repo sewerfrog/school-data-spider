@@ -1,0 +1,9 @@
+Undergraduate Programme Catalogue
+Study Mode | Programme | Majors / Tracks | Award | School
+Full-time | Data Science and Artificial Intelligence | Machine Learning; Business Analytics | Bachelor of Science (Honours) | School of Computing
+Full-time | Public Policy and Global Affairs | Public Administration; International Relations | Bachelor of Social Sciences (Hons) | School of Social Sciences
+Full-time | Cybersecurity | | Bachelor of Computing (Honours) | School of Computing
+Programme | Programme Type | Study Mode | Faculty
+Architecture | Degree Programme | Full-time | College of Design and Engineering
+Economics | Major | Full-time | College of Humanities and Social Sciences
+Global Studies | Minor | Full-time | College of Humanities and Social Sciences

@@ -175,6 +175,115 @@ def test_programme_catalog_record_requires_row_level_provenance():
     assert "evidence_path" in missing[0].message
 
 
+def test_programme_catalog_inherited_field_mapping_requires_matching_evidence():
+    data = make_data()
+    claim_path = "/programme_catalog/0/name"
+    field_claim_path = "/programme_catalog/0/faculty_or_school"
+    data.programme_catalog.append(
+        ProgrammeCatalogRecord(
+            name="Data Science",
+            faculty_or_school="School of Computing",
+            degree_or_award="Bachelor of Computing",
+            category="degree_programme",
+            source_url=data.sources[0].source_url,
+            evidence_snippet="Data Science | Full-time",
+            evidence_path=claim_path,
+        )
+    )
+    data.evidence.append(
+        evidence_from_source(
+            claim_path=claim_path,
+            source=data.sources[0],
+            snippet="Data Science | Full-time",
+        )
+    )
+    data.run.config["programme_catalog_field_evidence"] = {
+        claim_path: {"faculty_or_school": field_claim_path}
+    }
+
+    attach_validation_warnings(data)
+
+    missing = [warning for warning in data.warnings if warning.code == WarningCode.MISSING_EVIDENCE]
+    assert any(warning.field == field_claim_path and "no matching evidence item" in warning.message for warning in missing)
+
+
+def test_programme_catalog_inherited_field_mapping_accepts_matching_evidence():
+    data = make_data()
+    claim_path = "/programme_catalog/0/name"
+    field_claim_path = "/programme_catalog/0/faculty_or_school"
+    data.programme_catalog.append(
+        ProgrammeCatalogRecord(
+            name="Data Science",
+            faculty_or_school="School of Computing",
+            degree_or_award="Bachelor of Computing",
+            category="degree_programme",
+            source_url=data.sources[0].source_url,
+            evidence_snippet="Data Science | Full-time",
+            evidence_path=claim_path,
+        )
+    )
+    data.evidence.extend(
+        [
+            evidence_from_source(claim_path=claim_path, source=data.sources[0], snippet="Data Science | Full-time"),
+            evidence_from_source(
+                claim_path=field_claim_path,
+                source=data.sources[0],
+                snippet="School of Computing | Bachelor of Computing",
+            ),
+        ]
+    )
+    data.run.config["programme_catalog_field_evidence"] = {
+        claim_path: {"faculty_or_school": field_claim_path}
+    }
+
+    attach_validation_warnings(data)
+
+    assert not [
+        warning
+        for warning in data.warnings
+        if warning.code == WarningCode.MISSING_EVIDENCE and warning.field == field_claim_path
+    ]
+
+
+def test_programme_catalog_inherited_field_evidence_requires_same_source():
+    data = make_data()
+    claim_path = "/programme_catalog/0/name"
+    field_claim_path = "/programme_catalog/0/faculty_or_school"
+    other_source = source_from_text(
+        source_url="https://example.edu/other-page",
+        title="Other page",
+        text="School of Computing",
+    )
+    data.sources.append(other_source)
+    data.programme_catalog.append(
+        ProgrammeCatalogRecord(
+            name="Data Science",
+            faculty_or_school="School of Computing",
+            source_url=data.sources[0].source_url,
+            evidence_snippet="Data Science | Full-time",
+            evidence_path=claim_path,
+        )
+    )
+    data.evidence.extend(
+        [
+            evidence_from_source(claim_path=claim_path, source=data.sources[0], snippet="Data Science | Full-time"),
+            evidence_from_source(claim_path=field_claim_path, source=other_source, snippet="School of Computing"),
+        ]
+    )
+    data.run.config["programme_catalog_field_evidence"] = {
+        claim_path: {"faculty_or_school": field_claim_path}
+    }
+
+    attach_validation_warnings(data)
+
+    assert any(
+        warning.code == WarningCode.MISSING_EVIDENCE
+        and warning.field == field_claim_path
+        and "same captured source" in warning.message
+        for warning in data.warnings
+    )
+
+
 def test_validate_llm_candidate_fact_accepts_grounded_captured_candidate():
     source = source_from_text(
         source_url="https://example.edu/admissions/fees",

@@ -40,6 +40,7 @@ def test_fixture_fetcher_pdf_source_type_and_no_links():
     assert result.ok
     assert result.source.source_type == SourceType.PDF
     assert result.links == []
+    assert result.content_blocks == ()
 
 
 def test_crawl4ai_stub_satisfies_contract_without_optional_dependency():
@@ -84,7 +85,7 @@ def test_fixture_fetcher_html_text_prefers_main_content_and_removes_navigation_n
 
 
 def test_live_http_fetcher_fetches_local_html():
-    html = b"<title>Live Mini</title><a href='/admissions.html'>Admissions</a>"
+    html = b"<title>Live Mini</title><main><h1>Live Mini</h1><p><a href='/admissions.html'>Admissions</a></p></main>"
     with patch("university_admissions_crawler.crawler.fetcher.urlopen", return_value=_FakeHTTPResponse(html, "https://example.edu/")):
         result = LiveHTTPFetcher(timeout_seconds=5).fetch("https://example.edu/")
     assert_fetch_contract(result)
@@ -92,6 +93,10 @@ def test_live_http_fetcher_fetches_local_html():
     assert result.engine == "live-http"
     assert result.title == "Live Mini"
     assert result.links == ["https://example.edu/admissions.html"]
+    assert [(block.kind, block.text) for block in result.content_blocks] == [
+        ("heading", "Live Mini"),
+        ("paragraph", "Admissions"),
+    ]
 
 
 def test_live_http_fetcher_fetches_json_source():
@@ -101,6 +106,7 @@ def test_live_http_fetcher_fetches_json_source():
     assert_fetch_contract(result)
     assert result.source.source_type == SourceType.JSON
     assert result.links == ["https://example.edu/programmes/science.html"]
+    assert result.content_blocks == ()
 
 
 def test_live_http_fetcher_keeps_sitemap_xml_text_parseable():

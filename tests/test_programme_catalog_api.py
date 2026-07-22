@@ -41,7 +41,8 @@ def test_extract_programme_catalog_api_maps_public_json_rows_to_catalog_csv():
         sources=[source],
     )
 
-    rows = extract_programme_catalog_api(text, source)
+    candidate_diagnostics: list[dict[str, object]] = []
+    rows = extract_programme_catalog_api(text, source, candidate_diagnostics=candidate_diagnostics)
     for row, evidence in rows:
         data.programme_catalog.append(row)
         data.evidence.extend(evidence)
@@ -53,6 +54,7 @@ def test_extract_programme_catalog_api_maps_public_json_rows_to_catalog_csv():
             **programme_catalog_api_diagnostics(text, accepted_row_count=len(rows)),
         }
     ]
+    data.run.config["programme_catalog_candidate_diagnostics"] = candidate_diagnostics
 
     attach_run_diagnostics(data)
 
@@ -69,6 +71,11 @@ def test_extract_programme_catalog_api_maps_public_json_rows_to_catalog_csv():
     assert data.run.config["programme_catalog_summary"]["api_total_count"] == 2
     assert data.run.config["programme_catalog_summary"]["api_pagination_complete"] is True
     assert data.run.config["programme_catalog_summary"]["api_to_csv_ratio"] == 1.0
+    assert data.run.config["programme_catalog_summary"]["accepted_source_role_counts"] == {"canonical_catalog": 2}
+    assert data.run.config["programme_catalog_summary"]["accepted_structural_anchor_counts"] == {
+        "api_programme_name_field": 2
+    }
+    assert data.run.config["programme_catalog_summary"]["accepted_without_structural_anchor_count"] == 0
 
     csv_text = render_programme_catalog_csv(data)
     assert "programme_id,name,faculty_or_school" in csv_text
@@ -102,3 +109,35 @@ def test_programme_catalog_api_diagnostics_marks_total_count_gap():
     assert diagnostics["api_total_count"] == 3
     assert diagnostics["api_pagination_complete"] is False
     assert diagnostics["api_pagination_incomplete"] is True
+
+
+def test_programme_catalog_api_quarantines_name_only_ambiguous_object():
+    text = json.dumps({"items": [{"programmeName": "Computer Science"}]})
+    source = source_from_text(
+        source_url="https://example.edu/api/programmes",
+        source_type=SourceType.JSON,
+        text=text,
+    )
+    candidate_diagnostics: list[dict[str, object]] = []
+
+    rows = extract_programme_catalog_api(text, source, candidate_diagnostics=candidate_diagnostics)
+
+    assert rows == []
+    assert candidate_diagnostics == [
+        {
+            "source_url": "https://example.edu/api/programmes",
+            "source_title": None,
+            "candidate_text": '{"programmeName":"Computer Science"}',
+            "decision": "rejected",
+            "reason": "ambiguous_api_programme_entity",
+            "parser_stage": "api_entity_gate",
+            "candidate_shape": "json_object",
+            "block_kind": "json_object",
+            "parser_branch": "json_object",
+            "source_role": "canonical_catalog",
+            "structural_anchor": "api_programme_name_field",
+            "name_quality_passed": False,
+            "institution_consistent": True,
+            "name": "Computer Science",
+        }
+    ]

@@ -7,7 +7,15 @@ from dataclasses import dataclass
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from university_admissions_crawler.crawler.filters import looks_like_blocked_or_challenge_source
-from university_admissions_crawler.extractor.schema import AdmissionsData, PageCategory, SourceType, WarningCode, WarningRecord
+from university_admissions_crawler.extractor.schema import (
+    AdmissionsData,
+    PageCategory,
+    ProgrammeCatalogRecord,
+    SourceType,
+    WarningCode,
+    WarningRecord,
+)
+from university_admissions_crawler.pipeline.programme_catalog_completeness import evaluate_programme_catalog_completeness
 
 
 MISSING_REASON_CODES: tuple[str, ...] = (
@@ -42,6 +50,21 @@ MISSING_REASON_ACTION_TARGETS = {
     "portal_or_login_required": "portal_or_manual_review",
     "manual_check_required": "manual_review",
 }
+
+HTML_FALSE_POSITIVE_REJECTION_REASONS = frozenset(
+    {
+        "admissions_explainer",
+        "course_or_curriculum_row",
+        "course_table_row",
+        "css_or_template_text",
+        "longform_prose",
+        "non_catalog_container",
+        "related_programme_container",
+        "sentence_like_name",
+        "second_major_explainer",
+        "unanchored_degree_mention",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -205,10 +228,12 @@ def refresh_run_diagnostics(data: AdmissionsData) -> AdmissionsData:
     coverage = _coverage(data)
     source_strategy = data.run.config.get("source_strategy", [])
     summary = Counter(item.get("strategy", "unknown") for item in source_strategy if isinstance(item, dict))
+    source_role_summary = Counter(item.get("source_role", "unrelated") for item in source_strategy if isinstance(item, dict))
     extraction_diagnostics = data.run.config.get("extraction_diagnostics")
     data.run.config["coverage"] = coverage
     data.run.config["field_capability_matrix"] = _field_capability_matrix()
     data.run.config["source_strategy_summary"] = dict(sorted(summary.items()))
+    data.run.config["programme_source_role_summary"] = dict(sorted(source_role_summary.items()))
     data.run.config["programme_catalog_summary"] = _programme_catalog_summary(data, extraction_diagnostics, source_strategy)
     classification_assist = data.run.config.get("classification_assist")
     if isinstance(classification_assist, list):
@@ -425,6 +450,8 @@ def _programme_catalog_summary(data: AdmissionsData, extraction_entries: object 
     duplicate_count = sum(item["count"] - 1 for item in duplicate_names)
     source_urls = sorted(sources)
     candidate_source_urls = _programme_catalog_candidate_source_urls(data, extraction_entries, source_strategy)
+    candidate_diagnostic_summary = _programme_catalog_candidate_diagnostic_summary(data)
+    accepted_quality_summary = _programme_catalog_accepted_quality_summary(data)
     crawled_catalog_source_urls = sorted(set(candidate_source_urls) & {source.source_url for source in data.sources})
     source_status_counts = _programme_catalog_source_status_counts(candidate_source_urls, extraction_entries, source_strategy)
     catalog_source_family_counts = _source_family_counts(candidate_source_urls)
@@ -439,9 +466,18 @@ def _programme_catalog_summary(data: AdmissionsData, extraction_entries: object 
         candidate_source_count=len(candidate_source_urls),
         accepted_row_count=len(rows),
     )
-    low_row_yield = _programme_catalog_low_row_yield(
+    quality_adjusted_accepted_row_count = int(accepted_quality_summary["quality_adjusted_accepted_row_count"])
+    quality_adjusted_accepted_to_candidate_source_ratio = _programme_catalog_source_ratio(
+        candidate_source_count=len(candidate_source_urls),
+        accepted_row_count=quality_adjusted_accepted_row_count,
+    )
+    raw_low_row_yield = _programme_catalog_low_row_yield(
         candidate_source_count=len(candidate_source_urls),
         accepted_row_count=len(rows),
+    )
+    low_row_yield = _programme_catalog_low_row_yield(
+        candidate_source_count=len(candidate_source_urls),
+        accepted_row_count=quality_adjusted_accepted_row_count,
     )
     probable_incomplete_catalog = _probable_incomplete_catalog(
         candidate_source_count=len(candidate_source_urls),
@@ -450,6 +486,17 @@ def _programme_catalog_summary(data: AdmissionsData, extraction_entries: object 
         source_status_counts=source_status_counts,
         low_row_yield=low_row_yield,
     ) or bool(api_summary.get("api_pagination_incomplete", False))
+    completeness = evaluate_programme_catalog_completeness(
+        data,
+        candidate_source_urls=candidate_source_urls,
+        source_status_counts=source_status_counts,
+        candidate_diagnostic_summary=candidate_diagnostic_summary,
+        api_summary=api_summary,
+        accepted_row_count=len(rows),
+        manual_review_count=manual_review_count,
+        low_row_yield=low_row_yield,
+    )
+    probable_incomplete_catalog = probable_incomplete_catalog or not bool(completeness["catalog_complete"])
     api_candidate_zero_reason = _api_candidate_zero_reason(
         data,
         candidate_source_count=len(candidate_source_urls),
@@ -466,7 +513,10 @@ def _programme_catalog_summary(data: AdmissionsData, extraction_entries: object 
         "accepted_row_count": len(rows),
         "raw_needs_review_count": raw_needs_review_count,
         "accepted_to_candidate_source_ratio": accepted_to_candidate_source_ratio,
+        "quality_adjusted_accepted_to_candidate_source_ratio": quality_adjusted_accepted_to_candidate_source_ratio,
+        "raw_low_row_yield": raw_low_row_yield,
         "low_row_yield": low_row_yield,
+        **accepted_quality_summary,
         "source_status_counts": dict(sorted(source_status_counts.items())),
         "catalog_source_family_counts": dict(sorted(catalog_source_family_counts.items())),
         "accepted_source_family_counts": dict(sorted(accepted_source_family_counts.items())),
@@ -474,8 +524,33 @@ def _programme_catalog_summary(data: AdmissionsData, extraction_entries: object 
         "source_family_bias_reason": source_family_bias["source_family_bias_reason"],
         "dominant_source_family": source_family_bias["dominant_source_family"],
         "false_positive_rejected_count": false_positive_rejected_count,
+        "candidate_diagnostic_count": candidate_diagnostic_summary["candidate_diagnostic_count"],
+        "candidate_decision_counts": candidate_diagnostic_summary["candidate_decision_counts"],
+        "candidate_rejected_count": candidate_diagnostic_summary["candidate_rejected_count"],
+        "candidate_context_count": candidate_diagnostic_summary["candidate_context_count"],
+        "candidate_context_reason_counts": candidate_diagnostic_summary["candidate_context_reason_counts"],
+        "candidate_rejection_reasons": candidate_diagnostic_summary["candidate_rejection_reasons"],
+        "html_false_positive_rejected_count": candidate_diagnostic_summary["html_false_positive_rejected_count"],
+        "candidate_shape_counts": candidate_diagnostic_summary["candidate_shape_counts"],
+        "accepted_candidate_shape_counts": candidate_diagnostic_summary["accepted_candidate_shape_counts"],
+        "candidate_block_kind_counts": candidate_diagnostic_summary["candidate_block_kind_counts"],
+        "accepted_source_role_counts": candidate_diagnostic_summary["accepted_source_role_counts"],
+        "accepted_structural_anchor_counts": candidate_diagnostic_summary["accepted_structural_anchor_counts"],
+        "entity_gate_rejected_count": candidate_diagnostic_summary["entity_gate_rejected_count"],
+        "accepted_without_structural_anchor_count": candidate_diagnostic_summary["accepted_without_structural_anchor_count"],
+        "institution_context_mismatch_count": candidate_diagnostic_summary["institution_context_mismatch_count"],
+        "candidate_manual_review_count": candidate_diagnostic_summary["candidate_manual_review_count"],
+        "section_context_captured_count": candidate_diagnostic_summary["section_context_captured_count"],
+        "section_context_inherited_count": candidate_diagnostic_summary["section_context_inherited_count"],
+        "group_context_captured_count": candidate_diagnostic_summary["group_context_captured_count"],
+        "group_context_inherited_count": candidate_diagnostic_summary["group_context_inherited_count"],
+        "field_evidence_row_count": candidate_diagnostic_summary["field_evidence_row_count"],
+        "field_evidence_path_count": candidate_diagnostic_summary["field_evidence_path_count"],
+        "field_evidence_field_counts": candidate_diagnostic_summary["field_evidence_field_counts"],
+        "ignored_metadata_header_counts": candidate_diagnostic_summary["ignored_metadata_header_counts"],
         "api_candidate_zero_reason": api_candidate_zero_reason,
         "probable_incomplete_catalog": probable_incomplete_catalog,
+        **completeness,
         **api_summary,
         "recommended_next_action": _programme_catalog_next_action(
             candidate_source_count=len(candidate_source_urls),
@@ -489,6 +564,7 @@ def _programme_catalog_summary(data: AdmissionsData, extraction_entries: object 
             api_candidate_zero_reason=api_candidate_zero_reason,
             source_family_bias=bool(source_family_bias["source_family_bias"]),
             false_positive_rejected_count=false_positive_rejected_count,
+            completeness_failure_reasons=list(completeness["catalog_completeness_failure_reasons"]),
         ),
         "duplicate_count": duplicate_count,
         "duplicate_names": duplicate_names,
@@ -501,6 +577,170 @@ def _programme_catalog_summary(data: AdmissionsData, extraction_entries: object 
         "warning_count": warning_count,
         "note": "Programme catalog diagnostics summarize extracted catalog rows only; rejected candidate rows are not persisted as admissions facts.",
     }
+
+
+def _programme_catalog_candidate_diagnostic_summary(data: AdmissionsData) -> dict[str, object]:
+    raw_entries = data.run.config.get("programme_catalog_candidate_diagnostics")
+    entries = [item for item in raw_entries if isinstance(item, dict)] if isinstance(raw_entries, list) else []
+    decision_counts = Counter(str(item.get("decision", "unknown")) for item in entries)
+    rejection_reasons = Counter(
+        str(item.get("reason", "unknown"))
+        for item in entries
+        if item.get("decision") == "rejected"
+    )
+    context_reasons = Counter(
+        str(item.get("reason", "unknown"))
+        for item in entries
+        if item.get("decision") == "context"
+    )
+    shape_counts = Counter(str(item.get("candidate_shape", "unknown")) for item in entries)
+    accepted_shape_counts = Counter(
+        str(item.get("candidate_shape", "unknown"))
+        for item in entries
+        if item.get("decision") == "accepted"
+    )
+    block_kind_counts = Counter(str(item.get("block_kind", "unknown")) for item in entries)
+    accepted_source_roles = Counter(
+        str(item.get("source_role", "unknown"))
+        for item in entries
+        if item.get("decision") == "accepted"
+    )
+    accepted_structural_anchors = Counter(
+        str(item.get("structural_anchor", "missing"))
+        for item in entries
+        if item.get("decision") == "accepted"
+    )
+    ignored_metadata_header_counts: Counter[str] = Counter()
+    for item in entries:
+        headers = item.get("ignored_metadata_headers")
+        if isinstance(headers, list):
+            ignored_metadata_header_counts.update(str(header) for header in headers if header)
+    raw_field_evidence = data.run.config.get("programme_catalog_field_evidence")
+    field_evidence_mappings: list[dict[str, str]] = []
+    if isinstance(raw_field_evidence, dict):
+        for raw_mapping in raw_field_evidence.values():
+            if not isinstance(raw_mapping, dict):
+                continue
+            mapping = {
+                field_name: claim_path
+                for field_name, claim_path in raw_mapping.items()
+                if isinstance(field_name, str) and isinstance(claim_path, str)
+            }
+            if mapping:
+                field_evidence_mappings.append(mapping)
+    field_evidence_field_counts: Counter[str] = Counter()
+    for mapping in field_evidence_mappings:
+        field_evidence_field_counts.update(mapping.keys())
+    return {
+        "candidate_diagnostic_count": len(entries),
+        "candidate_decision_counts": dict(sorted(decision_counts.items())),
+        "candidate_rejected_count": decision_counts.get("rejected", 0),
+        "candidate_context_count": decision_counts.get("context", 0),
+        "candidate_context_reason_counts": dict(sorted(context_reasons.items())),
+        "candidate_rejection_reasons": dict(sorted(rejection_reasons.items())),
+        "html_false_positive_rejected_count": sum(
+            count
+            for reason, count in rejection_reasons.items()
+            if reason in HTML_FALSE_POSITIVE_REJECTION_REASONS
+        ),
+        "candidate_shape_counts": dict(sorted(shape_counts.items())),
+        "accepted_candidate_shape_counts": dict(sorted(accepted_shape_counts.items())),
+        "candidate_block_kind_counts": dict(sorted(block_kind_counts.items())),
+        "accepted_source_role_counts": dict(sorted(accepted_source_roles.items())),
+        "accepted_structural_anchor_counts": dict(sorted(accepted_structural_anchors.items())),
+        "entity_gate_rejected_count": sum(
+            1
+            for item in entries
+            if item.get("decision") == "rejected" and item.get("parser_stage") in {"entity_gate", "api_entity_gate"}
+        ),
+        "accepted_without_structural_anchor_count": accepted_structural_anchors.get("missing", 0),
+        "institution_context_mismatch_count": rejection_reasons.get("institution_context_mismatch", 0),
+        "candidate_manual_review_count": sum(
+            1
+            for item in entries
+            if item.get("decision") == "accepted" and item.get("reason") == "accepted_manual_review"
+        ),
+        "section_context_captured_count": context_reasons.get("section_context_captured", 0),
+        "section_context_inherited_count": sum(
+            1
+            for item in entries
+            if item.get("decision") == "accepted" and isinstance(item.get("section_context_fields"), list) and item["section_context_fields"]
+        ),
+        "group_context_captured_count": context_reasons.get("group_context_captured", 0),
+        "group_context_inherited_count": sum(
+            1
+            for item in entries
+            if item.get("decision") == "accepted" and isinstance(item.get("inherited_context_fields"), list) and item["inherited_context_fields"]
+        ),
+        "field_evidence_row_count": len(field_evidence_mappings),
+        "field_evidence_path_count": sum(field_evidence_field_counts.values()),
+        "field_evidence_field_counts": dict(sorted(field_evidence_field_counts.items())),
+        "ignored_metadata_header_counts": dict(sorted(ignored_metadata_header_counts.items())),
+    }
+
+
+def _programme_catalog_accepted_quality_summary(data: AdmissionsData) -> dict[str, object]:
+    raw_entries = data.run.config.get("programme_catalog_candidate_diagnostics")
+    entries = [item for item in raw_entries if isinstance(item, dict)] if isinstance(raw_entries, list) else []
+    accepted_entries = [item for item in entries if item.get("decision") == "accepted"]
+    if not accepted_entries:
+        return {
+            "quality_adjustment_applied": False,
+            "quality_adjusted_accepted_row_count": len(data.programme_catalog),
+            "quality_excluded_accepted_row_count": 0,
+            "quality_exclusion_reason_counts": {},
+        }
+
+    entries_by_claim_path: dict[str, list[dict[str, object]]] = {}
+    for item in accepted_entries:
+        claim_path = item.get("claim_path")
+        if isinstance(claim_path, str):
+            entries_by_claim_path.setdefault(claim_path, []).append(item)
+
+    quality_count = 0
+    exclusion_reasons: Counter[str] = Counter()
+    for row in data.programme_catalog:
+        candidates = entries_by_claim_path.get(row.evidence_path, [])
+        if not candidates:
+            exclusion_reasons["missing_accepted_candidate_ledger"] += 1
+            continue
+        reasons = [_accepted_candidate_quality_exclusion_reason(item) for item in candidates]
+        if not any(reason is None for reason in reasons):
+            exclusion_reasons[str(reasons[0])] += 1
+            continue
+        row_reason = _programme_row_quality_exclusion_reason(row)
+        if row_reason is not None:
+            exclusion_reasons[row_reason] += 1
+            continue
+        quality_count += 1
+
+    return {
+        "quality_adjustment_applied": True,
+        "quality_adjusted_accepted_row_count": quality_count,
+        "quality_excluded_accepted_row_count": len(data.programme_catalog) - quality_count,
+        "quality_exclusion_reason_counts": dict(sorted(exclusion_reasons.items())),
+    }
+
+
+def _accepted_candidate_quality_exclusion_reason(item: dict[str, object]) -> str | None:
+    structural_anchor = item.get("structural_anchor")
+    if not isinstance(structural_anchor, str) or not structural_anchor.strip() or structural_anchor == "missing":
+        return "missing_structural_anchor"
+    if item.get("name_quality_passed") is False:
+        return "name_quality_failed"
+    if item.get("institution_consistent") is False:
+        return "institution_context_mismatch"
+    if item.get("reason") == "accepted_manual_review":
+        return "accepted_manual_review"
+    return None
+
+
+def _programme_row_quality_exclusion_reason(row: ProgrammeCatalogRecord) -> str | None:
+    if row.parse_status != "parsed":
+        return "raw_needs_manual_review"
+    if any(warning.code == WarningCode.NEEDS_MANUAL_CHECK for warning in row.warnings):
+        return "needs_manual_check_warning"
+    return None
 
 
 def _template_completeness(
@@ -568,6 +808,13 @@ def _template_completeness(
             "accepted_row_count": programme_summary.get("accepted_row_count", programme_summary.get("accepted_count", 0)),
             "raw_needs_review_count": programme_summary.get("raw_needs_review_count", 0),
             "accepted_to_candidate_source_ratio": programme_summary.get("accepted_to_candidate_source_ratio"),
+            "quality_adjustment_applied": programme_summary.get("quality_adjustment_applied", False),
+            "quality_adjusted_accepted_row_count": programme_summary.get("quality_adjusted_accepted_row_count", 0),
+            "quality_excluded_accepted_row_count": programme_summary.get("quality_excluded_accepted_row_count", 0),
+            "quality_exclusion_reason_counts": programme_summary.get("quality_exclusion_reason_counts", {}),
+            "quality_adjusted_accepted_to_candidate_source_ratio": programme_summary.get(
+                "quality_adjusted_accepted_to_candidate_source_ratio"
+            ),
             "api_catalog_candidate_count": programme_summary.get("api_catalog_candidate_count", 0),
             "api_response_count": programme_summary.get("api_response_count", 0),
             "api_page_count": programme_summary.get("api_page_count", 0),
@@ -590,8 +837,33 @@ def _template_completeness(
             "accepted_source_family_counts": programme_summary.get("accepted_source_family_counts", {}),
             "source_family_bias": programme_summary.get("source_family_bias", False),
             "false_positive_rejected_count": programme_summary.get("false_positive_rejected_count", 0),
+            "candidate_diagnostic_count": programme_summary.get("candidate_diagnostic_count", 0),
+            "candidate_decision_counts": programme_summary.get("candidate_decision_counts", {}),
+            "candidate_rejected_count": programme_summary.get("candidate_rejected_count", 0),
+            "candidate_context_count": programme_summary.get("candidate_context_count", 0),
+            "candidate_context_reason_counts": programme_summary.get("candidate_context_reason_counts", {}),
+            "candidate_rejection_reasons": programme_summary.get("candidate_rejection_reasons", {}),
+            "html_false_positive_rejected_count": programme_summary.get("html_false_positive_rejected_count", 0),
+            "candidate_shape_counts": programme_summary.get("candidate_shape_counts", {}),
+            "accepted_candidate_shape_counts": programme_summary.get("accepted_candidate_shape_counts", {}),
+            "candidate_block_kind_counts": programme_summary.get("candidate_block_kind_counts", {}),
+            "accepted_source_role_counts": programme_summary.get("accepted_source_role_counts", {}),
+            "accepted_structural_anchor_counts": programme_summary.get("accepted_structural_anchor_counts", {}),
+            "entity_gate_rejected_count": programme_summary.get("entity_gate_rejected_count", 0),
+            "accepted_without_structural_anchor_count": programme_summary.get("accepted_without_structural_anchor_count", 0),
+            "institution_context_mismatch_count": programme_summary.get("institution_context_mismatch_count", 0),
+            "candidate_manual_review_count": programme_summary.get("candidate_manual_review_count", 0),
+            "section_context_captured_count": programme_summary.get("section_context_captured_count", 0),
+            "section_context_inherited_count": programme_summary.get("section_context_inherited_count", 0),
+            "group_context_captured_count": programme_summary.get("group_context_captured_count", 0),
+            "group_context_inherited_count": programme_summary.get("group_context_inherited_count", 0),
+            "field_evidence_row_count": programme_summary.get("field_evidence_row_count", 0),
+            "field_evidence_path_count": programme_summary.get("field_evidence_path_count", 0),
+            "field_evidence_field_counts": programme_summary.get("field_evidence_field_counts", {}),
+            "ignored_metadata_header_counts": programme_summary.get("ignored_metadata_header_counts", {}),
             "html_fallback_used": programme_summary.get("html_fallback_used", False),
             "api_to_csv_ratio": programme_summary.get("api_to_csv_ratio"),
+            "raw_low_row_yield": programme_summary.get("raw_low_row_yield", False),
             "low_row_yield": programme_summary.get("low_row_yield", False),
             "source_status_counts": programme_summary.get("source_status_counts", {}),
             "probable_incomplete_catalog": programme_summary.get("probable_incomplete_catalog", False),
@@ -644,13 +916,15 @@ def _programme_catalog_api_summary(data: AdmissionsData) -> dict[str, object]:
     known_total_values = [value for value in known_total_values if value is not None]
     api_total_count = sum(known_total_values) if known_total_values else None
     page_count = sum(_int_or_zero(group.get("api_page_count")) for group in groups.values())
-    incomplete = any(_api_group_incomplete(group) for group in groups.values())
-    complete = bool(groups) and not incomplete and all(_api_group_complete(group) for group in groups.values())
+    proof_groups = [group for group in groups.values() if _api_group_has_catalog_evidence(group)]
+    incomplete = any(_api_group_incomplete(group) for group in proof_groups)
+    complete = bool(proof_groups) and not incomplete and all(_api_group_complete(group) for group in proof_groups)
     html_fallback_used = bool(data.programme_catalog) and any(row.source_url not in api_urls for row in data.programme_catalog)
     api_to_csv_ratio = round(accepted_row_count / len(data.programme_catalog), 3) if data.programme_catalog else None
     return {
         "api_catalog_candidate_count": candidate_object_count,
         "api_response_count": len(entries),
+        "api_catalog_proof_group_count": len(proof_groups),
         "api_page_count": page_count,
         "api_accepted_row_count": accepted_row_count,
         "api_rejected_row_count": rejected_row_count,
@@ -724,6 +998,16 @@ def _api_group_incomplete(group: dict[str, object]) -> bool:
     return bool(group.get("entry_incomplete")) and not bool(group.get("complete_flag"))
 
 
+def _api_group_has_catalog_evidence(group: dict[str, object]) -> bool:
+    return bool(
+        _int_or_zero(group.get("candidate_object_count"))
+        or _int_or_zero(group.get("accepted_row_count"))
+        or _int_or_none(group.get("api_total_count")) is not None
+        or group.get("complete_flag")
+        or group.get("entry_incomplete")
+    )
+
+
 def _api_group_complete(group: dict[str, object]) -> bool:
     total_count = _int_or_none(group.get("api_total_count"))
     accepted_row_count = _int_or_zero(group.get("accepted_row_count"))
@@ -750,8 +1034,19 @@ def _api_diagnostic_group_key(entry: dict[str, object]) -> str:
 
 def _programme_catalog_candidate_source_urls(data: AdmissionsData, extraction_entries: object, source_strategy: object) -> list[str]:
     urls: set[str] = set()
+    non_enumeration_roles = {"programme_detail", "minor_or_second_major_catalog", "curriculum_or_old_cohort", "unrelated"}
+    roles_by_url: dict[str, str] = {}
+    if isinstance(source_strategy, list):
+        roles_by_url = {
+            str(item.get("url")): str(item.get("source_role"))
+            for item in source_strategy
+            if isinstance(item, dict) and item.get("url") and item.get("source_role")
+        }
     for record in data.discovered_categories:
-        if record.category in {PageCategory.PROGRAMME_LIST, PageCategory.PROGRAMME_PREREQUISITES}:
+        if (
+            record.category in {PageCategory.PROGRAMME_LIST, PageCategory.PROGRAMME_PREREQUISITES}
+            and roles_by_url.get(record.source_url) not in non_enumeration_roles
+        ):
             urls.add(record.source_url)
     if isinstance(source_strategy, list):
         for item in source_strategy:
@@ -759,7 +1054,12 @@ def _programme_catalog_candidate_source_urls(data: AdmissionsData, extraction_en
                 continue
             category = str(item.get("category", ""))
             url = item.get("url")
-            if isinstance(url, str) and category in {str(PageCategory.PROGRAMME_LIST), str(PageCategory.PROGRAMME_PREREQUISITES)}:
+            source_role = item.get("source_role")
+            if (
+                isinstance(url, str)
+                and category in {str(PageCategory.PROGRAMME_LIST), str(PageCategory.PROGRAMME_PREREQUISITES)}
+                and source_role not in non_enumeration_roles
+            ):
                 urls.add(url)
     if isinstance(extraction_entries, list):
         for entry in extraction_entries:
@@ -770,7 +1070,7 @@ def _programme_catalog_candidate_source_urls(data: AdmissionsData, extraction_en
                 continue
             if any(isinstance(attempt, dict) and attempt.get("field") == "programme_catalog" for attempt in raw_attempts):
                 url = entry.get("url")
-                if isinstance(url, str):
+                if isinstance(url, str) and roles_by_url.get(url) not in non_enumeration_roles:
                     urls.add(url)
     urls.update(row.source_url for row in data.programme_catalog if row.source_url)
     return sorted(urls)
@@ -957,6 +1257,8 @@ def _programme_catalog_source_ratio(*, candidate_source_count: int, accepted_row
 
 
 def _programme_catalog_low_row_yield(*, candidate_source_count: int, accepted_row_count: int) -> bool:
+    if candidate_source_count > 0 and accepted_row_count == 0:
+        return True
     if candidate_source_count >= 8 and accepted_row_count <= max(3, candidate_source_count // 3):
         return True
     if candidate_source_count >= 4 and accepted_row_count <= 2:
@@ -998,6 +1300,7 @@ def _programme_catalog_next_action(
     api_candidate_zero_reason: str | None = None,
     source_family_bias: bool = False,
     false_positive_rejected_count: int = 0,
+    completeness_failure_reasons: list[str] | None = None,
 ) -> str:
     if api_summary and api_summary.get("api_pagination_incomplete"):
         return "expand_api_pagination"
@@ -1040,14 +1343,25 @@ def _programme_catalog_next_action(
         return "tighten_catalog_false_positive_filters"
     if source_family_bias:
         return "review_source_family_bias"
-    if low_row_yield or _many_zero_row_catalog_sources(candidate_source_count, source_status_counts):
-        return "improve_table_segmentation"
     if raw_needs_review_count:
         if warning_count >= accepted_row_count:
             return "tighten_catalog_false_positive_filters"
         return "manual_review_raw_rows"
+    completeness_failures = set(completeness_failure_reasons or ())
+    if "no_manual_review_rows" in completeness_failures:
+        return "review_catalog_warnings"
+    if low_row_yield or _many_zero_row_catalog_sources(candidate_source_count, source_status_counts):
+        return "improve_table_segmentation"
+    if "no_quarantined_candidates" in completeness_failures:
+        return "review_quarantined_catalog_candidates"
+    if "candidate_conservation_proven" in completeness_failures:
+        return "repair_candidate_conservation"
+    if "canonical_catalog_captured" in completeness_failures or "canonical_catalog_accepted" in completeness_failures:
+        return "capture_canonical_catalog"
+    if "catalog_section_conservation_proven" in completeness_failures:
+        return "verify_catalog_sections"
     if probable_incomplete_catalog:
-        return "manual_review_raw_rows"
+        return "establish_catalog_completeness_proof"
     return "none"
 
 

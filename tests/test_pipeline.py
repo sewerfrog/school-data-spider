@@ -6,6 +6,7 @@ from university_admissions_crawler.crawler.admissions_context import has_admissi
 from university_admissions_crawler.crawler.discovery import DiscoveryConfig
 from university_admissions_crawler.crawler.fetcher import FetchResult, FixtureFetcher
 from university_admissions_crawler.crawler.filters import canonicalize_url
+from university_admissions_crawler.crawler.html_text import extract_html_text_document
 from university_admissions_crawler.extractor.schema import WarningCode
 from university_admissions_crawler.extractor.llm_provider import MockClassificationAssistProvider, MockStructuredExtractionProvider
 from university_admissions_crawler.extractor.html_extractor import extract_contact, extract_english_requirement, extract_fee
@@ -15,6 +16,7 @@ from university_admissions_crawler.pipeline.diagnostics import _missing_reasons,
 from university_admissions_crawler.pipeline.run_university_scan import run_fixture_scan, run_scan
 from university_admissions_crawler.pipeline.source_planning import attach_source_plan_diagnostics
 from university_admissions_crawler.reports.programme_catalog_csv import render_programme_catalog_csv
+from university_admissions_crawler.reports.render_report import render_markdown_report
 from university_admissions_crawler.extractor.llm_provider import MockSourcePlanProvider
 
 ROOT = Path("tests/fixtures/mini_university_site")
@@ -39,22 +41,529 @@ def test_offline_fixture_pipeline_discovers_extracts_and_warns():
     assert any(w.code == WarningCode.STALE_PAGE for w in data.warnings)
 
 
-def test_offline_fixture_pipeline_populates_programme_catalog_without_replacing_programmes():
+def test_offline_fixture_pipeline_quarantines_unanchored_catalog_candidate_without_replacing_programmes():
     data = run_fixture_scan(ROOT)
-    from university_admissions_crawler.extractor.schema import resolve_claim_path
 
     assert any(programme.name.value == "Bachelor of Engineering" for programme in data.programmes)
-    assert any(row.name == "Bachelor of Engineering" for row in data.programme_catalog)
-    catalog_row = next(row for row in data.programme_catalog if row.name == "Bachelor of Engineering")
-    assert catalog_row.category == "degree_programme"
-    assert catalog_row.source_url == "https://fixture.test/programmes/index.html"
-    assert resolve_claim_path(data, catalog_row.evidence_path) == catalog_row.name
-    assert any(item.claim_path == catalog_row.evidence_path for item in data.evidence)
+    assert not any(row.name == "Bachelor of Engineering" for row in data.programme_catalog)
+    assert any(row.name == "Bachelor of Science" and row.source_url.endswith("/api/programmes.json") for row in data.programme_catalog)
     assert any(
         attempt["field"] == "programme_catalog" and attempt["extractor"] == "extract_programme_catalog"
         for entry in data.run.config["extraction_diagnostics"]
         for attempt in entry["attempts"]
     )
+    catalog_diagnostic = next(
+        item
+        for item in data.run.config["programme_catalog_candidate_diagnostics"]
+        if "Bachelor of Engineering" in str(item.get("candidate_text"))
+    )
+    assert catalog_diagnostic["block_kind"] == "paragraph"
+    assert catalog_diagnostic["parser_branch"] == "paragraph_sentence"
+    assert catalog_diagnostic["decision"] == "rejected"
+
+
+def test_pipeline_detail_page_only_enriches_stably_matched_catalog_row():
+    detail_url = "https://example.edu/degree-programmes/detail/bachelor-of-computing-in-computer-science"
+    data = run_scan(
+        "https://example.edu/",
+        CanonicalThenDetailFetcher(detail_url),
+        DiscoveryConfig(max_pages=3, max_depth=1, allowed_hosts={"example.edu"}),
+    )
+
+    assert len(data.programme_catalog) == 1
+    row = data.programme_catalog[0]
+    assert row.name == "Computer Science"
+    assert row.source_url == "https://example.edu/degree-programmes"
+    assert row.faculty_or_school == "School of Computing"
+    enrichment = data.run.config["programme_catalog_enrichment_evidence"][row.evidence_path]["faculty_or_school"]
+    assert enrichment == {
+        "claim_path": "/programme_catalog/0/faculty_or_school",
+        "source_url": detail_url,
+    }
+    detail_diagnostic = next(
+        item
+        for item in data.run.config["programme_catalog_candidate_diagnostics"]
+        if item.get("source_url") == detail_url and item.get("reason") == "detail_enriched_existing_row"
+    )
+    assert detail_diagnostic["decision"] == "context"
+    assert data.run.config["programme_source_role_summary"]["canonical_catalog"] >= 1
+    assert data.run.config["programme_source_role_summary"]["programme_detail"] == 1
+    assert not any(
+        warning.code == WarningCode.MISSING_EVIDENCE
+        and warning.field == "/programme_catalog/0/faculty_or_school"
+        for warning in data.warnings
+    )
+    report = render_markdown_report(data)
+    assert "Programme source roles:" in report
+    assert "`canonical_catalog`" in report
+
+
+def test_pipeline_matches_redirected_explicit_detail_to_catalog_primary_link():
+    requested_url = (
+        "https://www.ntu.edu.sg/education/undergraduate-programme/"
+        "bachelor-of-science-hons-in-artificial-intelligence-and-society"
+    )
+    final_url = (
+        "https://www.ntu.edu.sg/computing/admissions/undergraduate-programmes/detail/"
+        "bachelor-of-computing-hons-in-artificial-intelligence-and-society"
+    )
+    data = run_scan(
+        "https://www.ntu.edu.sg/",
+        RedirectedProgrammeDetailFetcher(requested_url, final_url),
+        DiscoveryConfig(max_pages=3, max_depth=1, allowed_hosts={"www.ntu.edu.sg"}),
+    )
+
+    assert len(data.programme_catalog) == 1
+    row = data.programme_catalog[0]
+    assert row.name == "Artificial Intelligence and Society"
+    assert row.faculty_or_school == "College of Computing and Data Science"
+    provenance = data.run.config["programme_catalog_row_provenance"][row.evidence_path]
+    assert provenance["primary_source_urls"] == [requested_url]
+    detail_strategy = next(item for item in data.run.config["source_strategy"] if item["url"] == final_url)
+    assert detail_strategy["requested_url"] == requested_url
+    assert detail_strategy["category"] == "undergraduate_admissions"
+    detail_diagnostic = next(
+        item
+        for item in data.run.config["programme_catalog_candidate_diagnostics"]
+        if item.get("source_url") == final_url and item.get("reason") == "detail_enriched_existing_row"
+    )
+    assert detail_diagnostic["match_method"] == "primary_source_url"
+    assert detail_diagnostic["enriched_fields"] == ["faculty_or_school"]
+    enrichment = data.run.config["programme_catalog_enrichment_evidence"][row.evidence_path]["faculty_or_school"]
+    faculty_evidence = next(item for item in data.evidence if item.claim_path == enrichment["claim_path"])
+    assert faculty_evidence.source_url == final_url
+    assert faculty_evidence.snippet == (
+        "Bachelor of Computing (Hons) in Artificial Intelligence (AI) and Society | "
+        "College of Computing and Data Science | NTU Singapore"
+    )
+    assert not any("missing_faculty:" in warning.message for warning in row.warnings)
+
+
+def test_pipeline_uses_unique_detail_title_identity_when_catalog_link_is_unavailable():
+    detail_url = (
+        "https://www.ntu.edu.sg/hass/admissions/programmes/undergraduate-programmes/detail/"
+        "bachelor-of-arts-(hons)-in-double-major---chinese-and-english"
+    )
+    data = run_scan(
+        "https://www.ntu.edu.sg/",
+        TitleIdentityProgrammeDetailFetcher(detail_url),
+        DiscoveryConfig(max_pages=4, max_depth=1, allowed_hosts={"www.ntu.edu.sg"}),
+    )
+
+    assert len(data.programme_catalog) == 1
+    row = data.programme_catalog[0]
+    assert row.name == "Chinese and English"
+    assert row.faculty_or_school == "College of Humanities, Arts and Social Sciences"
+    detail_diagnostic = next(
+        item
+        for item in data.run.config["programme_catalog_candidate_diagnostics"]
+        if item.get("source_url") == detail_url and item.get("reason") == "detail_enriched_existing_row"
+    )
+    assert detail_diagnostic["match_method"] == "detail_title_identity"
+    assert detail_diagnostic["enriched_fields"] == ["faculty_or_school"]
+
+
+def test_pipeline_rejects_detail_title_identity_without_catalog_family_context():
+    detail_url = (
+        "https://www.ntu.edu.sg/spms/admissions/undergrad/detail/"
+        "bachelor-of-arts-(hons)-in-double-major---chinese-and-english"
+    )
+    data = run_scan(
+        "https://www.ntu.edu.sg/",
+        TitleIdentityProgrammeDetailFetcher(
+            detail_url,
+            faculty_title="School of Physical and Mathematical Sciences",
+            family_catalog_url=None,
+        ),
+        DiscoveryConfig(max_pages=3, max_depth=1, allowed_hosts={"www.ntu.edu.sg"}),
+    )
+
+    assert len(data.programme_catalog) == 1
+    row = data.programme_catalog[0]
+    assert row.name == "Chinese and English"
+    assert row.faculty_or_school is None
+    detail_diagnostic = next(
+        item
+        for item in data.run.config["programme_catalog_candidate_diagnostics"]
+        if item.get("source_url") == detail_url
+    )
+    assert detail_diagnostic["decision"] == "rejected"
+    assert detail_diagnostic["reason"] == "detail_source_family_without_catalog_context"
+
+
+def test_pipeline_uses_reserved_budget_for_catalog_matched_unresolved_detail():
+    detail_url = (
+        "https://www.ntu.edu.sg/hass/admissions/programmes/undergraduate-programmes/detail/"
+        "bachelor-of-arts-(hons)-in-double-major---chinese-and-english"
+    )
+    fetcher = TargetedProgrammeDetailFetcher(detail_url)
+    data = run_scan(
+        "https://www.ntu.edu.sg/",
+        fetcher,
+        DiscoveryConfig(
+            max_pages=8,
+            max_depth=2,
+            allowed_hosts={"www.ntu.edu.sg"},
+            programme_source_family_budget=2,
+            programme_detail_targeted_reserve=4,
+        ),
+    )
+
+    row = next(item for item in data.programme_catalog if item.name == "Chinese and English")
+    assert row.faculty_or_school == "College of Humanities, Arts and Social Sciences"
+    selection = data.run.config["programme_catalog_targeted_detail_selection"]
+    assert selection["reserve_limit"] == 2
+    assert selection["selected_count"] == 1
+    assert selection["fetched_count"] == 1
+    assert selection["combined_discovered_page_count"] <= selection["combined_page_budget"] == 8
+    assert selection["selected"][0]["url"] == detail_url
+    assert selection["selected"][0]["match_method"] == "detail_url_identity"
+    assert data.run.config["programme_detail_first_pass_family_budget"] == 0
+    assert data.run.config["programme_detail_first_pass_faculty_catalog_family_budget"] == 0
+    assert data.run.config["programme_detail_first_pass_unbacked_family_budget"] == 0
+    targeted_entry = next(
+        item
+        for item in data.run.config["programme_frontier_diagnostics"]
+        if item.get("reason") == "targeted_unresolved_programme_detail"
+    )
+    assert targeted_entry["url"] == detail_url
+    assert detail_url in fetcher.fetched
+    enrichment = data.run.config["programme_catalog_enrichment_evidence"][row.evidence_path]["faculty_or_school"]
+    evidence = next(item for item in data.evidence if item.claim_path == enrichment["claim_path"])
+    assert evidence.source_url == detail_url
+    report = render_markdown_report(data)
+    assert "Targeted programme details: reserve 2, selected 1, fetched 1" in report
+    assert "Targeted detail rejections:" not in report
+    assert (
+        "Targeted detail ranking: "
+        "`faculty_catalog_backing_then_catalog_row_order_with_one_exploration`"
+    ) in report
+    assert "Targeted detail selected tiers: `faculty_catalog_backed`: 1" in report
+    assert "Targeted detail exploration quota: 0" in report
+    assert (
+        "First-pass detail family budgets: default 0, "
+        "faculty-catalog-backed 0, catalog-unbacked 0"
+    ) in report
+    assert "Targeted detail family reserve: 2" in report
+
+
+def test_pipeline_scopes_live_size_first_pass_family_budget_to_faculty_catalogs():
+    data = run_scan(
+        "https://fixture.test/",
+        FixtureFetcher(ROOT),
+        DiscoveryConfig(
+            max_pages=16,
+            max_depth=2,
+            programme_source_family_budget=4,
+            programme_detail_targeted_reserve=4,
+        ),
+    )
+
+    assert data.run.config["programme_detail_first_pass_family_budget"] == 2
+    assert data.run.config["programme_detail_first_pass_faculty_catalog_family_budget"] == 1
+    assert data.run.config["programme_detail_first_pass_unbacked_family_budget"] == 1
+    assert data.run.config["programme_detail_targeted_family_reserve"] == 3
+
+
+def test_pipeline_rejects_targeted_detail_redirect_outside_allowed_domain():
+    detail_url = (
+        "https://www.ntu.edu.sg/hass/admissions/programmes/undergraduate-programmes/detail/"
+        "bachelor-of-arts-(hons)-in-double-major---chinese-and-english"
+    )
+    data = run_scan(
+        "https://www.ntu.edu.sg/",
+        TargetedProgrammeDetailFetcher(detail_url, detail_final_url="https://mirror.example/detail/chinese-and-english"),
+        DiscoveryConfig(
+            max_pages=8,
+            max_depth=2,
+            allowed_hosts={"www.ntu.edu.sg"},
+            programme_source_family_budget=2,
+            programme_detail_targeted_reserve=4,
+        ),
+    )
+
+    row = next(item for item in data.programme_catalog if item.name == "Chinese and English")
+    assert row.faculty_or_school is None
+    selection = data.run.config["programme_catalog_targeted_detail_selection"]
+    assert selection["selected_count"] == 1
+    assert selection["fetched_count"] == 0
+    rejected = next(
+        item
+        for item in data.run.config["programme_frontier_diagnostics"]
+        if item.get("reason") == "targeted_candidate_redirected_off_domain"
+    )
+    assert rejected["final_url"] == "https://mirror.example/detail/chinese-and-english"
+    assert not any(source.source_url == rejected["final_url"] for source in data.sources)
+
+
+class CanonicalThenDetailFetcher:
+    engine = "fixture"
+
+    def __init__(self, detail_url: str) -> None:
+        self.detail_url = detail_url
+
+    def fetch(self, url: str) -> FetchResult:
+        if url == "https://example.edu/":
+            return _pipeline_fetch_result(
+                url,
+                "Undergraduate admissions and degree programmes",
+                title="Example University",
+                links=["https://example.edu/degree-programmes", self.detail_url],
+            )
+        if url == "https://example.edu/degree-programmes":
+            return _pipeline_fetch_result(
+                url,
+                "Programme | Degree Title\nComputer Science | Bachelor of Computing in Computer Science",
+                title="Degree Programmes",
+            )
+        if url == self.detail_url:
+            html = "<main><h1>Bachelor of Computing in Computer Science</h1><p>School of Computing</p></main>"
+            document = extract_html_text_document(html)
+            result = _pipeline_fetch_result(
+                url,
+                document.plain_text,
+                title="Bachelor of Computing in Computer Science | School of Computing",
+            )
+            result.content_blocks = document.blocks
+            return result
+        return _pipeline_fetch_result(url, "not found", status=404)
+
+
+class RedirectedProgrammeDetailFetcher:
+    engine = "fixture"
+
+    def __init__(self, requested_url: str, final_url: str) -> None:
+        self.requested_url = requested_url
+        self.final_url = final_url
+
+    def fetch(self, url: str) -> FetchResult:
+        catalog_url = "https://www.ntu.edu.sg/education/degree-programmes"
+        if url == "https://www.ntu.edu.sg/":
+            return _pipeline_fetch_result(
+                url,
+                "Undergraduate admissions and degree programmes",
+                title="Nanyang Technological University",
+                links=[catalog_url, self.requested_url],
+            )
+        if url == catalog_url:
+            html = (
+                "<table><tr><th>Programme</th><th>Degree Title</th></tr><tr>"
+                f"<td><a href='{self.requested_url}'>Artificial Intelligence and Society</a></td>"
+                "<td>Bachelor of Computing in Artificial Intelligence &amp; Society</td>"
+                "</tr></table>"
+            )
+            document = extract_html_text_document(html)
+            result = _pipeline_fetch_result(
+                url,
+                document.plain_text,
+                title="Degree Programmes",
+            )
+            result.content_blocks = document.blocks
+            return result
+        if url == self.requested_url:
+            title = (
+                "Bachelor of Computing (Hons) in Artificial Intelligence (AI) and Society | "
+                "College of Computing and Data Science | NTU Singapore"
+            )
+            document = extract_html_text_document(
+                "<main><p>Application information, admission requirements, and how to apply.</p></main>"
+            )
+            result = _pipeline_fetch_result(url, document.plain_text, title=title)
+            result.final_url = self.final_url
+            result.source = source_from_text(source_url=self.final_url, title=title, text=document.plain_text)
+            result.content_blocks = document.blocks
+            return result
+        return _pipeline_fetch_result(url, "not found", status=404)
+
+
+class TitleIdentityProgrammeDetailFetcher:
+    engine = "fixture"
+
+    def __init__(
+        self,
+        detail_url: str,
+        *,
+        faculty_title: str = "College of Humanities, Arts and Social Sciences",
+        family_catalog_url: str | None = "https://www.ntu.edu.sg/hass/admissions/programmes",
+    ) -> None:
+        self.detail_url = detail_url
+        self.faculty_title = faculty_title
+        self.family_catalog_url = family_catalog_url
+
+    def fetch(self, url: str) -> FetchResult:
+        catalog_url = "https://www.ntu.edu.sg/education/degree-programmes"
+        if url == "https://www.ntu.edu.sg/":
+            links = [catalog_url, self.detail_url]
+            if self.family_catalog_url is not None:
+                links.insert(1, self.family_catalog_url)
+            return _pipeline_fetch_result(
+                url,
+                "Undergraduate admissions and degree programmes",
+                title="Nanyang Technological University",
+                links=links,
+            )
+        if url == catalog_url:
+            return _pipeline_fetch_result(
+                url,
+                "Programme | Degree Title\nChinese and English | Bachelor of Arts in Chinese and English",
+                title="Degree Programmes",
+            )
+        if url == self.family_catalog_url:
+            return _pipeline_fetch_result(
+                url,
+                "Undergraduate programme overview",
+                title="Undergraduate Programmes",
+            )
+        if url == self.detail_url:
+            title = (
+                "Bachelor of Arts (Hons) in Double Major - Chinese and English | "
+                f"{self.faculty_title} | NTU Singapore"
+            )
+            document = extract_html_text_document(
+                "<main><p>The double major programme is a four-year direct honours degree programme.</p></main>"
+            )
+            result = _pipeline_fetch_result(url, document.plain_text, title=title)
+            result.content_blocks = document.blocks
+            return result
+        return _pipeline_fetch_result(url, "not found", status=404)
+
+
+class TargetedProgrammeDetailFetcher:
+    engine = "fixture"
+
+    def __init__(self, detail_url: str, *, detail_final_url: str | None = None) -> None:
+        self.detail_url = detail_url
+        self.detail_final_url = detail_final_url
+        self.fetched: list[str] = []
+
+    def fetch(self, url: str) -> FetchResult:
+        self.fetched.append(url)
+        canonical_url = "https://www.ntu.edu.sg/education/degree-programmes"
+        hass_catalog_url = "https://www.ntu.edu.sg/hass/admissions/programmes"
+        if url == "https://www.ntu.edu.sg/":
+            return _pipeline_fetch_result(
+                url,
+                "Undergraduate degree programmes",
+                title="Nanyang Technological University",
+                links=[canonical_url, hass_catalog_url],
+            )
+        if url == canonical_url:
+            return _pipeline_fetch_result(
+                url,
+                "Programme | Degree Title\nChinese and English | Bachelor of Arts in Chinese and English",
+                title="Degree Programmes",
+            )
+        if url == hass_catalog_url:
+            return _pipeline_fetch_result(
+                url,
+                "Undergraduate programme overview",
+                title="Undergraduate Programmes",
+                links=[self.detail_url],
+            )
+        if url == self.detail_url:
+            title = (
+                "Bachelor of Arts (Hons) in Double Major - Chinese and English | "
+                "College of Humanities, Arts and Social Sciences | NTU Singapore"
+            )
+            result = _pipeline_fetch_result(
+                url,
+                "The double major programme is a four-year direct honours degree programme.",
+                title=title,
+            )
+            if self.detail_final_url is not None:
+                result.final_url = self.detail_final_url
+                result.source = source_from_text(
+                    source_url=self.detail_final_url,
+                    title=title,
+                    text=result.text,
+                )
+            return result
+        return _pipeline_fetch_result(url, "not found", status=404)
+
+
+def _pipeline_fetch_result(
+    url: str,
+    text: str,
+    *,
+    title: str = "Test Page",
+    links: list[str] | None = None,
+    status: int = 200,
+) -> FetchResult:
+    return FetchResult(
+        url=url,
+        final_url=url,
+        status=status,
+        title=title,
+        content_type="text/html",
+        retrieved_at="2026-07-21T00:00:00+00:00",
+        engine="fixture",
+        text=text,
+        markdown=text,
+        links=links or [],
+        source=source_from_text(source_url=url, title=title, text=text) if status < 400 else None,
+    )
+    assert catalog_diagnostic["reason"] == "sentence_like_name"
+    assert catalog_diagnostic["parser_stage"] == "entity_gate"
+
+
+def test_pipeline_links_grouped_programme_fields_to_context_evidence():
+    url = "https://example.edu/academics/undergraduate/grouped-programmes"
+    text = (Path("tests/fixtures/programme_catalog/non_standard") / "grouped_rows.txt").read_text(encoding="utf-8")
+    data = run_scan(
+        url,
+        _SavedSinglePageFetcher({url: ("Undergraduate Degree Programmes", text)}),
+        DiscoveryConfig(max_pages=1, max_depth=0, allowed_hosts={"example.edu"}),
+    )
+
+    row = next(item for item in data.programme_catalog if item.name == "Data Science and Artificial Intelligence")
+    field_paths = data.run.config["programme_catalog_field_evidence"][row.evidence_path]
+
+    assert field_paths == {
+        "degree_or_award": "/programme_catalog/1/degree_or_award",
+        "faculty_or_school": "/programme_catalog/1/faculty_or_school",
+    }
+    field_evidence = {item.claim_path: item for item in data.evidence if item.claim_path in field_paths.values()}
+    assert set(field_evidence) == set(field_paths.values())
+    assert all(
+        item.snippet == "School of Computing | Bachelor of Computing (Honours) | Computer Science | Full-time"
+        for item in field_evidence.values()
+    )
+    assert not [
+        warning
+        for warning in data.warnings
+        if warning.code == WarningCode.MISSING_EVIDENCE and warning.field in field_paths.values()
+    ]
+
+
+def test_pipeline_links_segmented_programme_faculty_to_section_evidence():
+    base = Path("tests/fixtures/saved_sources/ntu/programme_catalog_hass")
+    meta = json.loads(base.with_suffix(".json").read_text(encoding="utf-8"))
+    text = base.with_suffix(".txt").read_text(encoding="utf-8")
+    url = meta["source_url"]
+    data = run_scan(
+        url,
+        _SavedSinglePageFetcher({url: (meta["title"], text)}),
+        DiscoveryConfig(max_pages=1, max_depth=0, allowed_hosts={"www.ntu.edu.sg"}, allowed_domains={"ntu.edu.sg"}),
+    )
+
+    row = next(item for item in data.programme_catalog if item.name == "Bachelor of Arts (Hons)")
+    field_path = data.run.config["programme_catalog_field_evidence"][row.evidence_path]["faculty_or_school"]
+    field_evidence = next(item for item in data.evidence if item.claim_path == field_path)
+
+    assert row.faculty_or_school == "School of Humanities"
+    assert field_evidence.snippet.startswith("The School of Humanities offers degrees")
+    summary = data.run.config["programme_catalog_summary"]
+    assert summary["candidate_context_reason_counts"]["section_context_captured"] == 3
+    assert summary["section_context_captured_count"] == 3
+    assert summary["section_context_inherited_count"] == 3
+    assert summary["field_evidence_row_count"] == 3
+    assert summary["field_evidence_path_count"] == 3
+    assert summary["field_evidence_field_counts"] == {"faculty_or_school": 3}
+    assert not [
+        warning
+        for warning in data.warnings
+        if warning.code == WarningCode.MISSING_EVIDENCE and warning.field == field_path
+    ]
 
 
 def test_offline_fixture_pipeline_has_no_missing_evidence_for_known_claims():
@@ -145,6 +654,10 @@ def test_pipeline_extracts_public_json_api_claims():
     assert summary["api_response_count"] >= 1
     assert summary["api_accepted_row_count"] >= 1
     assert summary["source_status_counts"]["api_capture"] >= 1
+    assert summary["accepted_source_role_counts"]["faculty_catalog"] >= 1
+    assert summary["api_pagination_complete"] is False
+    assert summary["accepted_structural_anchor_counts"]["api_programme_name_field"] >= 1
+    assert summary["accepted_without_structural_anchor_count"] == 0
     assert "Bachelor of Science" in render_programme_catalog_csv(data)
 
 
@@ -636,16 +1149,16 @@ def test_fixture_school_llm_structured_extraction_repairs_missing_fee_field():
     assert diagnostics["candidate_count"] == 5
     assert diagnostics["accepted_count"] == 2
     assert diagnostics["rejected_count"] == 3
-    assert diagnostics["applied_count"] == 2
+    assert diagnostics["applied_count"] == 1
     assert diagnostics["reject_reasons"] == {
         "snippet_not_found": 1,
         "source_not_captured": 1,
         "value_not_in_snippet": 1,
     }
     assert diagnostics["accepted_claim_paths"] == {"admissions.fees": 1, "programme_catalog[].name": 1}
-    assert diagnostics["write_status_counts"] == {"applied": 2, "not_applicable": 3}
+    assert diagnostics["write_status_counts"] == {"applied": 1, "entity_gate_required": 1, "not_applicable": 3}
     applied_results = [result for result in diagnostics["results"] if result.get("write_status") == "applied"]
-    assert {result["evidence_path"] for result in applied_results} == {"/fees/0/value", "/programme_catalog/0/name"}
+    assert {result["evidence_path"] for result in applied_results} == {"/fees/0/value"}
     assert all(result["extractor"] == "llm_fallback_validated" for result in applied_results)
     assert all(result["validation_status"] == "accepted" for result in applied_results)
     assert "fees" in data.run.config["coverage"]["found"]
@@ -663,16 +1176,18 @@ def test_fixture_school_llm_structured_extraction_repairs_missing_fee_field():
     assert data.evidence[-1].snippet == valid_snippet
     fee_request = next(request for request in provider.requests if request["source_url"] == fee_url)
     assert "admissions.fees" in fee_request["allowed_claim_paths"]
-    programme_row = data.programme_catalog[0]
-    assert programme_row.name == "Data Futures Bachelor pathway"
-    assert programme_row.source_url == programme_url
-    assert programme_row.evidence_snippet == programme_snippet
-    assert programme_row.evidence_path == "/programme_catalog/0/name"
-    assert programme_row.parse_status == "llm_fallback_validated"
+    assert data.programme_catalog == []
+    programme_candidate = next(
+        item
+        for item in data.run.config["programme_catalog_candidate_diagnostics"]
+        if item.get("name") == "Data Futures Bachelor pathway"
+    )
+    assert programme_candidate["decision"] == "rejected"
+    assert programme_candidate["reason"] == "llm_candidate_without_structural_anchor"
+    assert programme_candidate["parser_stage"] == "entity_gate"
     csv_text = render_programme_catalog_csv(data)
     assert "programme_id,name,faculty_or_school" in csv_text
-    assert "programme-catalog-001,Data Futures Bachelor pathway" in csv_text
-    assert "llm_fallback_validated" in csv_text
+    assert "Data Futures Bachelor pathway" not in csv_text
 
 
 def test_pipeline_uses_html_table_text_for_extraction():

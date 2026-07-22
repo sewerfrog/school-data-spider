@@ -24,6 +24,7 @@ def render_markdown_report(data: AdmissionsData) -> str:
     _keyword_plan(lines, data)
     _classification_assist(lines, data)
     _source_strategy(lines, data)
+    _incremental_diff(lines, data)
     _source_planning(lines, data)
     _programme_catalog_browser_capture(lines, data)
     _programme_catalog_static_asset_discovery(lines, data)
@@ -195,6 +196,55 @@ def _source_strategy(lines: list[str], data: AdmissionsData) -> None:
     lines.append("")
     for label, count in summary.items():
         lines.append(f"- `{label}`: {count}")
+    source_roles = data.run.config.get("programme_source_role_summary")
+    if isinstance(source_roles, dict) and source_roles:
+        lines.append(f"- Programme source roles: {_format_counts(source_roles)}")
+    frontier_summary = data.run.config.get("programme_frontier_summary")
+    if isinstance(frontier_summary, dict):
+        skipped = frontier_summary.get("budget_skipped_source_family_counts")
+        if isinstance(skipped, dict) and skipped:
+            lines.append(f"- Frontier budget-skipped source families: {_format_counts(skipped)}")
+    first_pass_family_budget = data.run.config.get("programme_detail_first_pass_family_budget")
+    first_pass_faculty_budget = data.run.config.get(
+        "programme_detail_first_pass_faculty_catalog_family_budget"
+    )
+    first_pass_unbacked_budget = data.run.config.get(
+        "programme_detail_first_pass_unbacked_family_budget"
+    )
+    if (
+        isinstance(first_pass_family_budget, int)
+        and isinstance(first_pass_faculty_budget, int)
+        and isinstance(first_pass_unbacked_budget, int)
+    ):
+        lines.append(
+            "- First-pass detail family budgets: "
+            f"default {first_pass_family_budget}, "
+            f"faculty-catalog-backed {first_pass_faculty_budget}, "
+            f"catalog-unbacked {first_pass_unbacked_budget}"
+        )
+    targeted_details = data.run.config.get("programme_catalog_targeted_detail_selection")
+    if isinstance(targeted_details, dict):
+        lines.append(
+            "- Targeted programme details: "
+            f"reserve {targeted_details.get('reserve_limit', 0)}, "
+            f"selected {targeted_details.get('selected_count', 0)}, "
+            f"fetched {targeted_details.get('fetched_count', 0)}"
+        )
+        rejection_counts = targeted_details.get("rejection_reason_counts")
+        if isinstance(rejection_counts, dict) and rejection_counts:
+            lines.append(f"- Targeted detail rejections: {_format_counts(rejection_counts)}")
+        ranking_policy = targeted_details.get("ranking_policy")
+        if isinstance(ranking_policy, str) and ranking_policy:
+            lines.append(f"- Targeted detail ranking: `{ranking_policy}`")
+        tier_counts = targeted_details.get("selected_tier_counts")
+        if isinstance(tier_counts, dict) and tier_counts:
+            lines.append(f"- Targeted detail selected tiers: {_format_counts(tier_counts)}")
+        exploration_quota = targeted_details.get("exploration_quota")
+        if isinstance(exploration_quota, int):
+            lines.append(f"- Targeted detail exploration quota: {exploration_quota}")
+        targeted_family_reserve = data.run.config.get("programme_detail_targeted_family_reserve")
+        if isinstance(targeted_family_reserve, int):
+            lines.append(f"- Targeted detail family reserve: {targeted_family_reserve}")
     lines.append("")
 
 
@@ -251,6 +301,89 @@ def _source_planning(lines: list[str], data: AdmissionsData) -> None:
         lines.append(f"- Note: {note}")
     lines.append("- Note: source planning diagnostics are not admissions facts.")
     lines.append("")
+
+
+def _incremental_diff(lines: list[str], data: AdmissionsData) -> None:
+    diagnostic = data.run.config.get("diff")
+    if not isinstance(diagnostic, dict) or diagnostic.get("baseline") != "provided":
+        return
+    source_mix = diagnostic.get("source_mix")
+    programme_catalog = diagnostic.get("programme_catalog")
+    legacy_programmes = diagnostic.get("legacy_programmes")
+    structured_collections = diagnostic.get("structured_collections")
+    assessment = diagnostic.get("assessment")
+    field_warning_policy = diagnostic.get("field_warning_policy")
+    if not all(isinstance(item, dict) for item in (source_mix, programme_catalog, legacy_programmes, assessment)):
+        return
+
+    lines.append("## Incremental Impact")
+    lines.append("")
+    lines.append(
+        "- Unique source URL mix: "
+        f"{source_mix.get('baseline_count', 0)} -> {source_mix.get('current_count', 0)}, "
+        f"added {source_mix.get('added_count', 0)}, removed {source_mix.get('removed_count', 0)}, "
+        f"symmetric difference {source_mix.get('symmetric_difference_count', 0)}"
+    )
+    lines.append(
+        "- Authoritative programme catalog: "
+        f"{programme_catalog.get('baseline_count', 0)} -> {programme_catalog.get('current_count', 0)}, "
+        f"added {programme_catalog.get('added_count', 0)}, removed {programme_catalog.get('removed_count', 0)}, "
+        f"changed rows {programme_catalog.get('changed_row_count', 0)}, "
+        f"gained fields {programme_catalog.get('gained_field_count', 0)}, "
+        f"lost fields {programme_catalog.get('lost_field_count', 0)}"
+    )
+    lines.append(
+        "- Compatibility programmes: "
+        f"{legacy_programmes.get('baseline_count', 0)} -> {legacy_programmes.get('current_count', 0)}, "
+        f"added {legacy_programmes.get('added_count', 0)}, removed {legacy_programmes.get('removed_count', 0)}, "
+        f"changed rows {legacy_programmes.get('changed_row_count', 0)}"
+    )
+    if isinstance(structured_collections, dict):
+        changed_collection_count = sum(
+            1
+            for collection in structured_collections.values()
+            if isinstance(collection, dict) and collection.get("stable") is False
+        )
+        lines.append(
+            "- Structured requirement collections: "
+            f"tracked {len(structured_collections)}, changed {changed_collection_count}"
+        )
+    lines.append(
+        "- Impact assessment: "
+        f"catalog stable {assessment.get('authoritative_catalog_stable')}, "
+        f"catalog gain {assessment.get('authoritative_catalog_gain')}, "
+        f"catalog regression {assessment.get('authoritative_catalog_regression')}, "
+        f"compatibility stable {assessment.get('legacy_programmes_stable')}, "
+        f"structured collections stable {assessment.get('structured_collections_stable')}, "
+        f"source-mix-only {assessment.get('source_mix_only_change')}"
+    )
+    if isinstance(field_warning_policy, dict):
+        lines.append(
+            "- Incremental field warnings: "
+            f"{field_warning_policy.get('strategy', 'unknown')}, "
+            f"raw changed paths {field_warning_policy.get('raw_changed_field_count', 0)}, "
+            "unstable legacy index paths retained "
+            f"{field_warning_policy.get('legacy_index_path_count', 0)}, "
+            "index warnings suppressed "
+            f"{field_warning_policy.get('legacy_index_warnings_suppressed', 0)}, "
+            "structured index paths retained "
+            f"{field_warning_policy.get('structured_index_path_count', 0)}, "
+            "structured index warnings suppressed "
+            f"{field_warning_policy.get('structured_index_warnings_suppressed', 0)}, "
+            f"warnings emitted {field_warning_policy.get('emitted_warning_count', 0)}"
+        )
+    _limited_diff_items(lines, "Added source", source_mix.get("added_urls"))
+    _limited_diff_items(lines, "Removed source", source_mix.get("removed_urls"))
+    lines.append("")
+
+
+def _limited_diff_items(lines: list[str], label: str, items: object, *, limit: int = 5) -> None:
+    if not isinstance(items, list):
+        return
+    for item in items[:limit]:
+        lines.append(f"- {label}: {item}")
+    if len(items) > limit:
+        lines.append(f"- {label} entries omitted: {len(items) - limit}")
 
 
 def _source_plan_candidates(lines: list[str], title: str, candidates: object) -> None:
@@ -430,7 +563,8 @@ def _programme_catalog_diagnostics(lines: list[str], data: AdmissionsData) -> No
     candidate_count = summary.get("candidate_count", 0)
     rejected_count = summary.get("rejected_count", 0)
     candidate_source_count = summary.get("candidate_source_count", 0)
-    if not candidate_count and not rejected_count and not candidate_source_count:
+    has_completeness = isinstance(summary.get("catalog_completeness_status"), str)
+    if not candidate_count and not rejected_count and not candidate_source_count and not has_completeness:
         return
 
     lines.append("## Programme Catalog Diagnostics")
@@ -442,9 +576,23 @@ def _programme_catalog_diagnostics(lines: list[str], data: AdmissionsData) -> No
     lines.append(f"- Crawled catalog sources: {summary.get('crawled_catalog_source_count', 0)}")
     lines.append(f"- Accepted row count: {summary.get('accepted_row_count', summary.get('accepted_count', 0))}")
     lines.append(f"- Raw-needs-review rows: {summary.get('raw_needs_review_count', 0)}")
+    _programme_catalog_completeness_diagnostics(lines, summary)
     ratio = summary.get("accepted_to_candidate_source_ratio")
     if ratio is not None:
         lines.append(f"- Accepted/source ratio: {ratio}")
+    if summary.get("quality_adjustment_applied"):
+        lines.append(
+            f"- Quality-adjusted accepted rows: {summary.get('quality_adjusted_accepted_row_count', 0)}"
+        )
+        lines.append(
+            f"- Quality-excluded accepted rows: {summary.get('quality_excluded_accepted_row_count', 0)}"
+        )
+        quality_ratio = summary.get("quality_adjusted_accepted_to_candidate_source_ratio")
+        if quality_ratio is not None:
+            lines.append(f"- Quality-adjusted accepted/source ratio: {quality_ratio}")
+        exclusion_reasons = summary.get("quality_exclusion_reason_counts")
+        if isinstance(exclusion_reasons, dict) and exclusion_reasons:
+            lines.append(f"- Quality exclusion reasons: {_format_counts(exclusion_reasons)}")
     if (
         summary.get("api_response_count")
         or summary.get("api_catalog_candidate_count")
@@ -480,11 +628,14 @@ def _programme_catalog_diagnostics(lines: list[str], data: AdmissionsData) -> No
         lines.append(f"- HTML fallback used: {summary.get('html_fallback_used', False)}")
         if summary.get("api_to_csv_ratio") is not None:
             lines.append(f"- API/CSV row ratio: {summary.get('api_to_csv_ratio')}")
+    if summary.get("quality_adjustment_applied"):
+        lines.append(f"- Raw low row yield: {summary.get('raw_low_row_yield', False)}")
     lines.append(f"- Low row yield: {summary.get('low_row_yield', False)}")
     lines.append(f"- Probable incomplete catalog: {summary.get('probable_incomplete_catalog', False)}")
     if summary.get("api_candidate_zero_reason"):
         lines.append(f"- API candidate zero reason: `{summary.get('api_candidate_zero_reason')}`")
     lines.append(f"- False-positive rejected rows: {summary.get('false_positive_rejected_count', 0)}")
+    _programme_catalog_html_candidate_diagnostics(lines, summary)
     lines.append(f"- Recommended next action: `{summary.get('recommended_next_action', 'none')}`")
     source_statuses = summary.get("source_status_counts")
     if isinstance(source_statuses, dict) and source_statuses:
@@ -533,6 +684,78 @@ def _programme_catalog_diagnostics(lines: list[str], data: AdmissionsData) -> No
         lines.append(f"- Note: {note}")
     lines.append("- Note: programme catalog diagnostics summarize table extraction and are not admissions facts.")
     lines.append("")
+
+
+def _programme_catalog_completeness_diagnostics(lines: list[str], summary: dict[str, object]) -> None:
+    status = summary.get("catalog_completeness_status")
+    if not isinstance(status, str):
+        return
+
+    lines.append(f"- Catalog completeness status: `{status}`")
+    lines.append(f"- Catalog complete: {summary.get('catalog_complete', False)}")
+    lines.append(f"- Canonical catalog captured: {summary.get('canonical_catalog_captured', False)}")
+    lines.append(f"- Canonical catalog accepted: {summary.get('canonical_catalog_accepted', False)}")
+    lines.append(
+        "- Candidate conservation: "
+        f"{summary.get('candidate_conservation_observed_count', 0)}/"
+        f"{summary.get('candidate_conservation_expected_count', 0)} "
+        f"(proven: {summary.get('candidate_conservation_proven', False)})"
+    )
+    lines.append(
+        "- Catalog section conservation: "
+        f"{summary.get('processed_catalog_section_count', 0)}/"
+        f"{summary.get('identified_catalog_section_count', 0)} "
+        f"(proven: {summary.get('catalog_section_conservation_proven', False)})"
+    )
+    lines.append(f"- Quarantined catalog candidates: {summary.get('quarantined_candidate_count', 0)}")
+    for label, key in (
+        ("Catalog source roles", "source_role_counts"),
+        ("Accepted rows by source role", "accepted_by_source_role"),
+        ("Completeness failure stages", "catalog_completeness_failure_stage_counts"),
+    ):
+        counts = summary.get(key)
+        if isinstance(counts, dict) and counts:
+            lines.append(f"- {label}: {_format_counts(counts)}")
+    lines.append(
+        f"- Completeness proof basis: {_format_diagnostic_codes(summary.get('catalog_completeness_basis'))}"
+    )
+    lines.append(
+        "- Completeness proof failures: "
+        f"{_format_diagnostic_codes(summary.get('catalog_completeness_failure_reasons'))}"
+    )
+
+
+def _programme_catalog_html_candidate_diagnostics(lines: list[str], summary: dict[str, object]) -> None:
+    diagnostic_count = summary.get("candidate_diagnostic_count", 0)
+    if not diagnostic_count:
+        return
+    lines.append(f"- Programme candidate diagnostics: {diagnostic_count}")
+    lines.append(f"- Programme rejected candidates: {summary.get('candidate_rejected_count', 0)}")
+    lines.append(f"- Programme context rows: {summary.get('candidate_context_count', 0)}")
+    lines.append(f"- Programme false-positive candidate rejections: {summary.get('html_false_positive_rejected_count', 0)}")
+    lines.append(f"- Entity-gate rejections: {summary.get('entity_gate_rejected_count', 0)}")
+    lines.append(f"- Accepted rows missing structural anchor: {summary.get('accepted_without_structural_anchor_count', 0)}")
+    lines.append(f"- Institution-context mismatches: {summary.get('institution_context_mismatch_count', 0)}")
+    lines.append(f"- Section contexts captured: {summary.get('section_context_captured_count', 0)}")
+    lines.append(f"- Section-context accepted rows: {summary.get('section_context_inherited_count', 0)}")
+    lines.append(f"- Group contexts captured: {summary.get('group_context_captured_count', 0)}")
+    lines.append(f"- Group-context accepted rows: {summary.get('group_context_inherited_count', 0)}")
+    lines.append(f"- Field-evidence rows: {summary.get('field_evidence_row_count', 0)}")
+    lines.append(f"- Field-evidence paths: {summary.get('field_evidence_path_count', 0)}")
+    for label, key in (
+        ("Programme candidate decisions", "candidate_decision_counts"),
+        ("Programme rejection reasons", "candidate_rejection_reasons"),
+        ("Programme context reasons", "candidate_context_reason_counts"),
+        ("Accepted programme candidate shapes", "accepted_candidate_shape_counts"),
+        ("Programme candidate block kinds", "candidate_block_kind_counts"),
+        ("Accepted source roles", "accepted_source_role_counts"),
+        ("Accepted structural anchors", "accepted_structural_anchor_counts"),
+        ("Field-evidence fields", "field_evidence_field_counts"),
+        ("Ignored metadata headers", "ignored_metadata_header_counts"),
+    ):
+        counts = summary.get(key)
+        if isinstance(counts, dict) and counts:
+            lines.append(f"- {label}: {_format_counts(counts)}")
 
 
 def _api_rejected_outcomes(lines: list[str], data: AdmissionsData, *, config_key: str, title: str) -> None:
@@ -804,6 +1027,12 @@ def _parsed(lines: list[str], value: FieldValue, *, indent: str) -> None:
 
 def _format_counts(counts: dict[object, object]) -> str:
     return ", ".join(f"`{key}`: {value}" for key, value in counts.items())
+
+
+def _format_diagnostic_codes(value: object) -> str:
+    if not isinstance(value, list) or not value:
+        return "`none`"
+    return ", ".join(f"`{item}`" for item in value)
 
 
 def _allowed_scope_suggestion(lines: list[str], item: dict[str, object], *, indent: str) -> None:

@@ -73,6 +73,10 @@ def test_pipeline_enumerates_low_risk_catalog_api_filters():
     assert summary["api_filter_attempted_url_count"] == 1
     assert summary["api_filter_fetched_url_count"] == 1
     assert summary["api_filter_enumeration_budget_hit"] is False
+    assert summary["api_pagination_complete"] is True
+    assert summary["catalog_complete"] is True
+    assert summary["catalog_completeness_status"] == "complete"
+    assert summary["catalog_completeness_failure_reasons"] == []
 
     report = render_markdown_report(data)
     assert "API filter candidate dimensions" in report
@@ -122,6 +126,10 @@ def test_pipeline_rejects_api_filter_off_domain_redirect():
             "suggested_allowed_domains": ["evil.example"],
         }
     ]
+    summary = data.run.config["programme_catalog_summary"]
+    assert summary["api_filter_rejected_url_count"] == 1
+    assert summary["catalog_complete"] is False
+    assert "api_filter_enumeration_proven" in summary["catalog_completeness_failure_reasons"]
     report = render_markdown_report(data)
     assert "API filter rejected URL details" in report
     assert "`--allowed-host evil.example`" in report
@@ -163,6 +171,10 @@ def test_pipeline_allows_api_filter_redirect_to_configured_host():
     assert filter_outcome["rejected_urls"] == []
     cdn_source = next(source for source in data.sources if source.source_url == redirected_url)
     assert cdn_source.is_official is True
+    summary = data.run.config["programme_catalog_summary"]
+    assert summary["api_filter_rejected_url_count"] == 0
+    assert summary["api_pagination_complete"] is True
+    assert summary["catalog_complete"] is True
 
 
 def _programme(name: str, degree: str, faculty: str) -> dict[str, str]:

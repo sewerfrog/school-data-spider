@@ -22,6 +22,10 @@ Evidence-first MVP for extracting undergraduate admissions information from offi
 - In browser mode, obvious PDF URLs and Playwright `Download is starting` PDF navigations fall back to HTTP byte download so the source is recorded as `SourceType.PDF`.
 - Handles public JSON/API sources as first-class evidence sources.
 - Preserves HTML table text for deterministic extraction from table-heavy admissions pages.
+- Parses programme-catalog tables with mapped/reordered columns, known metadata
+  columns, grouped rows that inherit table context, and nearby faculty/school
+  section context. Inherited values remain conservative and carry their own
+  field-level evidence instead of borrowing the programme-name evidence.
 - Filters obvious static assets and low-value privacy/GDPR/cookie/terms-like
   documents before follow/fetch decisions while preserving admissions
   prospectus, requirements, fee, and programme PDFs.
@@ -147,7 +151,13 @@ For live URLs, the CLI enables HTTP crawling and LLM-assisted source navigation
 and structured extraction fallback by default, infers the allowed official
 domain from the input URL, uses the built-in `admissions_programme_profile`
 relevance strategy, and applies live defaults of `max_pages=80`, `max_depth=4`,
-and `timeout_seconds=60`. Provider selection defaults to `--llm-provider auto`:
+`timeout_seconds=60`, and a four-page targeted programme-detail reserve inside
+the same `max_pages` budget. The first pass parses captured catalogs; the second
+pass fetches only detail URLs that uniquely match catalog rows still missing a
+faculty/school and pass the catalog-family trust gate. Use
+`--programme-detail-reserve 0` to disable this second pass; fixture scans default
+to zero. Small page caps limit the effective reserve to at most one quarter of
+`max_pages`. Provider selection defaults to `--llm-provider auto`:
 it uses OpenAI when `OPENAI_API_KEY` is present, otherwise records
 `llm_runtime.provider = none` and continues with deterministic crawling. Use
 `--no-llm` or `--deterministic-only` to disable LLM-assisted live crawling. Use
@@ -173,7 +183,29 @@ python -m university_admissions_crawler.cli tests/fixtures/mini_university_site 
   --output-dir /tmp/uac-smoke-next
 ```
 
-`run.config.diff` records changed source hashes and changed field values when a prior result is supplied. If no prior result is supplied, the output includes an explicit `needs_manual_check` warning for the missing baseline.
+`run.config.diff` keeps the legacy `changed_sources` source-hash list and
+index-based `changed_fields` list, and also records order-independent impact
+ledgers for unique source URL additions/removals, authoritative
+`programme_catalog` semantic changes, and compatibility `programmes` changes.
+Catalog field changes are separated into gained, lost, and changed values. The
+Markdown report renders the counts and a bounded source URL sample under
+`Incremental Impact`; complete lists remain in `result.json`.
+
+`run.config.diff.field_warning_policy` records the `stable-semantic-v3` warning
+policy. Raw legacy paths remain available in `changed_fields`, but paths under
+`/programmes/<index>/...` and the tracked admissions, fee, scholarship, visa,
+housing, and contact collections no longer generate one warning per shifted
+list position. `run.config.diff.structured_collections` contains 12
+order-independent `RequirementRecord` ledgers. A real semantic change emits one
+aggregate `incremental_change` warning at the affected collection path; stable
+non-list paths retain their original path-specific warnings, capped at 20. The
+policy records retained unstable paths, suppressed index warnings, truncation,
+semantic warning fields, and emitted field-warning counts, and the Markdown
+report exposes the summary. `source_mix_only_change` also requires every
+structured collection to be stable. This intentionally changes warning
+cardinality without removing the legacy diff fields. If no prior result is
+supplied, the output includes an explicit `needs_manual_check` warning for the
+missing baseline and marks the ledgers as unavailable.
 
 ## Testing
 
@@ -191,13 +223,13 @@ Saved-source regression fixtures live under `tests/fixtures/saved_sources/`.
 The `outputs/` directory is for generated run output and should not be required
 by deterministic tests.
 
-Current feature-branch validation after the structured-output records slice:
+Current working-tree validation after the batch-validation slice:
 
 ```bash
 .venv314/bin/python -m pytest -q
 ```
 
-The latest local pytest run passed `241` tests.
+The latest local pytest run passed `390` tests.
 
 The focused target group for the structured-output compatibility slice is:
 
@@ -205,7 +237,7 @@ The focused target group for the structured-output compatibility slice is:
 .venv314/bin/python -m pytest -q tests/test_structured_output.py tests/test_programme_catalog_output.py tests/test_report_cli.py
 ```
 
-The latest target-group run passed `38` tests.
+The latest target-group run passed `53` tests.
 
 ## Evidence and safety policy
 
@@ -289,12 +321,17 @@ All modes write the same output shape:
 - `structured/diagnostics.json`
 - `structured/records/programme_catalog.jsonl`
 - `structured/records/programme_catalog.csv`
+- `structured/records/international_requirements.jsonl`
 - `structured/records/application_periods.jsonl`
 - `structured/records/fees.jsonl`
 - `structured/records/english_requirements.jsonl`
 - `structured/records/accepted_qualifications.jsonl`
 - `structured/records/required_documents.jsonl`
+- `structured/records/standardized_tests.jsonl`
+- `structured/records/selection_tests_or_interviews.jsonl`
 - `structured/records/scholarships.jsonl`
+- `structured/records/visa.jsonl`
+- `structured/records/housing.jsonl`
 - `structured/records/contacts.jsonl`
 - `structured/records/programmes_legacy.jsonl`
 - `sources/*.json`
@@ -314,6 +351,12 @@ All modes write the same output shape:
 - `extraction_diagnostics` and `extraction_diagnostics_summary` — source-level
   extractor attempts, skips, matches, and reason counts. These diagnostics do
   not write admissions facts.
+- `programme_catalog_summary` and `programme_catalog_candidate_diagnostics` —
+  aggregate and row-level HTML candidate decisions, rejection reasons, table
+  shapes, section/group context, and manual-review counts. They are audit data,
+  not proof that a catalog is complete.
+- `programme_catalog_field_evidence` — optional field-to-claim-path mappings for
+  programme values inherited from table or section context.
 - `relevance_strategy` — the discovery scoring strategy used for the scan.
 - `keyword_plan` — present only when deterministic `--keyword-query` debug
   input was supplied.
@@ -336,11 +379,23 @@ in diagnostic sections before facts; they are not admissions facts.
 `structured/` is the preferred downstream-cleaning entry point. It keeps
 `result.json` as the legacy/debug snapshot and exports joinable `source_id`,
 `evidence_id`, and `record_id` values. `structured/facts.jsonl` currently
-contains programme catalog, application period, fee, English requirement,
-accepted qualification, required document, scholarship, contact, and legacy
+contains programme catalog, all 12 tracked requirement collections, and legacy
 programme rows. `structured/sources.jsonl` also carries normalized source
 host/path helper fields, and programme rows carry
 `normalized_programme_name_key` for initial cross-school cleaning and dedupe.
+Programme JSONL rows expose optional field-level evidence refs, while
+`structured/diagnostics.json` preserves the candidate ledger and field-evidence
+mapping when present. It also exposes a compact top-level
+`programme_catalog_completeness` object with status, canonical capture,
+candidate/section conservation, failure stages/reasons, and the recommended
+next action. Its `row_yield` block preserves raw accepted counts/ratios and
+adds claim-path/structural-anchor quality-adjusted counts, exclusion reasons,
+and raw/effective low-yield flags. The full summary remains under
+`diagnostics.programme_catalog_summary`. Whenever `run.config.diff` exists,
+including an explicit `baseline=none` result, its lossless payload is also
+exported as `diagnostics.diff`; older objects without diff metadata omit that
+optional key.
+The cleaning CSV columns remain unchanged.
 The current schema version is `structured-output-v1`; this branch treats the
 structured layer as additive and keeps legacy outputs intact. Downstream
 cleaning should branch on `schema_version`, prefer `structured/facts.jsonl` or
@@ -564,13 +619,75 @@ Each configured university writes to its own folder:
 
 Batch runs also write cross-university cleaning tables:
 
+- `outputs/batch/structured/manifest.json`
 - `outputs/batch/structured/all_programme_catalog.jsonl`
 - `outputs/batch/structured/all_missing_fields.jsonl`
 - `outputs/batch/structured/all_sources.jsonl`
+- `outputs/batch/structured/all_international_requirements.jsonl`
+- `outputs/batch/structured/all_application_periods.jsonl`
+- `outputs/batch/structured/all_fees.jsonl`
+- `outputs/batch/structured/all_english_requirements.jsonl`
+- `outputs/batch/structured/all_accepted_qualifications.jsonl`
+- `outputs/batch/structured/all_required_documents.jsonl`
+- `outputs/batch/structured/all_standardized_tests.jsonl`
+- `outputs/batch/structured/all_selection_tests_or_interviews.jsonl`
+- `outputs/batch/structured/all_scholarships.jsonl`
+- `outputs/batch/structured/all_visa.jsonl`
+- `outputs/batch/structured/all_housing.jsonl`
+- `outputs/batch/structured/all_contacts.jsonl`
 
 These `all_*.jsonl` files are concatenations of the already generated
 per-university structured JSONL files. They do not refetch, dedupe, infer, or
-rewrite admissions facts.
+rewrite admissions facts. The batch manifest records the structured schema,
+input university directory count, row count per table, and file map. Missing
+requirement files from older per-university outputs contribute zero rows rather
+than failing the batch merge. Its `input_coverage` entry for every table records
+expected, present, missing, nonempty, and empty input-file counts plus the
+corresponding input directory names. A present empty file and a missing file are
+therefore distinguishable; neither state by itself proves that the university's
+official site lacks that admissions information. The manifest also reports
+`input_validation` per table and an `input_validation_summary`. This audit checks
+that each JSONL row is an object with the current `schema_version`, that its
+`university_id` matches the input directory, and that record tables use the
+expected `record_type`. Invalid rows remain in the concatenated output and its
+row count, but affected files and reason counts are explicit in the manifest.
+Missing files are coverage gaps, not invalid rows. Malformed JSON still fails the
+merge when it occurs in a file being concatenated, instead of being classified
+as a row-validation issue.
+
+The same validation also checks the minimum table shape: source rows require
+`run_id`, `source_id`, and `source_url`; missing-field rows require `run_id`,
+`field_key`, `status`, and `source_urls`; record rows require `run_id`,
+`record_id`, `value`, `source_refs`, and `evidence_refs`. Empty reference lists
+are valid. Each reference that is present must contain a string identifier that
+resolves to the same university's readable `sources.jsonl` or `evidence.jsonl`.
+`reference_index_coverage` distinguishes missing, unreadable, and readable index
+files and reports unusable identifier rows. An unreadable auxiliary evidence
+index is audited without dropping record rows; malformed JSON in a file that is
+itself being concatenated still fails the merge.
+
+Identifier auditing treats IDs as unique within each university. Duplicate
+`source_id` and `evidence_id` values are excluded from the resolvable index and
+reported separately; references to them are `ambiguous_*_ref`, not resolved.
+`evidence_validation` checks each readable evidence row's minimum identity and
+its `source_id` link to the same university's source index. Record IDs are
+checked across programme catalog and all 12 requirement tables, so both
+same-table duplicates and cross-table collisions are visible in
+`input_validation`. These checks remain diagnostic: duplicate rows are not
+removed or reordered.
+
+The top-level `batch_validation` object reduces those detailed audits to one
+deterministic verdict. `valid` means the exported structured artifacts passed
+the current integrity checks; `incomplete` means only expected input or
+reference-index files are missing, or no university inputs were supplied;
+`invalid` means rows are invalid, a reference index is unreadable, identifiers
+are malformed or ambiguous, or evidence-to-source links fail validation.
+`invalid` takes precedence over `incomplete`. The object includes stable reason
+codes and aggregate metrics, but remains non-blocking: it does not change CLI
+exit codes or remove rows. It also does not claim that crawling or admissions
+data is complete. File-gap metrics describe separate audit surfaces, so one
+physical index file can contribute to both an aggregate-input gap and a
+reference-index gap.
 
 Batch configs normally only need a homepage seed and optional domain/limit
 controls:

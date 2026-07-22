@@ -1,0 +1,4 @@
+Undergraduate Programmes
+Campus | Programme Code | Programme of Study | Mode of Study | Degree Awarded | Normal Duration | Intake | Details
+Main Campus | CS101 | Computer Science | Full-time | Bachelor of Computing (Honours) | 4 years | August | View programme
+City Campus | DS202 | Data Science and Economics | Full-time | Bachelor of Science (Honours) | four-year | September | View programme

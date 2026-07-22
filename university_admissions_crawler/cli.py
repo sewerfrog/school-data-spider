@@ -36,6 +36,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-dir", default="outputs/university-scan", help="Directory for result.json and report.md")
     parser.add_argument("--max-pages", type=int, help="Maximum pages to crawl; defaults to 80 for live scans and 20 for fixtures")
     parser.add_argument("--max-depth", type=int, help="Maximum link depth; defaults to 4 for live scans and 3 for fixtures")
+    parser.add_argument(
+        "--programme-detail-reserve",
+        type=int,
+        help="Pages reserved within max-pages for post-catalog targeted programme details; defaults to 4 live and 0 fixture",
+    )
     parser.add_argument("--allowed-host", action="append", default=[], help="Additional allowed host; repeatable")
     parser.add_argument("--allowed-domain", action="append", default=[], help="Additional allowed domain; repeatable")
     parser.add_argument("--previous-result", help="Optional prior result.json for incremental diff warnings")
@@ -70,6 +75,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     _resolve_runtime_defaults(args)
+    if args.programme_detail_reserve < 0:
+        parser.error("--programme-detail-reserve must be zero or greater.")
     if (args.no_llm or args.deterministic_only) and (
         args.enable_llm or args.llm_provider or args.enable_classification_assist or args.enable_source_planning or args.enable_llm_structured_extraction
     ):
@@ -126,6 +133,7 @@ def main(argv: list[str] | None = None) -> int:
             programme_catalog_assist_provider=programme_catalog_assist_provider,
             source_plan_provider=source_plan_provider,
             structured_extraction_provider=structured_extraction_provider,
+            programme_detail_targeted_reserve=args.programme_detail_reserve,
         )
     else:
         seed_url = _require_live_url(parser, args.input)
@@ -144,6 +152,7 @@ def main(argv: list[str] | None = None) -> int:
                 allowed_domains=_allowed_domains_for(seed_url, args.allowed_domain, True),
                 keyword_plan=keyword_plan,
                 relevance_strategy=relevance_strategy,
+                programme_detail_targeted_reserve=args.programme_detail_reserve,
             ),
             previous_result=previous_result,
             pdf_extractor=PypdfPDFExtractor() if args.enable_pdf else None,
@@ -188,6 +197,8 @@ def _resolve_runtime_defaults(args: argparse.Namespace) -> None:
         args.max_pages = LIVE_DEFAULT_MAX_PAGES if live_profile else FIXTURE_DEFAULT_MAX_PAGES
     if args.max_depth is None:
         args.max_depth = LIVE_DEFAULT_MAX_DEPTH if live_profile else FIXTURE_DEFAULT_MAX_DEPTH
+    if args.programme_detail_reserve is None:
+        args.programme_detail_reserve = 4 if live_profile else 0
     if args.timeout_seconds is None:
         args.timeout_seconds = DEFAULT_TIMEOUT_SECONDS
     if live_profile and not args.no_llm and not args.deterministic_only:

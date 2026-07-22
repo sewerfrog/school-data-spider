@@ -2,9 +2,52 @@
 
 from __future__ import annotations
 
-from university_admissions_crawler.crawler.filters import DomainPolicy, domain_policy_for_seed, validate_source_plan_candidate_url
-from university_admissions_crawler.extractor.llm_provider import SourcePlanProvider, generate_source_plan_diagnostic
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Protocol
+
+from university_admissions_crawler.crawler.discovery import DiscoveryConfig
+from university_admissions_crawler.crawler.fetcher import Fetcher
+from university_admissions_crawler.crawler.filters import DomainPolicy, canonicalize_url, domain_policy_for_seed, validate_source_plan_candidate_url
+from university_admissions_crawler.extractor.llm_provider import (
+    ClassificationAssistProvider,
+    ProgrammeCatalogAssistProvider,
+    SourcePlanProvider,
+    StructuredExtractionProvider,
+    generate_source_plan_diagnostic,
+)
+from university_admissions_crawler.extractor.pdf_extractor import PDFExtractor
 from university_admissions_crawler.extractor.schema import AdmissionsData
+from university_admissions_crawler.pipeline.diagnostics import attach_template_completeness
+
+
+class SourcePlanScanOnce(Protocol):
+    def __call__(
+        self,
+        seed_url: str,
+        fetcher: Fetcher,
+        config: DiscoveryConfig | None = None,
+        *,
+        previous_result: dict[str, Any] | None = None,
+        pdf_extractor: PDFExtractor | None = None,
+        source_output_dir: str | Path | None = None,
+        classification_assist_provider: ClassificationAssistProvider | None = None,
+        programme_catalog_assist_provider: ProgrammeCatalogAssistProvider | None = None,
+        structured_extraction_provider: StructuredExtractionProvider | None = None,
+    ) -> AdmissionsData: ...
+
+
+@dataclass(slots=True)
+class SourcePlanScanContext:
+    seed_url: str
+    fetcher: Fetcher
+    config: DiscoveryConfig | None = None
+    previous_result: dict[str, Any] | None = None
+    pdf_extractor: PDFExtractor | None = None
+    source_output_dir: str | Path | None = None
+    classification_assist_provider: ClassificationAssistProvider | None = None
+    programme_catalog_assist_provider: ProgrammeCatalogAssistProvider | None = None
+    structured_extraction_provider: StructuredExtractionProvider | None = None
 
 
 def attach_source_plan_diagnostics(data: AdmissionsData, provider: SourcePlanProvider) -> AdmissionsData:
@@ -14,6 +57,54 @@ def attach_source_plan_diagnostics(data: AdmissionsData, provider: SourcePlanPro
     diagnostic["applied"] = False
     data.run.config["llm_source_plan"] = diagnostic
     return data
+
+
+def apply_source_plan_second_pass(
+    data: AdmissionsData,
+    provider: SourcePlanProvider,
+    context: SourcePlanScanContext,
+    *,
+    scan_once: SourcePlanScanOnce,
+) -> AdmissionsData:
+    source_plan = build_source_plan_diagnostic(data, provider)
+    if not source_plan.get("triggered"):
+        data.run.config["llm_source_plan"] = source_plan
+        attach_template_completeness(data)
+        return data
+
+    accepted_candidates = _accepted_source_plan_urls(source_plan)
+    if not accepted_candidates:
+        source_plan["applied"] = False
+        source_plan["applied_candidate_urls"] = []
+        source_plan["budget_skipped_candidate_urls"] = []
+        data.run.config["llm_source_plan"] = source_plan
+        attach_template_completeness(data)
+        return data
+
+    second_pass_config = _config_with_extra_candidates(context.config or DiscoveryConfig(), accepted_candidates)
+    planned_data = scan_once(
+        context.seed_url,
+        context.fetcher,
+        second_pass_config,
+        previous_result=context.previous_result,
+        pdf_extractor=context.pdf_extractor,
+        source_output_dir=context.source_output_dir,
+        classification_assist_provider=context.classification_assist_provider,
+        programme_catalog_assist_provider=context.programme_catalog_assist_provider,
+        structured_extraction_provider=context.structured_extraction_provider,
+    )
+    crawled_urls = {canonicalize_url(source.source_url) for source in planned_data.sources}
+    applied_urls = [url for url in accepted_candidates if canonicalize_url(url) in crawled_urls]
+    for item in source_plan.get("accepted_candidate_urls", []):
+        if isinstance(item, dict):
+            url = item.get("url")
+            item["crawl_status"] = "crawled" if isinstance(url, str) and canonicalize_url(url) in crawled_urls else "budget_skipped"
+    source_plan["applied"] = bool(applied_urls)
+    source_plan["applied_candidate_urls"] = applied_urls
+    source_plan["budget_skipped_candidate_urls"] = [url for url in accepted_candidates if url not in crawled_urls]
+    planned_data.run.config["llm_source_plan"] = source_plan
+    attach_template_completeness(planned_data)
+    return planned_data
 
 
 def build_source_plan_diagnostic(data: AdmissionsData, provider: SourcePlanProvider) -> dict[str, object]:
@@ -40,6 +131,41 @@ def build_source_plan_diagnostic(data: AdmissionsData, provider: SourcePlanProvi
     diagnostic["enabled"] = True
     diagnostic["triggered"] = True
     return diagnostic
+
+
+def _accepted_source_plan_urls(source_plan: dict[str, object]) -> tuple[str, ...]:
+    accepted = source_plan.get("accepted_candidate_urls")
+    if not isinstance(accepted, list):
+        return ()
+    urls: list[str] = []
+    seen: set[str] = set()
+    for item in accepted:
+        if not isinstance(item, dict):
+            continue
+        url = item.get("url")
+        if not isinstance(url, str) or not url or url in seen:
+            continue
+        urls.append(url)
+        seen.add(url)
+    return tuple(urls)
+
+
+def _config_with_extra_candidates(config: DiscoveryConfig, extra_candidates: tuple[str, ...]) -> DiscoveryConfig:
+    return DiscoveryConfig(
+        max_depth=config.max_depth,
+        max_pages=config.max_pages,
+        allowed_hosts=set(config.allowed_hosts),
+        allowed_domains=set(config.allowed_domains),
+        allow_official_subdomains=config.allow_official_subdomains,
+        retries=config.retries,
+        relevance_strategy=config.relevance_strategy,
+        keyword_plan=config.keyword_plan,
+        extra_candidates=tuple(dict.fromkeys((*config.extra_candidates, *extra_candidates))),
+        programme_source_family_budget=config.programme_source_family_budget,
+        programme_detail_faculty_catalog_family_budget=config.programme_detail_faculty_catalog_family_budget,
+        programme_detail_unbacked_family_budget=config.programme_detail_unbacked_family_budget,
+        programme_detail_targeted_reserve=config.programme_detail_targeted_reserve,
+    )
 
 
 def validate_source_plan_candidates(candidates: object, data: AdmissionsData) -> tuple[list[dict[str, object]], list[dict[str, object]]]:

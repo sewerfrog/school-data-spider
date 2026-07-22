@@ -48,6 +48,15 @@ def test_pipeline_expands_page_number_catalog_api_to_completion():
     assert summary["api_accepted_row_count"] == 3
     assert summary["api_pagination_complete"] is True
     assert summary["api_pagination_incomplete"] is False
+    assert summary["accepted_source_role_counts"] == {"canonical_catalog": 3}
+    assert summary["canonical_catalog_captured"] is True
+    assert summary["accepted_by_source_role"] == {"canonical_catalog": 3}
+    assert summary["candidate_conservation_proven"] is True
+    assert summary["catalog_section_conservation_proven"] is True
+    assert summary["catalog_complete"] is True
+    assert summary["catalog_completeness_status"] == "complete"
+    assert summary["catalog_completeness_failure_reasons"] == []
+    assert summary["probable_incomplete_catalog"] is False
     assert summary["recommended_next_action"] == "none"
 
 
@@ -151,6 +160,11 @@ def test_pipeline_marks_api_pagination_incomplete_when_budget_hits_before_total(
     assert summary["api_total_count"] == 3
     assert summary["api_pagination_complete"] is False
     assert summary["api_pagination_incomplete"] is True
+    assert summary["accepted_source_role_counts"] == {"faculty_catalog": 2}
+    assert summary["catalog_complete"] is False
+    assert "canonical_catalog_captured" in summary["catalog_completeness_failure_reasons"]
+    assert "api_pagination_proven" in summary["catalog_completeness_failure_reasons"]
+    assert summary["probable_incomplete_catalog"] is True
     assert summary["recommended_next_action"] == "expand_api_pagination"
 
 

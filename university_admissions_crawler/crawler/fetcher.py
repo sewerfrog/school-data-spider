@@ -8,7 +8,11 @@ from urllib.parse import parse_qsl, urldefrag, urljoin, urlparse
 from urllib.request import Request, urlopen
 import re
 
-from university_admissions_crawler.crawler.html_text import _html_to_text, _strip_tags
+from university_admissions_crawler.crawler.html_text import (
+    _html_to_text,
+    _strip_tags,
+    extract_html_text_document,
+)
 from university_admissions_crawler.crawler.json_content import (
     dedupe_preserve_order,
     extract_json_links,
@@ -110,7 +114,8 @@ class FixtureFetcher:
             engine=self.engine,
         )
         links = _extract_links_for_source(text, final_url, source_type)
-        markdown = _text_for_source(text, source_type)
+        html_document = extract_html_text_document(text) if source_type == SourceType.HTML else None
+        markdown = html_document.plain_text if html_document is not None else _text_for_source(text, source_type)
         return FetchResult(
             url=url,
             final_url=final_url,
@@ -121,6 +126,7 @@ class FixtureFetcher:
             engine=self.engine,
             text=text,
             markdown=markdown,
+            content_blocks=html_document.blocks if html_document is not None else (),
             links=links,
             source=source,
         )
@@ -230,7 +236,8 @@ class LiveHTTPFetcher:
             engine=self.engine,
         )
         links = _extract_links_for_source(text, final_url, source_type)
-        markdown = _text_for_source(text, source_type)
+        html_document = extract_html_text_document(text) if source_type == SourceType.HTML else None
+        markdown = html_document.plain_text if html_document is not None else _text_for_source(text, source_type)
         return FetchResult(
             url=url,
             final_url=final_url,
@@ -241,6 +248,7 @@ class LiveHTTPFetcher:
             engine=self.engine,
             text=text,
             markdown=markdown,
+            content_blocks=html_document.blocks if html_document is not None else (),
             links=links,
             source=source,
         )
@@ -364,6 +372,7 @@ class PlaywrightBrowserFetcher:
             content_hash=content_hash(html),
             engine=self.engine,
         )
+        html_document = extract_html_text_document(html)
         return FetchResult(
             url=url,
             final_url=final_url,
@@ -373,7 +382,8 @@ class PlaywrightBrowserFetcher:
             retrieved_at=retrieved_at,
             engine=self.engine,
             text=html,
-            markdown=_html_to_text(html),
+            markdown=html_document.plain_text,
+            content_blocks=html_document.blocks,
             links=_dedupe_preserve_order(list(dom_links) + [record.url for record in network_responses]),
             network_response_urls=_dedupe_preserve_order([record.url for record in network_responses]),
             network_responses=network_responses,
@@ -414,6 +424,7 @@ def assert_fetch_contract(result: FetchResult) -> None:
     assert result.final_url is not None
     assert result.retrieved_at
     assert result.engine
+    assert isinstance(result.content_blocks, tuple)
     assert isinstance(result.links, list)
     assert isinstance(result.warnings, list)
     if result.ok:

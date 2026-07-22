@@ -70,6 +70,7 @@ def _run_university_config(args: argparse.Namespace, university: UniversityConfi
                 allowed_domains=set(args.allowed_domain) | set(university.allowed_domains) | _allowed_domains_for(seed_url, [], True),
                 keyword_plan=keyword_plan,
                 relevance_strategy=relevance_strategy,
+                programme_detail_targeted_reserve=args.programme_detail_reserve,
             ),
             pdf_extractor=PypdfPDFExtractor() if args.enable_pdf else None,
             source_output_dir=Path(args.output_dir) / university.id / "sources",

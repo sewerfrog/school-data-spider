@@ -11,6 +11,13 @@ from university_admissions_crawler.crawler.admissions_context import (
     has_undergraduate_fee_context,
     has_undergraduate_scholarship_context,
 )
+from university_admissions_crawler.crawler.filters import canonicalize_url
+from university_admissions_crawler.crawler.html_text import HTMLContentBlock
+from university_admissions_crawler.crawler.programme_sources import (
+    classify_programme_source_role,
+    is_catalog_backed_programme_detail_source,
+    is_explicit_programme_detail_source,
+)
 from university_admissions_crawler.evidence.provenance import evidence_from_source
 from university_admissions_crawler.extractor.html_extractor import (
     extract_accepted_qualification,
@@ -33,11 +40,19 @@ from university_admissions_crawler.extractor.schema import (
     AdmissionsData,
     ClaimStatus,
     Confidence,
+    EvidenceItem,
     FieldValue,
     PageCategory,
+    ProgrammeCatalogRecord,
     ProgrammeRecord,
     RequirementRecord,
     SourceRecord,
+)
+from university_admissions_crawler.pipeline.programme_catalog_merge import (
+    compatible_programme_detail_indexes,
+    compatible_programme_indexes,
+    merge_programme_catalog_records,
+    remove_resolved_programme_field_warning,
 )
 
 
@@ -49,6 +64,8 @@ class SourceExtractionContext:
     text: str
     pdf_pages: list[PDFPageText]
     category: PageCategory
+    content_blocks: tuple[HTMLContentBlock, ...] = ()
+    requested_url: str | None = None
 
 
 def start_extraction_diagnostics(
@@ -82,6 +99,25 @@ def extract_category_route(
     category = context.category
     final_url = context.final_url
     title = context.title
+    category_routes_programme_catalog = category in {
+        PageCategory.PROGRAMME_LIST,
+        PageCategory.PROGRAMME_PREREQUISITES,
+    }
+    if (
+        not category_routes_programme_catalog
+        and classify_programme_source_role(final_url, title, text, context.content_blocks).role == "programme_detail"
+        and is_explicit_programme_detail_source(final_url, title)
+    ):
+        _append_programme_catalog(
+            data,
+            text,
+            source,
+            recorder,
+            reason="explicit_programme_detail",
+            assist_provider=programme_catalog_assist_provider,
+            content_blocks=context.content_blocks,
+            requested_url=context.requested_url,
+        )
 
     if category == PageCategory.UNDERGRADUATE_ADMISSIONS:
         claim_path = f"/admissions/application_periods/{len(data.admissions.application_periods)}/value"
@@ -195,8 +231,17 @@ def extract_category_route(
         if record:
             data.admissions.accepted_qualifications.append(record)
             data.evidence.extend(evidence)
-    elif category in {PageCategory.PROGRAMME_LIST, PageCategory.PROGRAMME_PREREQUISITES}:
-        _append_programme_catalog(data, text, source, recorder, reason="category_route", assist_provider=programme_catalog_assist_provider)
+    elif category_routes_programme_catalog:
+        _append_programme_catalog(
+            data,
+            text,
+            source,
+            recorder,
+            reason="category_route",
+            assist_provider=programme_catalog_assist_provider,
+            content_blocks=context.content_blocks,
+            requested_url=context.requested_url,
+        )
         programme_start = len(data.programmes)
         programme_claim = f"/programmes/{programme_start}/name"
         programme_records = extract_programmes(text, source, "/programmes", programme_start)
@@ -364,19 +409,264 @@ def _append_programme_catalog(
     *,
     reason: str,
     assist_provider: ProgrammeCatalogAssistProvider | None = None,
+    content_blocks: tuple[HTMLContentBlock, ...] = (),
+    requested_url: str | None = None,
 ) -> None:
-    catalog_records = extract_programme_catalog(text, source, start_index=len(data.programme_catalog), assist_provider=assist_provider)
-    for record, evidence in catalog_records:
-        data.programme_catalog.append(record)
-        data.evidence.extend(evidence)
+    candidate_diagnostics: list[dict[str, object]] = []
+    source_role = classify_programme_source_role(source.source_url, source.title, text, content_blocks).role
+    catalog_records = extract_programme_catalog(
+        text,
+        source,
+        start_index=len(data.programme_catalog),
+        assist_provider=assist_provider,
+        candidate_diagnostics=candidate_diagnostics,
+        content_blocks=content_blocks,
+    )
+    accepted_records = 0
+    appended_evidence = 0
+    if source_role == "programme_detail":
+        appended_evidence = _apply_programme_detail_enrichments(
+            data,
+            source,
+            catalog_records,
+            candidate_diagnostics,
+            requested_url=requested_url,
+        )
+    else:
+        outcome = merge_programme_catalog_records(
+            data,
+            catalog_records,
+            source_role=source_role,
+            candidate_diagnostics=candidate_diagnostics,
+        )
+        accepted_records = outcome.appended_count + outcome.merged_count + outcome.replaced_count
+        appended_evidence = outcome.evidence_count
+    if candidate_diagnostics:
+        data.run.config.setdefault("programme_catalog_candidate_diagnostics", []).extend(candidate_diagnostics)
     recorder.record_count(
         field="programme_catalog",
         extractor="extract_programme_catalog",
         reason=reason,
         claim_path="/programme_catalog",
-        record_count=len(catalog_records),
-        evidence_count=sum(len(evidence) for _record, evidence in catalog_records),
+        record_count=accepted_records,
+        evidence_count=appended_evidence,
     )
+
+
+def _apply_programme_detail_enrichments(
+    data: AdmissionsData,
+    source: SourceRecord,
+    catalog_records: list[tuple[ProgrammeCatalogRecord, list[EvidenceItem]]],
+    candidate_diagnostics: list[dict[str, object]],
+    *,
+    requested_url: str | None,
+) -> int:
+    evidence_count = 0
+    eligible_source_urls = _catalog_enumeration_source_urls(data)
+    enrichment_entries = data.run.config.setdefault("programme_catalog_detail_enrichment_diagnostics", [])
+    for candidate, candidate_evidence in catalog_records:
+        match = _stable_programme_detail_match(
+            data,
+            candidate,
+            eligible_source_urls,
+            requested_url=requested_url,
+        )
+        candidate_diagnostic = next(
+            (
+                item
+                for item in candidate_diagnostics
+                if item.get("decision") == "accepted" and item.get("claim_path") == candidate.evidence_path
+            ),
+            None,
+        )
+        if match is None:
+            rejection_reason = _programme_detail_rejection_reason(
+                data,
+                candidate,
+                eligible_source_urls,
+            )
+            _rewrite_detail_candidate_diagnostic(candidate_diagnostic, decision="rejected", reason=rejection_reason)
+            if isinstance(enrichment_entries, list):
+                enrichment_entries.append(
+                    {
+                        "source_url": source.source_url,
+                        "programme_name": candidate.name,
+                        "decision": "rejected",
+                        "reason": rejection_reason,
+                    }
+                )
+            continue
+
+        matched_index, match_method = match
+        existing = data.programme_catalog[matched_index]
+        enriched_fields: list[str] = []
+        enrichment_mapping = data.run.config.setdefault("programme_catalog_enrichment_evidence", {})
+        row_mapping: dict[str, object] | None = None
+        if isinstance(enrichment_mapping, dict):
+            configured = enrichment_mapping.setdefault(existing.evidence_path, {})
+            if isinstance(configured, dict):
+                row_mapping = configured
+        field_evidence_paths = (
+            candidate_diagnostic.get("field_evidence_paths", {})
+            if isinstance(candidate_diagnostic, dict)
+            else {}
+        )
+        for field_name in ("faculty_or_school", "mode", "duration_or_units"):
+            candidate_value = getattr(candidate, field_name)
+            if getattr(existing, field_name) or not candidate_value:
+                continue
+            setattr(existing, field_name, candidate_value)
+            claim_path = f"/programme_catalog/{matched_index}/{field_name}"
+            source_evidence_path = (
+                field_evidence_paths.get(field_name)
+                if isinstance(field_evidence_paths, dict)
+                else None
+            )
+            source_evidence = next(
+                (item for item in candidate_evidence if item.claim_path == source_evidence_path),
+                None,
+            )
+            evidence = evidence_from_source(
+                claim_path=claim_path,
+                source=source,
+                snippet=source_evidence.snippet if source_evidence else candidate.evidence_snippet,
+                confidence=source_evidence.confidence if source_evidence else candidate.evidence_confidence,
+            )
+            data.evidence.append(evidence)
+            evidence_count += 1
+            enriched_fields.append(field_name)
+            remove_resolved_programme_field_warning(existing, field_name)
+            if row_mapping is not None:
+                row_mapping[field_name] = {
+                    "claim_path": claim_path,
+                    "source_url": source.source_url,
+                }
+
+        reason = "detail_enriched_existing_row" if enriched_fields else "detail_matched_no_missing_fields"
+        _rewrite_detail_candidate_diagnostic(candidate_diagnostic, decision="context", reason=reason)
+        if candidate_diagnostic is not None:
+            candidate_diagnostic["matched_claim_path"] = existing.evidence_path
+            candidate_diagnostic["enriched_fields"] = enriched_fields
+            candidate_diagnostic["match_method"] = match_method
+        if isinstance(enrichment_entries, list):
+            enrichment_entries.append(
+                {
+                    "source_url": source.source_url,
+                    "programme_name": candidate.name,
+                    "decision": "enriched" if enriched_fields else "matched",
+                    "matched_claim_path": existing.evidence_path,
+                    "enriched_fields": enriched_fields,
+                    "match_method": match_method,
+                }
+            )
+    return evidence_count
+
+
+def _catalog_enumeration_source_urls(data: AdmissionsData) -> set[str]:
+    source_strategy = data.run.config.get("source_strategy")
+    if not isinstance(source_strategy, list):
+        return set()
+    return {
+        str(item.get("url"))
+        for item in source_strategy
+        if isinstance(item, dict)
+        and item.get("source_role") in {"canonical_catalog", "faculty_catalog"}
+        and item.get("url")
+    }
+
+
+def _stable_programme_detail_match(
+    data: AdmissionsData,
+    candidate: ProgrammeCatalogRecord,
+    eligible_source_urls: set[str],
+    *,
+    requested_url: str | None,
+) -> tuple[int, str] | None:
+    linked_matches = _linked_programme_detail_indexes(
+        data,
+        candidate.source_url,
+        requested_url=requested_url,
+        eligible_source_urls=eligible_source_urls,
+    )
+    if len(linked_matches) == 1:
+        return linked_matches[0], "primary_source_url"
+    if len(linked_matches) > 1:
+        return None
+    if not is_catalog_backed_programme_detail_source(candidate.source_url, eligible_source_urls):
+        return None
+    matches = compatible_programme_indexes(
+        data,
+        candidate,
+        eligible_source_urls=eligible_source_urls,
+    )
+    if len(matches) == 1:
+        return matches[0], "catalog_identity"
+    if len(matches) > 1:
+        return None
+    detail_matches = compatible_programme_detail_indexes(
+        data,
+        candidate,
+        eligible_source_urls=eligible_source_urls,
+    )
+    return (detail_matches[0], "detail_title_identity") if len(detail_matches) == 1 else None
+
+
+def _programme_detail_rejection_reason(
+    data: AdmissionsData,
+    candidate: ProgrammeCatalogRecord,
+    eligible_source_urls: set[str],
+) -> str:
+    if (
+        not is_catalog_backed_programme_detail_source(candidate.source_url, eligible_source_urls)
+        and (
+            compatible_programme_indexes(data, candidate, eligible_source_urls=eligible_source_urls)
+            or compatible_programme_detail_indexes(data, candidate, eligible_source_urls=eligible_source_urls)
+        )
+    ):
+        return "detail_source_family_without_catalog_context"
+    return "detail_without_canonical_match"
+def _linked_programme_detail_indexes(
+    data: AdmissionsData,
+    source_url: str,
+    *,
+    requested_url: str | None,
+    eligible_source_urls: set[str],
+) -> list[int]:
+    detail_urls = {
+        canonicalize_url(url)
+        for url in (source_url, requested_url)
+        if isinstance(url, str) and url
+    }
+    provenance = data.run.config.get("programme_catalog_row_provenance")
+    if not detail_urls or not isinstance(provenance, dict):
+        return []
+    matches: list[int] = []
+    for index, row in enumerate(data.programme_catalog):
+        if row.source_url not in eligible_source_urls:
+            continue
+        item = provenance.get(row.evidence_path)
+        primary_urls = item.get("primary_source_urls") if isinstance(item, dict) else None
+        if not isinstance(primary_urls, list):
+            continue
+        if detail_urls.intersection(
+            canonicalize_url(url) for url in primary_urls if isinstance(url, str) and url
+        ):
+            matches.append(index)
+    return matches
+
+
+def _rewrite_detail_candidate_diagnostic(
+    diagnostic: dict[str, object] | None,
+    *,
+    decision: str,
+    reason: str,
+) -> None:
+    if diagnostic is None:
+        return
+    diagnostic["parser_decision"] = diagnostic.get("decision")
+    diagnostic["decision"] = decision
+    diagnostic["reason"] = reason
+    diagnostic["parser_stage"] = "source_role_gate"
 
 
 def _extract_core_supplements(data: AdmissionsData, text: str, source, recorder: "ExtractionDiagnosticsRecorder") -> None:

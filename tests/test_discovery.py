@@ -3,6 +3,11 @@ from pathlib import Path
 from university_admissions_crawler.crawler.discovery import DiscoveryConfig, discover, normalize_url
 from university_admissions_crawler.crawler.fetcher import FetchResult, FixtureFetcher
 from university_admissions_crawler.crawler.filters import score_url
+from university_admissions_crawler.crawler.programme_sources import (
+    classify_programme_source_role,
+    institution_profile_programme_urls,
+    is_explicit_programme_detail_source,
+)
 from university_admissions_crawler.evidence.provenance import source_from_text
 from university_admissions_crawler.extractor.schema import SourceType
 from university_admissions_crawler.crawler.relevance import AdmissionsProgrammeRelevanceStrategy, BM25LikeRelevanceStrategy, RuleBasedRelevanceStrategy, keyword_plan_from_query, relevance_diagnostics
@@ -244,6 +249,261 @@ def test_relevance_diagnostics_exposes_programme_source_path_hint():
     assert "profile_programme_catalog_source" in diagnostics.signals
 
 
+def test_programme_source_roles_keep_current_bulletin_and_old_cohort_distinct():
+    current = classify_programme_source_role(
+        "https://www.nus.edu.sg/nusbulletin/ay202526/programmes/school-of-computing/undergraduate-education",
+        "NUS Bulletin AY2025/26 - School of Computing Undergraduate Education",
+        "Undergraduate Programmes\nProgramme | Degree\nComputer Science | Bachelor of Computing",
+    )
+    old_cohort = classify_programme_source_role(
+        "https://www.ntu.edu.sg/computing/admissions/undergraduate-programmes/minorprogrammes/minor-in-computing/ay2020-21-and-earlier-cohorts",
+        "Minor in Computing | AY2020-21 and Earlier Cohorts",
+    )
+
+    assert current.role == "faculty_catalog"
+    assert old_cohort.role == "curriculum_or_old_cohort"
+
+
+def test_programme_source_role_does_not_promote_generic_catalog_descendants():
+    catalog = classify_programme_source_role(
+        "https://example.edu/hass/admissions/programmes",
+        "Undergraduate Programmes",
+    )
+    internship = classify_programme_source_role(
+        "https://example.edu/hass/admissions/programmes/internships",
+        "Internships",
+    )
+    postgraduate = classify_programme_source_role(
+        "https://example.edu/centre/programmes/postgraduate-programmes/instructors",
+        "Instructors",
+    )
+    structured_descendant = classify_programme_source_role(
+        "https://example.edu/hass/admissions/programmes/overview",
+        "Programme Overview",
+        "Programme | Degree\nHistory | Bachelor of Arts",
+    )
+    undergraduate_index = classify_programme_source_role(
+        "https://example.edu/programmes/undergraduate",
+        "Undergraduate Programmes",
+    )
+
+    assert catalog.role == "faculty_catalog"
+    assert undergraduate_index.role == "faculty_catalog"
+    assert internship.role == "unrelated"
+    assert postgraduate.role == "unrelated"
+    assert structured_descendant.role == "faculty_catalog"
+
+
+def test_singular_undergraduate_programme_path_is_a_bounded_detail_source():
+    detail = classify_programme_source_role(
+        "https://example.edu/education/undergraduate-programme/bachelor-of-accountancy",
+        "Bachelor of Accountancy",
+    )
+
+    assert detail.role == "programme_detail"
+    assert detail.source_family == "example.edu/education/undergraduate-programme"
+
+
+def test_explicit_programme_detail_gate_excludes_generic_descendant_pages():
+    detail_url = "https://example.edu/engineering/undergraduate-programmes/detail/bachelor-of-engineering-in-robotics"
+    activity_url = "https://example.edu/engineering/undergraduate-programmes/student-activities"
+
+    assert is_explicit_programme_detail_source(detail_url, "Bachelor of Engineering in Robotics")
+    assert not is_explicit_programme_detail_source(activity_url, "Student Activities")
+    assert classify_programme_source_role(activity_url, "Student Activities").role == "programme_detail"
+
+
+def test_ntu_profile_candidate_is_domain_scoped_and_canonical_first():
+    fetcher = NtuCanonicalFirstFetcher()
+    config = DiscoveryConfig(max_pages=2, max_depth=1, allowed_hosts={"www.ntu.edu.sg"})
+
+    pages = discover("https://www.ntu.edu.sg/admissions/undergraduate", fetcher, config)
+
+    assert [page.result.final_url for page in pages] == [
+        "https://www.ntu.edu.sg/admissions/undergraduate",
+        "https://www.ntu.edu.sg/education/degree-programmes",
+    ]
+    assert pages[1].source_role == "canonical_catalog"
+    assert "https://www.ntu.edu.sg/hass/admissions/programmes/undergraduate-programmes/detail/programme-1" not in fetcher.fetched
+    assert institution_profile_programme_urls("https://www.nus.edu.sg/admissions") == ()
+
+
+def test_discovery_limits_bounded_programme_detail_source_family():
+    fetcher = SourceFamilyBudgetFetcher()
+    config = DiscoveryConfig(
+        max_pages=10,
+        max_depth=1,
+        allowed_hosts={"example.edu"},
+        programme_source_family_budget=2,
+    )
+
+    pages = discover("https://example.edu/", fetcher, config)
+
+    detail_pages = [page for page in pages if page.source_role == "programme_detail"]
+    skipped = [
+        item
+        for item in config.frontier_diagnostics
+        if item.get("reason") == "programme_source_family_budget_exhausted"
+    ]
+    assert len(detail_pages) == 2
+    assert len(skipped) == 3
+    assert {item["source_family"] for item in skipped} == {"example.edu/hass/undergraduate-programmes"}
+    assert {item["family_budget"] for item in skipped} == {2}
+    assert {item["family_budget_policy"] for item in skipped} == {"default"}
+
+
+def test_discovery_scopes_lower_detail_budget_to_faculty_catalog_and_unbacked_families():
+    fetcher = FacultyCatalogScopedBudgetFetcher()
+    config = DiscoveryConfig(
+        max_pages=10,
+        max_depth=1,
+        allowed_hosts={"example.edu"},
+        programme_source_family_budget=2,
+        programme_detail_faculty_catalog_family_budget=1,
+        programme_detail_unbacked_family_budget=1,
+    )
+
+    pages = discover("https://example.edu/", fetcher, config)
+
+    faculty_details = [
+        page
+        for page in pages
+        if page.source_role == "programme_detail"
+        and page.source_family == "example.edu/hass/programmes"
+    ]
+    other_details = [
+        page
+        for page in pages
+        if page.source_role == "programme_detail"
+        and page.source_family == "example.edu/education/undergraduate-programme"
+    ]
+    skipped = [
+        item
+        for item in config.frontier_diagnostics
+        if item.get("reason") == "programme_source_family_budget_exhausted"
+    ]
+    faculty_skipped = [item for item in skipped if item["source_family"] == "example.edu/hass/programmes"]
+    other_skipped = [
+        item
+        for item in skipped
+        if item["source_family"] == "example.edu/education/undergraduate-programme"
+    ]
+    assert len(faculty_details) == 1
+    assert len(other_details) == 1
+    assert len(faculty_skipped) == 2
+    assert {item["family_budget"] for item in faculty_skipped} == {1}
+    assert {item["family_budget_policy"] for item in faculty_skipped} == {
+        "faculty_catalog_backed_detail"
+    }
+    assert len(other_skipped) == 2
+    assert {item["family_budget"] for item in other_skipped} == {1}
+    assert {item["family_budget_policy"] for item in other_skipped} == {
+        "catalog_unbacked_detail"
+    }
+
+
+def test_discovery_can_capture_unfetched_programme_details_for_targeted_second_phase():
+    fetcher = SourceFamilyBudgetFetcher()
+    config = DiscoveryConfig(
+        max_pages=2,
+        max_depth=1,
+        allowed_hosts={"example.edu"},
+        programme_source_family_budget=5,
+        capture_pending_frontier=True,
+    )
+
+    pages = discover("https://example.edu/", fetcher, config)
+
+    pending = [item for item in config.frontier_diagnostics if item.get("decision") == "pending"]
+    assert len(pages) == 2
+    assert len(pending) == 4
+    assert all(item["reason"] == "page_budget_reserved" for item in pending)
+    assert all(item["queued_source_role"] == "programme_detail" for item in pending)
+    assert all(isinstance(item["depth"], int) for item in pending)
+    assert all(isinstance(item["score"], int) for item in pending)
+    assert all(isinstance(item["order"], int) for item in pending)
+    assert all(item["source_url"] == "https://example.edu/" for item in pending)
+
+
+def test_canonical_detail_links_are_not_starved_by_generic_programme_descendants():
+    fetcher = CanonicalDetailPriorityFetcher()
+    config = DiscoveryConfig(
+        max_pages=4,
+        max_depth=2,
+        allowed_hosts={"www.ntu.edu.sg"},
+        programme_source_family_budget=2,
+        programme_detail_faculty_catalog_family_budget=1,
+        programme_detail_unbacked_family_budget=1,
+    )
+
+    pages = discover("https://www.ntu.edu.sg/admissions/undergraduate", fetcher, config)
+
+    assert [page.result.final_url for page in pages] == [
+        "https://www.ntu.edu.sg/admissions/undergraduate",
+        "https://www.ntu.edu.sg/education/degree-programmes",
+        "https://www.ntu.edu.sg/education/undergraduate-programme/bachelor-of-accountancy",
+        "https://www.ntu.edu.sg/education/undergraduate-programme/bachelor-of-business",
+    ]
+    assert not any("/scholarships/" in url for url in fetcher.fetched)
+    detail_entries = [
+        item
+        for item in config.frontier_diagnostics
+        if item.get("decision") == "fetched"
+        and "/education/undergraduate-programme/" in str(item.get("url"))
+    ]
+    assert len(detail_entries) == 2
+    assert all(item["queued_source_role"] == "programme_detail" for item in detail_entries)
+    assert all("canonical_catalog_detail_link" in item["queued_reason_signals"] for item in detail_entries)
+
+
+def test_canonical_detail_budget_survives_candidate_frontier_deduplication():
+    fetcher = CanonicalAlreadyQueuedDetailFetcher()
+    config = DiscoveryConfig(
+        max_pages=4,
+        max_depth=2,
+        allowed_hosts={"example.edu"},
+        programme_source_family_budget=2,
+        programme_detail_faculty_catalog_family_budget=1,
+        programme_detail_unbacked_family_budget=1,
+    )
+
+    pages = discover("https://example.edu/", fetcher, config)
+
+    detail_pages = [page for page in pages if page.source_role == "programme_detail"]
+    assert len(detail_pages) == 2
+    assert {page.result.final_url for page in detail_pages} == {
+        "https://example.edu/education/undergraduate-programme/accountancy",
+        "https://example.edu/education/undergraduate-programme/business",
+    }
+
+
+def test_related_compound_detail_uses_remaining_family_budget_before_plain_sibling():
+    fetcher = RelatedCompoundDetailPriorityFetcher()
+    config = DiscoveryConfig(
+        max_pages=4,
+        max_depth=3,
+        allowed_hosts={"example.edu"},
+        programme_source_family_budget=2,
+        relevance_strategy=RelatedCompoundDetailTestRelevanceStrategy(),
+    )
+
+    pages = discover("https://example.edu/", fetcher, config)
+
+    assert [page.result.final_url for page in pages] == [
+        "https://example.edu/",
+        "https://example.edu/hass/admissions/programmes",
+        "https://example.edu/hass/admissions/programmes/detail/bachelor-of-arts-in-english",
+        "https://example.edu/hass/admissions/programmes/detail/double-major-in-history-and-philosophy",
+    ]
+    assert "https://example.edu/hass/admissions/programmes/detail/bachelor-of-arts-in-history" not in fetcher.fetched
+    compound_entry = next(
+        item
+        for item in config.frontier_diagnostics
+        if item.get("url", "").endswith("/double-major-in-history-and-philosophy")
+    )
+    assert "related_compound_programme_detail_link" in compound_entry["queued_reason_signals"]
+
+
 class LinkedAssetFetcher:
     engine = "fixture"
 
@@ -441,6 +701,206 @@ class ExtraCandidateFetcher:
         if url == "https://example.edu/undergraduate-programmes":
             return _fetch_result(url, text="Undergraduate degree programmes Bachelor of Science", title="Undergraduate Programmes")
         return _fetch_result(url, text="About the university", title="About")
+
+
+class NtuCanonicalFirstFetcher:
+    engine = "fixture"
+
+    def __init__(self) -> None:
+        self.fetched: list[str] = []
+
+    def fetch(self, url: str) -> FetchResult:
+        self.fetched.append(url)
+        if url == "https://www.ntu.edu.sg/admissions/undergraduate":
+            return _fetch_result(
+                url,
+                text="Undergraduate admissions",
+                title="Undergraduate Admissions | NTU Singapore",
+                links=[
+                    f"https://www.ntu.edu.sg/hass/admissions/programmes/undergraduate-programmes/detail/programme-{index}"
+                    for index in range(1, 6)
+                ],
+            )
+        if url == "https://www.ntu.edu.sg/education/degree-programmes":
+            return _fetch_result(
+                url,
+                text="Programme | Degree Title\nComputer Science | Bachelor of Computing in Computer Science",
+                title="Degree Programmes | NTU Singapore",
+            )
+        return _fetch_result(url, status=404, text="not found")
+
+
+class SourceFamilyBudgetFetcher:
+    engine = "fixture"
+
+    def __init__(self) -> None:
+        self.fetched: list[str] = []
+
+    def fetch(self, url: str) -> FetchResult:
+        self.fetched.append(url)
+        if url == "https://example.edu/":
+            return _fetch_result(
+                url,
+                text="University home",
+                links=[
+                    *[
+                        f"https://example.edu/hass/undergraduate-programmes/detail/programme-{index}"
+                        for index in range(1, 6)
+                    ],
+                    "https://example.edu/admissions",
+                ],
+            )
+        if "/detail/" in url:
+            return _fetch_result(url, text="Bachelor of Arts in Example Studies", title="Bachelor of Arts in Example Studies")
+        if url == "https://example.edu/admissions":
+            return _fetch_result(url, text="Undergraduate admissions", title="Admissions")
+        return _fetch_result(url, status=404, text="not found")
+
+
+class FacultyCatalogScopedBudgetFetcher:
+    engine = "fixture"
+
+    def fetch(self, url: str) -> FetchResult:
+        if url == "https://example.edu/":
+            return _fetch_result(
+                url,
+                text="University home",
+                links=[
+                    "https://example.edu/hass/programmes",
+                    *[
+                        f"https://example.edu/hass/programmes/detail/faculty-{index}"
+                        for index in range(1, 4)
+                    ],
+                    *[
+                        "https://example.edu/education/undergraduate-programme/"
+                        f"general-{index}"
+                        for index in range(1, 4)
+                    ],
+                ],
+            )
+        if url == "https://example.edu/hass/programmes":
+            return _fetch_result(
+                url,
+                text="Programme | Degree Title\nEnglish | Bachelor of Arts in English",
+                title="Undergraduate Programmes | School of Humanities",
+            )
+        if "/detail/" in url or "/undergraduate-programme/" in url:
+            return _fetch_result(
+                url,
+                text="Bachelor of Arts in Example Studies",
+                title="Bachelor of Arts in Example Studies",
+            )
+        return _fetch_result(url, status=404, text="not found")
+
+
+class CanonicalDetailPriorityFetcher:
+    engine = "fixture"
+
+    def __init__(self) -> None:
+        self.fetched: list[str] = []
+
+    def fetch(self, url: str) -> FetchResult:
+        self.fetched.append(url)
+        if url == "https://www.ntu.edu.sg/admissions/undergraduate":
+            return _fetch_result(
+                url,
+                text="Undergraduate admissions",
+                title="Undergraduate Admissions | NTU Singapore",
+                links=[
+                    f"https://www.ntu.edu.sg/admissions/undergraduate/scholarships/noise-{index}"
+                    for index in range(1, 6)
+                ],
+            )
+        if url == "https://www.ntu.edu.sg/education/degree-programmes":
+            return _fetch_result(
+                url,
+                text=(
+                    "Programme | Degree Title\n"
+                    "Accountancy | Bachelor of Accountancy\n"
+                    "Business | Bachelor of Business"
+                ),
+                title="Degree Programmes | NTU Singapore",
+                links=[
+                    "https://www.ntu.edu.sg/education/undergraduate-programme/bachelor-of-accountancy",
+                    "https://www.ntu.edu.sg/education/undergraduate-programme/bachelor-of-business",
+                ],
+            )
+        if "/education/undergraduate-programme/" in url:
+            return _fetch_result(
+                url,
+                text="Bachelor programme | Nanyang Business School",
+                title="Bachelor Programme | Nanyang Business School | NTU Singapore",
+            )
+        return _fetch_result(url, text="Undergraduate scholarship", title="Undergraduate Scholarship")
+
+
+class CanonicalAlreadyQueuedDetailFetcher:
+    engine = "fixture"
+
+    def fetch(self, url: str) -> FetchResult:
+        accountancy_url = "https://example.edu/education/undergraduate-programme/accountancy"
+        business_url = "https://example.edu/education/undergraduate-programme/business"
+        if url == "https://example.edu/":
+            return _fetch_result(
+                url,
+                text="University home",
+                links=[accountancy_url, "https://example.edu/degree-programmes"],
+            )
+        if url == "https://example.edu/degree-programmes":
+            return _fetch_result(
+                url,
+                text="Programme | Degree Title\nAccountancy | Bachelor of Accountancy",
+                title="Degree Programmes",
+                links=[accountancy_url, business_url],
+            )
+        if url in {accountancy_url, business_url}:
+            return _fetch_result(url, text="Bachelor programme", title="Bachelor Programme")
+        return _fetch_result(url, status=404, text="not found")
+
+
+class RelatedCompoundDetailTestRelevanceStrategy:
+    name = "related_compound_detail_test"
+
+    def score(self, url: str, title: str | None = None, text: str | None = None) -> int:
+        if url.endswith("/bachelor-of-arts-in-english"):
+            return 10
+        if url.endswith("/bachelor-of-arts-in-history"):
+            return 9
+        return 0
+
+    def should_follow(self, url: str, policy) -> bool:
+        return policy.is_allowed(url)
+
+
+class RelatedCompoundDetailPriorityFetcher:
+    engine = "fixture"
+
+    def __init__(self) -> None:
+        self.fetched: list[str] = []
+
+    def fetch(self, url: str) -> FetchResult:
+        self.fetched.append(url)
+        catalog_url = "https://example.edu/hass/admissions/programmes"
+        english_url = f"{catalog_url}/detail/bachelor-of-arts-in-english"
+        history_url = f"{catalog_url}/detail/bachelor-of-arts-in-history"
+        compound_url = f"{catalog_url}/detail/double-major-in-history-and-philosophy"
+        if url == "https://example.edu/":
+            return _fetch_result(url, text="University home", links=[catalog_url])
+        if url == catalog_url:
+            return _fetch_result(
+                url,
+                text="Undergraduate Programmes\nBachelor of Arts in English\nBachelor of Arts in History",
+                title="Undergraduate Programmes",
+                links=[english_url, history_url],
+            )
+        if url == english_url:
+            return _fetch_result(
+                url,
+                text="Bachelor of Arts in English",
+                title="Bachelor of Arts in English",
+                links=[compound_url],
+            )
+        return _fetch_result(url, text="Bachelor programme", title="Bachelor Programme")
 
 
 def _fetch_result(

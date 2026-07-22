@@ -1,0 +1,164 @@
+{
+  "fixture_kind": "minimal_reproduction",
+  "derived_from": {
+    "failure_output": "outputs/ntu-live-20260717",
+    "canonical_reference": "https://www.ntu.edu.sg/education/degree-programmes"
+  },
+  "captured_at": "2026-07-21",
+  "cases": [
+    {
+      "id": "hass_title_pipe",
+      "file": "hass_title_pipe.html",
+      "source_url": "https://www.ntu.edu.sg/hass/admissions/programmes",
+      "title": "Undergraduate Programmes | College of Humanities, Arts and Social Sciences | NTU Singapore",
+      "expected_source_role": "faculty_catalog",
+      "expected_names": [
+        "Bachelor of Fine Arts in Art, Design and Media",
+        "Bachelor of Arts (Hons)",
+        "Bachelor of Social Sciences (Hons)"
+      ],
+      "forbidden_name_fragments": [
+        "HASS It All",
+        "Home to over 6,000",
+        "For details"
+      ],
+      "expected_rejection_reasons": [
+        "sentence_like_name"
+      ]
+    },
+    {
+      "id": "ccds_visible_css",
+      "file": "ccds_visible_css.html",
+      "source_url": "https://www.ntu.edu.sg/computing/admissions/undergraduate-programmes",
+      "title": "Undergraduate Education at CCDS | College of Computing and Data Science | NTU Singapore",
+      "expected_source_role": "faculty_catalog",
+      "expected_names": [
+        "Bachelor of Computing (Hons) in Computer Science",
+        "Bachelor of Engineering (Hons) in Computer Engineering"
+      ],
+      "forbidden_name_fragments": [
+        "MASTER STYLESHEET",
+        ".ccds-card",
+        "@media"
+      ],
+      "expected_rejection_reasons": [
+        "css_or_template_text"
+      ]
+    },
+    {
+      "id": "ccds_json_ld_course_cards",
+      "file": "ccds_json_ld_course_cards.html",
+      "source_url": "https://www.ntu.edu.sg/computing/admissions/undergraduate-programmes",
+      "title": "Undergraduate Education at CCDS | College of Computing and Data Science | NTU Singapore",
+      "expected_source_role": "faculty_catalog",
+      "expected_names": [
+        "Bachelor of Computing (Hons) in Artificial Intelligence (AI) and Society",
+        "Bachelor of Engineering (Hons) in Computer Engineering",
+        "Bachelor of Applied Computing in Finance",
+        "Bachelor of Engineering (Hons) in Computer Engineering with a Second Major in Data Analytics"
+      ],
+      "forbidden_name_fragments": [
+        "Engineering Bachelor",
+        "Computing Bachelor"
+      ],
+      "expected_rejection_reasons": []
+    },
+    {
+      "id": "curriculum_care_serve_learn",
+      "file": "curriculum_care_serve_learn.html",
+      "source_url": "https://www.ntu.edu.sg/hass/admissions/programmes/undergraduate-programmes/detail/bachelor-of-social-sciences-in-sociology-(honours)",
+      "title": "Bachelor of Social Sciences (Hons) in Sociology | NTU Singapore",
+      "expected_source_role": "programme_detail",
+      "expected_names": [
+        "Bachelor of Social Sciences (Hons) in Sociology"
+      ],
+      "forbidden_name_fragments": [
+        "Care, Serve, Learn",
+        "Broadening and Deepening Electives",
+        "Table C"
+      ],
+      "expected_rejection_reasons": [
+        "course_or_curriculum_row"
+      ]
+    },
+    {
+      "id": "detail_related_programmes",
+      "file": "detail_related_programmes.html",
+      "source_url": "https://www.ntu.edu.sg/hass/admissions/programmes/undergraduate-programmes/detail/bachelor-of-arts-in-chinese",
+      "title": "Bachelor of Arts (Hons) in Chinese | NTU Singapore",
+      "expected_source_role": "programme_detail",
+      "expected_names": [
+        "Bachelor of Arts (Hons) in Chinese"
+      ],
+      "forbidden_name_fragments": [
+        "Bachelor of Arts (Hons) in English",
+        "Bachelor of Arts (Hons) in Philosophy"
+      ],
+      "expected_rejection_reasons": [
+        "related_programme_container"
+      ]
+    },
+    {
+      "id": "old_cohort_minor",
+      "file": "old_cohort_minor.html",
+      "source_url": "https://www.ntu.edu.sg/computing/admissions/undergraduate-programmes/minorprogrammes/minor-in-computing-and-data-analysis/ay2020-21-and-earlier-cohorts",
+      "title": "Minor in Computing and Data Analysis | AY2020-21 and Earlier Cohorts | NTU Singapore",
+      "expected_source_role": "curriculum_or_old_cohort",
+      "expected_names": [],
+      "forbidden_name_fragments": [
+        "Total No. of AUs",
+        "CCDS reserves the right",
+        "CZ1003"
+      ],
+      "expected_rejection_reasons": [
+        "course_or_curriculum_row"
+      ]
+    },
+    {
+      "id": "canonical_degree_table",
+      "file": "canonical_degree_table.html",
+      "source_url": "https://www.ntu.edu.sg/education/degree-programmes",
+      "title": "Degree Programmes | NTU Singapore",
+      "expected_source_role": "canonical_catalog",
+      "expected_names": [
+        "Accountancy",
+        "Computer Science",
+        "Environmental Earth Systems Science",
+        "Medicine"
+      ],
+      "expected_awards": {
+        "Accountancy": "Bachelor of Accountancy",
+        "Computer Science": "Bachelor of Computing in Computer Science",
+        "Environmental Earth Systems Science": "Bachelor of Science in Environmental Earth Systems Science",
+        "Medicine": "Bachelor of Medicine and Bachelor of Surgery"
+      },
+      "forbidden_name_fragments": [],
+      "expected_rejection_reasons": []
+    },
+    {
+      "id": "canonical_degree_table_with_eligibility",
+      "file": "canonical_degree_table_with_eligibility.html",
+      "source_url": "https://www.ntu.edu.sg/education/degree-programmes",
+      "title": "Degree Programmes | NTU Singapore",
+      "expected_source_role": "canonical_catalog",
+      "expected_names": [
+        "Accountancy",
+        "Computer Science",
+        "Environmental Earth Systems Science",
+        "Medicine"
+      ],
+      "expected_awards": {
+        "Accountancy": "Bachelor of Accountancy",
+        "Computer Science": "Bachelor of Computing in Computer Science",
+        "Environmental Earth Systems Science": "Bachelor of Science in Environmental Earth Systems Science",
+        "Medicine": "Bachelor of Medicine and Bachelor of Surgery"
+      },
+      "forbidden_name_fragments": [
+        "All except:"
+      ],
+      "expected_rejection_reasons": [
+        "minor_or_second_major_eligibility_table"
+      ]
+    }
+  ]
+}

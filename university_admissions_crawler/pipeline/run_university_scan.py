@@ -2,96 +2,62 @@
 
 from __future__ import annotations
 
-import re
-from dataclasses import dataclass
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
 
-from university_admissions_crawler.classifier.page_classifier import Classification, classify_page, is_low_confidence_classification
-from university_admissions_crawler.crawler.discovery import DiscoveredPage, DiscoveryConfig, discover
-from university_admissions_crawler.crawler.fetcher import Fetcher, FetchResult, FixtureFetcher
-from university_admissions_crawler.crawler.filters import DomainPolicy, allowed_scope_suggestion, canonicalize_url, domain_policy_for_seed
-from university_admissions_crawler.crawler.relevance import DEFAULT_RELEVANCE_STRATEGY, KeywordPlan, RelevanceStrategy, relevance_diagnostics
-from university_admissions_crawler.crawler.types import NetworkResponseRecord
-from university_admissions_crawler.evidence.provenance import content_hash
-from university_admissions_crawler.evidence.store import write_source_record
-from university_admissions_crawler.extractor.api_extractor import extract_api_claims
+from university_admissions_crawler.crawler.discovery import (
+    DiscoveredPage,
+    DiscoveryConfig,
+    discover,
+    fetch_discovered_candidate,
+)
+from university_admissions_crawler.crawler.fetcher import Fetcher, FixtureFetcher
+from university_admissions_crawler.crawler.filters import DomainPolicy
+from university_admissions_crawler.crawler.relevance import DEFAULT_RELEVANCE_STRATEGY, KeywordPlan, RelevanceStrategy
 from university_admissions_crawler.extractor.llm_provider import (
     ClassificationAssistProvider,
     ProgrammeCatalogAssistProvider,
     SourcePlanProvider,
     StructuredExtractionProvider,
-    generate_classification_assist_diagnostic,
 )
-from university_admissions_crawler.extractor.normalizer import add_warning
-from university_admissions_crawler.extractor.pdf_extractor import FixturePDFExtractor, MissingPDFExtractor, PDFExtractor, PDFPageText
-from university_admissions_crawler.extractor.programme_catalog_api import catalog_api_body_profile, extract_programme_catalog_api, programme_catalog_api_diagnostics
+from university_admissions_crawler.extractor.pdf_extractor import FixturePDFExtractor, MissingPDFExtractor, PDFExtractor
+from university_admissions_crawler.pipeline.api_catalog_augmentation import augment_api_catalog_discovery
+from university_admissions_crawler.pipeline.api_catalog_capture import (
+    ApiCatalogCaptureContext,
+    capture_safe_api_catalog_candidates,
+    network_responses_by_url,
+    process_json_api_with_pagination,
+)
 from university_admissions_crawler.pipeline.category_extraction import (
     SourceExtractionContext,
     extract_category_route,
     extract_core_supplements_for_context,
     start_extraction_diagnostics,
 )
-from university_admissions_crawler.pipeline.diagnostics import attach_run_diagnostics, attach_template_completeness, source_strategy_for
-from university_admissions_crawler.pipeline.source_planning import build_source_plan_diagnostic
+from university_admissions_crawler.pipeline.diagnostics import attach_run_diagnostics
+from university_admissions_crawler.pipeline.incremental_diff import apply_incremental_diff
+from university_admissions_crawler.pipeline.programme_detail_selection import (
+    TargetedProgrammeDetailCandidate,
+    select_targeted_programme_detail_candidates,
+    targeted_programme_detail_family_reserve,
+)
+from university_admissions_crawler.pipeline.scan_context import build_captured_source_context
+from university_admissions_crawler.pipeline.source_capture import (
+    attach_programme_frontier_diagnostics,
+    domain_policy_for_scan,
+    initialize_scan_data,
+    record_fetch_result,
+)
+from university_admissions_crawler.pipeline.source_planning import SourcePlanScanContext, apply_source_plan_second_pass
 from university_admissions_crawler.pipeline.structured_fallback import attach_llm_structured_extraction_diagnostics
 from university_admissions_crawler.extractor.schema import (
     AdmissionsData,
-    EvidenceItem,
     FieldValue,
-    Institution,
-    PageCategory,
-    PageClassificationRecord,
     RequirementRecord,
-    RunMetadata,
-    SourceRecord,
     SourceType,
-    WarningCode,
-    WarningRecord,
     attach_validation_warnings,
 )
-from university_admissions_crawler.pipeline.api_catalog_discovery import (
-    MAX_API_RESPONSE_SIZE_BYTES,
-    MAX_SAFE_API_CAPTURE_CANDIDATES,
-    api_catalog_candidate_capture_urls,
-    attach_api_catalog_discovery_diagnostics,
-    mark_api_catalog_candidate_capture,
-)
-from university_admissions_crawler.pipeline.api_catalog_filters import fetch_api_catalog_filter_pages
-from university_admissions_crawler.pipeline.api_catalog_pagination import (
-    ApiCatalogPaginationOutcome,
-    api_pagination_group_url,
-    fetch_additional_api_catalog_pages,
-)
-
-MAX_DYNAMIC_SHELL_BROWSER_CAPTURES = 3
-MAX_DYNAMIC_SHELL_STATIC_ASSET_PAGES = 3
-MAX_STATIC_ASSET_DISCOVERY_FETCHES = 8
-MAX_STATIC_ASSET_DISCOVERY_BYTES = 1_000_000
-
-_SCRIPT_SRC_RE = re.compile(r"""<script\b[^>]*\bsrc\s*=\s*(?P<quote>["'])(?P<url>[^"']+)(?P=quote)""", re.IGNORECASE)
-_LINK_TAG_RE = re.compile(r"""<link\b[^>]*>""", re.IGNORECASE)
-_HREF_RE = re.compile(r"""\bhref\s*=\s*(?P<quote>["'])(?P<url>[^"']+)(?P=quote)""", re.IGNORECASE)
-
-
-@dataclass(slots=True)
-class _SourceTextContext:
-    discovery_text: str
-    extraction_text: str
-    pdf_pages: list[PDFPageText]
-
-
-@dataclass(slots=True)
-class _CapturedSourceContext:
-    final_url: str
-    title: str | None
-    source: SourceRecord
-    discovery_text: str
-    extraction_text: str
-    pdf_pages: list[PDFPageText]
-    classification: Classification
-    source_strategy: str
 
 
 def run_fixture_scan(
@@ -109,6 +75,7 @@ def run_fixture_scan(
     programme_catalog_assist_provider: ProgrammeCatalogAssistProvider | None = None,
     source_plan_provider: SourcePlanProvider | None = None,
     structured_extraction_provider: StructuredExtractionProvider | None = None,
+    programme_detail_targeted_reserve: int = 0,
 ) -> AdmissionsData:
     return run_scan(
         seed_url,
@@ -120,6 +87,7 @@ def run_fixture_scan(
             allowed_domains=allowed_domains or set(),
             keyword_plan=keyword_plan,
             relevance_strategy=relevance_strategy or DEFAULT_RELEVANCE_STRATEGY,
+            programme_detail_targeted_reserve=programme_detail_targeted_reserve,
         ),
         previous_result=previous_result,
         source_output_dir=source_output_dir,
@@ -157,238 +125,21 @@ def run_scan(
     if source_plan_provider is None:
         return data
 
-    source_plan = build_source_plan_diagnostic(data, source_plan_provider)
-    if not source_plan.get("triggered"):
-        data.run.config["llm_source_plan"] = source_plan
-        attach_template_completeness(data)
-        return data
-
-    accepted_candidates = _accepted_source_plan_urls(source_plan)
-    if not accepted_candidates:
-        source_plan["applied"] = False
-        source_plan["applied_candidate_urls"] = []
-        source_plan["budget_skipped_candidate_urls"] = []
-        data.run.config["llm_source_plan"] = source_plan
-        attach_template_completeness(data)
-        return data
-
-    second_pass_config = _config_with_extra_candidates(config or DiscoveryConfig(), accepted_candidates)
-    planned_data = _run_scan_once(
-        seed_url,
-        fetcher,
-        second_pass_config,
-        previous_result=previous_result,
-        pdf_extractor=pdf_extractor,
-        source_output_dir=source_output_dir,
-        classification_assist_provider=classification_assist_provider,
-        programme_catalog_assist_provider=programme_catalog_assist_provider,
-        structured_extraction_provider=structured_extraction_provider,
-    )
-    crawled_urls = {canonicalize_url(source.source_url) for source in planned_data.sources}
-    applied_urls = [url for url in accepted_candidates if canonicalize_url(url) in crawled_urls]
-    for item in source_plan.get("accepted_candidate_urls", []):
-        if isinstance(item, dict):
-            url = item.get("url")
-            item["crawl_status"] = "crawled" if isinstance(url, str) and canonicalize_url(url) in crawled_urls else "budget_skipped"
-    source_plan["applied"] = bool(applied_urls)
-    source_plan["applied_candidate_urls"] = applied_urls
-    source_plan["budget_skipped_candidate_urls"] = [url for url in accepted_candidates if url not in crawled_urls]
-    planned_data.run.config["llm_source_plan"] = source_plan
-    attach_template_completeness(planned_data)
-    return planned_data
-
-
-def _accepted_source_plan_urls(source_plan: dict[str, object]) -> tuple[str, ...]:
-    accepted = source_plan.get("accepted_candidate_urls")
-    if not isinstance(accepted, list):
-        return ()
-    urls: list[str] = []
-    seen: set[str] = set()
-    for item in accepted:
-        if not isinstance(item, dict):
-            continue
-        url = item.get("url")
-        if not isinstance(url, str) or not url or url in seen:
-            continue
-        urls.append(url)
-        seen.add(url)
-    return tuple(urls)
-
-
-def _config_with_extra_candidates(config: DiscoveryConfig, extra_candidates: tuple[str, ...]) -> DiscoveryConfig:
-    return DiscoveryConfig(
-        max_depth=config.max_depth,
-        max_pages=config.max_pages,
-        allowed_hosts=set(config.allowed_hosts),
-        allowed_domains=set(config.allowed_domains),
-        allow_official_subdomains=config.allow_official_subdomains,
-        retries=config.retries,
-        relevance_strategy=config.relevance_strategy,
-        keyword_plan=config.keyword_plan,
-        extra_candidates=tuple(dict.fromkeys((*config.extra_candidates, *extra_candidates))),
-    )
-
-
-def _domain_policy_for_scan(seed_url: str, discovery_config: DiscoveryConfig) -> DomainPolicy:
-    return domain_policy_for_seed(
-        seed_url,
-        allowed_hosts=set(discovery_config.allowed_hosts),
-        allowed_domains=set(discovery_config.allowed_domains),
-        allow_official_subdomains=discovery_config.allow_official_subdomains,
-    )
-
-
-def _initialize_scan_data(
-    seed_url: str,
-    discovery_config: DiscoveryConfig,
-    *,
-    classification_assist_provider: ClassificationAssistProvider | None,
-    structured_extraction_provider: StructuredExtractionProvider | None,
-) -> AdmissionsData:
-    data = AdmissionsData(
-        institution=Institution(homepage_url=seed_url),
-        run=RunMetadata(
-            input_url=seed_url,
-            config={
-                "max_pages": discovery_config.max_pages,
-                "max_depth": discovery_config.max_depth,
-                "allowed_hosts": sorted(discovery_config.allowed_hosts),
-                "allowed_domains": sorted(discovery_config.allowed_domains),
-                "allow_official_subdomains": discovery_config.allow_official_subdomains,
-                "relevance_strategy": getattr(discovery_config.relevance_strategy, "name", type(discovery_config.relevance_strategy).__name__),
-            },
+    return apply_source_plan_second_pass(
+        data,
+        source_plan_provider,
+        SourcePlanScanContext(
+            seed_url=seed_url,
+            fetcher=fetcher,
+            config=config,
+            previous_result=previous_result,
+            pdf_extractor=pdf_extractor,
+            source_output_dir=source_output_dir,
+            classification_assist_provider=classification_assist_provider,
+            programme_catalog_assist_provider=programme_catalog_assist_provider,
+            structured_extraction_provider=structured_extraction_provider,
         ),
-    )
-    if discovery_config.keyword_plan is not None:
-        data.run.config["keyword_plan"] = discovery_config.keyword_plan.to_dict()
-    if classification_assist_provider is not None:
-        data.run.config["classification_assist"] = []
-    if structured_extraction_provider is not None:
-        data.run.config["llm_structured_extraction"] = {
-            "enabled": True,
-            "triggered": False,
-            "provider": getattr(structured_extraction_provider, "name", type(structured_extraction_provider).__name__),
-            "candidate_count": 0,
-            "accepted_count": 0,
-            "rejected_count": 0,
-            "results": [],
-            "source_urls_used": [],
-            "trigger_reasons": [],
-            "applied_to_facts": False,
-            "note": "LLM structured extraction fallback writes only validated candidates into missing fields; rejected or skipped candidates remain diagnostics.",
-        }
-    return data
-
-
-def _record_fetch_result(
-    data: AdmissionsData,
-    result: FetchResult,
-    *,
-    captured_source_texts: dict[str, str],
-    source_output_dir: str | Path | None,
-    domain_policy: DomainPolicy | None = None,
-) -> bool:
-    data.warnings.extend(result.warnings)
-    if result.source:
-        if domain_policy is not None:
-            result.source.is_official = domain_policy.is_allowed(result.source.source_url)
-        captured_text = result.markdown or result.text
-        data.sources.append(result.source)
-        captured_source_texts[result.source.source_url] = captured_text
-        if source_output_dir is not None:
-            write_source_record(source_output_dir, result.source, captured_text)
-    return bool(result.ok and result.source)
-
-
-def _source_text_context(data: AdmissionsData, result: FetchResult, pdf_extractor: PDFExtractor) -> _SourceTextContext:
-    discovery_text = result.markdown or result.text
-    if result.source is None or result.source.source_type != SourceType.PDF:
-        return _SourceTextContext(discovery_text=discovery_text, extraction_text=discovery_text, pdf_pages=[])
-
-    try:
-        pdf_result = pdf_extractor.extract(result.source, result.text)
-    except Exception as exc:
-        data.warnings.append(
-            WarningRecord(
-                WarningCode.PDF_PARSE_FAILED,
-                f"PDF extractor raised {type(exc).__name__}: {exc}",
-                field=result.source.source_url,
-                source_urls=[result.source.source_url],
-            )
-        )
-        return _SourceTextContext(discovery_text=discovery_text, extraction_text="", pdf_pages=[])
-
-    data.warnings.extend(pdf_result.warnings)
-    return _SourceTextContext(
-        discovery_text=discovery_text,
-        extraction_text=pdf_result.text if pdf_result.pages else "",
-        pdf_pages=pdf_result.pages,
-    )
-
-
-def _build_captured_source_context(
-    data: AdmissionsData,
-    page: DiscoveredPage,
-    discovery_config: DiscoveryConfig,
-    pdf_extractor: PDFExtractor,
-    classification_assist_provider: ClassificationAssistProvider | None,
-) -> _CapturedSourceContext:
-    result = page.result
-    if result.source is None:
-        raise ValueError("Cannot build a captured source context without a source record.")
-    text_context = _source_text_context(data, result, pdf_extractor)
-    classification = classify_page(result.final_url, result.title, text_context.extraction_text)
-    if classification_assist_provider is not None and is_low_confidence_classification(classification):
-        data.run.config.setdefault("classification_assist", []).append(
-            generate_classification_assist_diagnostic(
-                url=result.final_url,
-                title=result.title,
-                text=text_context.extraction_text,
-                rule_category=classification.category,
-                rule_score=classification.score,
-                provider=classification_assist_provider,
-            )
-        )
-
-    discovery_diagnostics = relevance_diagnostics(
-        discovery_config.relevance_strategy,
-        result.final_url,
-        result.title,
-        text_context.discovery_text,
-        score=page.score,
-    )
-    data.discovered_categories.append(
-        PageClassificationRecord(
-            source_url=result.final_url,
-            category=classification.category,
-            score=classification.score,
-            signals=classification.signals,
-            title=result.title,
-        )
-    )
-    strategy = source_strategy_for(result.source.source_type, result.final_url, result.title, text_context.extraction_text, classification.category)
-    source_strategy_entry: dict[str, object] = {
-        "url": result.final_url,
-        "source_type": str(result.source.source_type),
-        "category": str(classification.category),
-        "strategy": strategy,
-        "discovery_score": discovery_diagnostics.score,
-        "discovery_signals": list(discovery_diagnostics.signals),
-        "relevance_strategy": discovery_diagnostics.strategy,
-    }
-    catalog_source_status = _catalog_source_status(classification.category, text_context.extraction_text)
-    if catalog_source_status:
-        source_strategy_entry["catalog_source_status"] = catalog_source_status
-    data.run.config.setdefault("source_strategy", []).append(source_strategy_entry)
-    return _CapturedSourceContext(
-        final_url=result.final_url,
-        title=result.title,
-        source=result.source,
-        discovery_text=text_context.discovery_text,
-        extraction_text=text_context.extraction_text,
-        pdf_pages=text_context.pdf_pages,
-        classification=classification,
-        source_strategy=strategy,
+        scan_once=_run_scan_once,
     )
 
 
@@ -405,104 +156,123 @@ def _run_scan_once(
     structured_extraction_provider: StructuredExtractionProvider | None = None,
 ) -> AdmissionsData:
     discovery_config = config or DiscoveryConfig()
-    source_domain_policy = _domain_policy_for_scan(seed_url, discovery_config)
-    pages = discover(seed_url, fetcher, discovery_config)
-    data = _initialize_scan_data(
+    source_domain_policy = domain_policy_for_scan(seed_url, discovery_config)
+    targeted_reserve = _effective_targeted_detail_reserve(discovery_config)
+    targeted_family_reserve = targeted_programme_detail_family_reserve(
+        targeted_reserve,
+        discovery_config.programme_source_family_budget,
+    )
+    default_family_reserve = min(
+        targeted_reserve,
+        max(0, discovery_config.programme_source_family_budget),
+        2,
+    )
+    first_pass_family_budget = max(
+        0,
+        discovery_config.programme_source_family_budget - default_family_reserve,
+    )
+    first_pass_faculty_catalog_family_budget = max(
+        0,
+        discovery_config.programme_source_family_budget - targeted_family_reserve,
+    )
+    first_pass_config = replace(
+        discovery_config,
+        max_pages=max(0, discovery_config.max_pages - targeted_reserve),
+        programme_source_family_budget=first_pass_family_budget,
+        programme_detail_faculty_catalog_family_budget=first_pass_faculty_catalog_family_budget,
+        programme_detail_unbacked_family_budget=first_pass_faculty_catalog_family_budget,
+        capture_pending_frontier=targeted_reserve > 0,
+        frontier_diagnostics=[],
+    )
+    pages = discover(seed_url, fetcher, first_pass_config)
+    discovery_config.frontier_diagnostics[:] = first_pass_config.frontier_diagnostics
+    data = initialize_scan_data(
         seed_url,
         discovery_config,
         classification_assist_provider=classification_assist_provider,
         structured_extraction_provider=structured_extraction_provider,
     )
+    data.run.config["programme_detail_targeted_effective_reserve"] = targeted_reserve
+    data.run.config["programme_detail_first_pass_max_pages"] = first_pass_config.max_pages
+    data.run.config["programme_detail_first_pass_family_budget"] = first_pass_config.programme_source_family_budget
+    data.run.config["programme_detail_first_pass_faculty_catalog_family_budget"] = (
+        first_pass_config.programme_detail_faculty_catalog_family_budget
+    )
+    data.run.config["programme_detail_first_pass_unbacked_family_budget"] = (
+        first_pass_config.programme_detail_unbacked_family_budget
+    )
+    data.run.config["programme_detail_targeted_family_reserve"] = targeted_family_reserve
     pdf_extractor = pdf_extractor or _default_pdf_extractor(fetcher)
     captured_source_texts: dict[str, str] = {}
-    attach_api_catalog_discovery_diagnostics(data, pages, seed_url=seed_url, config=discovery_config)
-    pages, browser_capture_diagnostic = _augment_dynamic_catalog_shells_with_browser_capture(pages, fetcher, data)
-    if browser_capture_diagnostic is not None:
-        data.run.config["programme_catalog_browser_capture"] = browser_capture_diagnostic
-        attach_api_catalog_discovery_diagnostics(data, pages, seed_url=seed_url, config=discovery_config)
-    static_asset_pages, static_asset_diagnostic = _augment_api_discovery_with_static_assets(
+    api_capture_context = ApiCatalogCaptureContext(
+        fetcher=fetcher,
+        discovery_config=discovery_config,
+        pdf_extractor=pdf_extractor,
+        classification_assist_provider=classification_assist_provider,
+        captured_source_texts=captured_source_texts,
+        source_output_dir=source_output_dir,
+        domain_policy=source_domain_policy,
+    )
+    pages = augment_api_catalog_discovery(
+        data,
         pages,
         fetcher,
-        data,
         seed_url=seed_url,
         discovery_config=discovery_config,
     )
-    if static_asset_diagnostic is not None:
-        data.run.config["programme_catalog_static_asset_discovery"] = static_asset_diagnostic
-        if static_asset_pages:
-            attach_api_catalog_discovery_diagnostics(
-                data,
-                pages + static_asset_pages,
-                seed_url=seed_url,
-                config=discovery_config,
-            )
-            _annotate_static_asset_api_candidates(data)
 
-    for page in pages:
-        result = page.result
-        if not _record_fetch_result(
-            data,
-            result,
-            captured_source_texts=captured_source_texts,
-            source_output_dir=source_output_dir,
-            domain_policy=source_domain_policy,
-        ):
-            continue
-        context = _build_captured_source_context(
-            data,
-            page,
-            discovery_config,
-            pdf_extractor,
-            classification_assist_provider,
-        )
-        source_context = SourceExtractionContext(
-            final_url=context.final_url,
-            title=context.title,
-            source=context.source,
-            text=context.extraction_text,
-            pdf_pages=context.pdf_pages,
-            category=context.classification.category,
-        )
-        extraction_recorder = start_extraction_diagnostics(data, source_context, source_strategy=context.source_strategy)
-
-        if context.source_strategy == "blocked_or_challenge":
-            continue
-
-        if result.source.source_type == SourceType.JSON:
-            _process_json_api_with_pagination(
-                data,
-                result,
-                fetcher=fetcher,
-                discovery_config=discovery_config,
-                pdf_extractor=pdf_extractor,
-                classification_assist_provider=classification_assist_provider,
-                captured_source_texts=captured_source_texts,
-                source_output_dir=source_output_dir,
-                depth=page.depth,
-                score=page.score,
-                extraction_recorder=extraction_recorder,
-                domain_policy=source_domain_policy,
-            )
-            continue
-
-        extract_category_route(
-            data,
-            source_context,
-            extraction_recorder,
-            programme_catalog_assist_provider=programme_catalog_assist_provider,
-        )
-        extract_core_supplements_for_context(data, source_context, extraction_recorder)
-
-    _capture_safe_api_catalog_candidates(
+    _process_discovered_pages(
         data,
-        fetcher,
-        discovery_config,
-        pdf_extractor,
-        classification_assist_provider,
+        pages,
+        discovery_config=discovery_config,
+        pdf_extractor=pdf_extractor,
+        classification_assist_provider=classification_assist_provider,
+        programme_catalog_assist_provider=programme_catalog_assist_provider,
         captured_source_texts=captured_source_texts,
         source_output_dir=source_output_dir,
-        network_responses_by_url=_network_responses_by_url(pages),
-        domain_policy=source_domain_policy,
+        source_domain_policy=source_domain_policy,
+        api_capture_context=api_capture_context,
+    )
+
+    if discovery_config.programme_detail_targeted_reserve > 0:
+        available_slots = min(targeted_reserve, max(0, discovery_config.max_pages - len(pages)))
+        targeted_candidates = select_targeted_programme_detail_candidates(
+            data,
+            discovery_config.frontier_diagnostics,
+            limit=available_slots,
+            family_budget=discovery_config.programme_source_family_budget,
+        )
+        targeted_pages = _fetch_targeted_programme_details(
+            seed_url,
+            fetcher,
+            discovery_config,
+            targeted_candidates,
+            source_domain_policy=source_domain_policy,
+        )
+        pages.extend(targeted_pages)
+        _process_discovered_pages(
+            data,
+            targeted_pages,
+            discovery_config=discovery_config,
+            pdf_extractor=pdf_extractor,
+            classification_assist_provider=classification_assist_provider,
+            programme_catalog_assist_provider=programme_catalog_assist_provider,
+            captured_source_texts=captured_source_texts,
+            source_output_dir=source_output_dir,
+            source_domain_policy=source_domain_policy,
+            api_capture_context=api_capture_context,
+        )
+        selection = data.run.config.get("programme_catalog_targeted_detail_selection")
+        if isinstance(selection, dict):
+            selection["fetched_count"] = len(targeted_pages)
+            selection["combined_discovered_page_count"] = len(pages)
+            selection["combined_page_budget"] = discovery_config.max_pages
+    attach_programme_frontier_diagnostics(data, discovery_config.frontier_diagnostics)
+
+    capture_safe_api_catalog_candidates(
+        data,
+        context=api_capture_context,
+        network_responses_by_url=network_responses_by_url(pages),
     )
 
     if not data.admissions.required_documents:
@@ -519,389 +289,32 @@ def _run_scan_once(
     return attach_validation_warnings(data)
 
 
-def _augment_dynamic_catalog_shells_with_browser_capture(
-    pages: list[DiscoveredPage],
-    fetcher: Fetcher,
+def _process_discovered_pages(
     data: AdmissionsData,
-) -> tuple[list[DiscoveredPage], dict[str, object] | None]:
-    """Force a bounded browser pass when HTTP captured only a dynamic catalog shell."""
-
-    if not _api_candidate_zero(data):
-        return pages, None
-    browser_fetch = getattr(getattr(fetcher, "browser_fetcher", None), "fetch", None)
-    if not callable(browser_fetch):
-        return pages, None
-
-    candidate_indexes = [
-        index
-        for index, page in enumerate(pages)
-        if _result_is_dynamic_catalog_shell(page.result)
-    ][:MAX_DYNAMIC_SHELL_BROWSER_CAPTURES]
-    if not candidate_indexes:
-        return pages, None
-
-    updated_pages = list(pages)
-    diagnostic: dict[str, object] = {
-        "triggered": True,
-        "max_pages": MAX_DYNAMIC_SHELL_BROWSER_CAPTURES,
-        "attempted_urls": [],
-        "captured_urls": [],
-        "rejected_urls": [],
-        "network_response_count": 0,
-        "network_body_count": 0,
-        "note": "Dynamic programme shell pages with zero API candidates are fetched once through the configured browser fetcher to capture public network JSON diagnostics.",
-    }
-
-    for index in candidate_indexes:
-        original_page = pages[index]
-        url = original_page.result.final_url
-        diagnostic["attempted_urls"].append(url)
-        try:
-            browser_result = browser_fetch(url)
-        except Exception as exc:
-            diagnostic["rejected_urls"].append({"url": url, "reason": "browser_exception", "error_type": type(exc).__name__, "message": str(exc)[:500]})
-            data.warnings.append(
-                WarningRecord(
-                    WarningCode.FETCH_FAILED,
-                    f"Dynamic catalog browser capture raised {type(exc).__name__}: {exc}",
-                    field=url,
-                    source_urls=[url],
-                )
-            )
-            continue
-        if not browser_result.ok or browser_result.source is None:
-            reason = "browser_fetch_failed"
-            message = ""
-            if browser_result.warnings:
-                reason = str(browser_result.warnings[0].code)
-                message = browser_result.warnings[0].message
-                data.warnings.extend(browser_result.warnings)
-            diagnostic["rejected_urls"].append({"url": url, "reason": reason, "message": message[:500]})
-            continue
-        updated_pages[index] = DiscoveredPage(
-            result=browser_result,
-            depth=original_page.depth,
-            score=original_page.score,
-        )
-        diagnostic["captured_urls"].append(browser_result.final_url)
-        diagnostic["network_response_count"] = int(diagnostic["network_response_count"]) + len(browser_result.network_responses)
-        diagnostic["network_body_count"] = int(diagnostic["network_body_count"]) + sum(1 for record in browser_result.network_responses if record.body_text)
-
-    return updated_pages, diagnostic
-
-
-def _augment_api_discovery_with_static_assets(
     pages: list[DiscoveredPage],
-    fetcher: Fetcher,
-    data: AdmissionsData,
     *,
-    seed_url: str,
-    discovery_config: DiscoveryConfig,
-) -> tuple[list[DiscoveredPage], dict[str, object] | None]:
-    """Fetch bounded same-domain JS assets only to discover public catalog API hints."""
-
-    if not _api_candidate_zero(data):
-        return [], None
-
-    candidate_source_pages = [
-        page
-        for page in pages
-        if _result_is_dynamic_catalog_shell(page.result)
-    ][:MAX_DYNAMIC_SHELL_STATIC_ASSET_PAGES]
-    if not candidate_source_pages:
-        return [], None
-
-    policy = _domain_policy_for_scan(seed_url, discovery_config)
-    diagnostic: dict[str, object] = {
-        "triggered": True,
-        "max_pages": MAX_DYNAMIC_SHELL_STATIC_ASSET_PAGES,
-        "max_assets": MAX_STATIC_ASSET_DISCOVERY_FETCHES,
-        "max_asset_bytes": MAX_STATIC_ASSET_DISCOVERY_BYTES,
-        "candidate_source_pages": [page.result.final_url for page in candidate_source_pages],
-        "candidate_asset_urls": [],
-        "fetched_asset_urls": [],
-        "rejected_asset_urls": [],
-        "endpoint_hint_count": 0,
-        "candidate_api_urls": [],
-        "note": "Dynamic catalogue shell pages with zero API candidates are probed for same-domain static JavaScript assets; assets are used only for API endpoint discovery diagnostics, not as admissions fact sources.",
-    }
-
-    asset_urls = _static_catalog_asset_urls(candidate_source_pages, policy)
-    if not asset_urls:
-        return [], None
-    diagnostic["candidate_asset_urls"] = asset_urls
-    asset_pages: list[DiscoveredPage] = []
-    for asset_url in asset_urls[:MAX_STATIC_ASSET_DISCOVERY_FETCHES]:
-        try:
-            result = fetcher.fetch(asset_url)
-        except Exception as exc:
-            _append_static_asset_rejection(diagnostic, asset_url, "asset_fetch_exception", type(exc).__name__)
-            continue
-        response_size = len(result.text.encode("utf-8"))
-        if not policy.is_allowed(result.final_url):
-            _append_static_asset_rejection(diagnostic, asset_url, "redirected_off_domain")
-            continue
-        if not result.ok or result.source is None:
-            _append_static_asset_rejection(diagnostic, asset_url, "asset_fetch_failed")
-            continue
-        if response_size > MAX_STATIC_ASSET_DISCOVERY_BYTES:
-            _append_static_asset_rejection(diagnostic, asset_url, "asset_too_large")
-            continue
-        asset_pages.append(DiscoveredPage(result=result, depth=1, score=0))
-        diagnostic["fetched_asset_urls"].append(result.final_url)
-
-    if len(asset_urls) > MAX_STATIC_ASSET_DISCOVERY_FETCHES:
-        for skipped_url in asset_urls[MAX_STATIC_ASSET_DISCOVERY_FETCHES:]:
-            _append_static_asset_rejection(diagnostic, skipped_url, "asset_budget_skipped")
-    return asset_pages, diagnostic
-
-
-def _static_catalog_asset_urls(pages: list[DiscoveredPage], policy: DomainPolicy) -> list[str]:
-    urls: list[str] = []
-    seen: set[str] = set()
-    for page in pages:
-        result = page.result
-        for raw_url in _script_asset_hints(result.text):
-            if raw_url.startswith(("#", "data:", "mailto:", "tel:", "javascript:", "blob:")):
-                continue
-            url = canonicalize_url(raw_url, result.final_url)
-            if url in seen or not _looks_like_static_script_asset(url):
-                continue
-            seen.add(url)
-            if policy.is_allowed(url):
-                urls.append(url)
-    return urls
-
-
-def _script_asset_hints(text: str) -> list[str]:
-    hints: list[str] = []
-    for match in _SCRIPT_SRC_RE.finditer(text):
-        hints.append(match.group("url").strip())
-    for tag_match in _LINK_TAG_RE.finditer(text):
-        tag = tag_match.group(0)
-        lower = tag.lower()
-        if not any(marker in lower for marker in ("modulepreload", "preload", "script")):
-            continue
-        href_match = _HREF_RE.search(tag)
-        if href_match is not None:
-            hints.append(href_match.group("url").strip())
-    return hints
-
-
-def _looks_like_static_script_asset(url: str) -> bool:
-    parsed = urlparse(url)
-    path = parsed.path.lower()
-    return path.endswith((".js", ".mjs")) or ("/_next/static/" in path and ".js" in path)
-
-
-def _append_static_asset_rejection(diagnostic: dict[str, object], url: str, reason: str, message: str = "") -> None:
-    rejected = diagnostic.get("rejected_asset_urls")
-    if not isinstance(rejected, list):
-        rejected = []
-        diagnostic["rejected_asset_urls"] = rejected
-    item: dict[str, object] = {"url": url, "reason": reason}
-    if message:
-        item["message"] = message[:500]
-    rejected.append(item)
-
-
-def _annotate_static_asset_api_candidates(data: AdmissionsData) -> None:
-    diagnostic = data.run.config.get("programme_catalog_static_asset_discovery")
-    if not isinstance(diagnostic, dict):
-        return
-    fetched = diagnostic.get("fetched_asset_urls")
-    if not isinstance(fetched, list):
-        return
-    fetched_urls = {canonicalize_url(str(url)) for url in fetched if url}
-    candidates = data.run.config.get("programme_catalog_api_candidates")
-    if not isinstance(candidates, list):
-        return
-    api_urls: list[str] = []
-    for item in candidates:
-        if not isinstance(item, dict):
-            continue
-        source_page = item.get("api_candidate_source_page")
-        api_url = item.get("api_candidate_url")
-        if isinstance(source_page, str) and canonicalize_url(source_page) in fetched_urls and isinstance(api_url, str):
-            api_urls.append(api_url)
-    diagnostic["endpoint_hint_count"] = len(api_urls)
-    diagnostic["candidate_api_urls"] = api_urls
-
-
-def _api_candidate_zero(data: AdmissionsData) -> bool:
-    summary = data.run.config.get("programme_catalog_api_discovery_summary")
-    if not isinstance(summary, dict):
-        return True
-    return summary.get("api_catalog_candidate_count", 0) == 0
-
-
-def _result_is_dynamic_catalog_shell(result: FetchResult) -> bool:
-    if not result.ok or result.source is None or result.source.source_type != SourceType.HTML:
-        return False
-    if result.network_response_urls or result.network_responses:
-        return False
-    text = result.markdown or result.text
-    classification = classify_page(result.final_url, result.title, text)
-    return _catalog_source_status(classification.category, text) == "dynamic_shell_no_rows"
-
-
-def _capture_safe_api_catalog_candidates(
-    data: AdmissionsData,
-    fetcher: Fetcher,
     discovery_config: DiscoveryConfig,
     pdf_extractor: PDFExtractor,
     classification_assist_provider: ClassificationAssistProvider | None,
-    *,
+    programme_catalog_assist_provider: ProgrammeCatalogAssistProvider | None,
     captured_source_texts: dict[str, str],
     source_output_dir: str | Path | None,
-    network_responses_by_url: dict[str, NetworkResponseRecord] | None = None,
-    domain_policy: DomainPolicy | None = None,
+    source_domain_policy: DomainPolicy,
+    api_capture_context: ApiCatalogCaptureContext,
 ) -> None:
-    existing_urls = {canonicalize_url(source.source_url) for source in data.sources}
-    candidate_urls = api_catalog_candidate_capture_urls(data, existing_urls=existing_urls)
-    network_responses = network_responses_by_url or {}
-    seed_url = data.run.input_url or data.institution.homepage_url
-    policy = domain_policy or _domain_policy_for_scan(seed_url, discovery_config)
-    discovery_summary = data.run.config.get("programme_catalog_api_discovery_summary")
-    pending_count = (
-        discovery_summary.get("safe_capture_pending_count", 0)
-        if isinstance(discovery_summary, dict)
-        else len(candidate_urls)
-    )
-    diagnostics: dict[str, Any] = {
-        "max_candidates": MAX_SAFE_API_CAPTURE_CANDIDATES,
-        "attempted_urls": [],
-        "captured_urls": [],
-        "rejected_urls": [],
-        "network_body_urls": [],
-        "accepted_row_count": 0,
-        "budget_hit": isinstance(pending_count, int) and pending_count > len(candidate_urls),
-        "applied_to_facts": False,
-        "note": "Safe capture fetches only bounded public JSON API candidates already discovered on allowed official sources.",
-    }
-
-    for url in candidate_urls:
-        diagnostics["attempted_urls"].append(url)
-        network_response = network_responses.get(canonicalize_url(url))
-        if network_response is not None and network_response.body_text:
-            diagnostics["network_body_urls"].append(url)
-            result = _fetch_result_from_network_response(network_response, retrieved_at=data.run.retrieved_at, engine=fetcher.engine)
-        else:
-            try:
-                result = fetcher.fetch(url)
-            except Exception as exc:
-                data.warnings.append(
-                    WarningRecord(
-                        WarningCode.FETCH_FAILED,
-                        f"API catalog safe capture raised {type(exc).__name__}: {exc}",
-                        field=url,
-                        source_urls=[url],
-                    )
-                )
-                diagnostics["rejected_urls"].append({"url": url, "reason": "capture_exception"})
-                mark_api_catalog_candidate_capture(data, url, status="capture_failed", rejection_reason="capture_exception")
-                continue
-
-        response_size = len(result.text.encode("utf-8"))
-        if not policy.is_allowed(result.final_url):
-            suggestion = allowed_scope_suggestion(result.final_url)
-            data.warnings.extend(result.warnings)
-            diagnostics["rejected_urls"].append(
-                {
-                    "url": url,
-                    "reason": "redirected_off_domain",
-                    "captured_url": result.final_url,
-                    **suggestion,
-                }
-            )
-            mark_api_catalog_candidate_capture(
-                data,
-                url,
-                status="rejected_off_domain",
-                content_type=result.content_type,
-                response_size_bytes=response_size,
-                captured_url=result.final_url,
-                rejection_reason="redirected_off_domain",
-                suggested_allowed_hosts=suggestion.get("suggested_allowed_hosts"),
-                suggested_allowed_domains=suggestion.get("suggested_allowed_domains"),
-            )
-            continue
-        if not result.ok or result.source is None:
-            data.warnings.extend(result.warnings)
-            diagnostics["rejected_urls"].append({"url": url, "reason": "fetch_failed"})
-            mark_api_catalog_candidate_capture(
-                data,
-                url,
-                status="capture_failed",
-                content_type=result.content_type,
-                response_size_bytes=response_size,
-                captured_url=result.final_url,
-                rejection_reason="fetch_failed",
-            )
-            continue
-        if result.source.source_type != SourceType.JSON:
-            data.warnings.extend(result.warnings)
-            diagnostics["rejected_urls"].append({"url": url, "reason": "non_json_response"})
-            mark_api_catalog_candidate_capture(
-                data,
-                url,
-                status="non_json_response",
-                content_type=result.content_type,
-                response_size_bytes=response_size,
-                captured_url=result.final_url,
-                rejection_reason="non_json_response",
-            )
-            continue
-        if response_size > MAX_API_RESPONSE_SIZE_BYTES:
-            data.warnings.extend(result.warnings)
-            diagnostics["rejected_urls"].append({"url": url, "reason": "rejected_too_large"})
-            mark_api_catalog_candidate_capture(
-                data,
-                url,
-                status="rejected_too_large",
-                content_type=result.content_type,
-                response_size_bytes=response_size,
-                captured_url=result.final_url,
-                rejection_reason="rejected_too_large",
-            )
-            continue
-        body_profile = catalog_api_body_profile(result.text)
-        if not body_profile.get("api_body_likely_catalog"):
-            data.warnings.extend(result.warnings)
-            diagnostics["rejected_urls"].append({"url": url, "reason": "body_not_catalog_like"})
-            mark_api_catalog_candidate_capture(
-                data,
-                url,
-                status="rejected_body_not_catalog",
-                content_type=result.content_type,
-                response_size_bytes=response_size,
-                captured_url=result.final_url,
-                rejection_reason="body_not_catalog_like",
-                body_profile=body_profile,
-            )
-            continue
-        if not _record_fetch_result(
+    for page in pages:
+        result = page.result
+        if not record_fetch_result(
             data,
             result,
             captured_source_texts=captured_source_texts,
             source_output_dir=source_output_dir,
-            domain_policy=policy,
+            domain_policy=source_domain_policy,
         ):
-            diagnostics["rejected_urls"].append({"url": url, "reason": "capture_failed"})
-            mark_api_catalog_candidate_capture(
-                data,
-                url,
-                status="capture_failed",
-                content_type=result.content_type,
-                response_size_bytes=response_size,
-                captured_url=result.final_url,
-                rejection_reason="capture_failed",
-            )
             continue
-
-        context = _build_captured_source_context(
+        context = build_captured_source_context(
             data,
-            DiscoveredPage(result=result, depth=1, score=0.0),
+            page,
             discovery_config,
             pdf_extractor,
             classification_assist_provider,
@@ -913,378 +326,94 @@ def _capture_safe_api_catalog_candidates(
             text=context.extraction_text,
             pdf_pages=context.pdf_pages,
             category=context.classification.category,
+            content_blocks=context.content_blocks,
+            requested_url=result.url,
         )
         extraction_recorder = start_extraction_diagnostics(data, source_context, source_strategy=context.source_strategy)
+
         if context.source_strategy == "blocked_or_challenge":
-            diagnostics["rejected_urls"].append({"url": url, "reason": "blocked_or_challenge"})
-            mark_api_catalog_candidate_capture(
+            continue
+
+        if result.source.source_type == SourceType.JSON:
+            process_json_api_with_pagination(
                 data,
-                url,
-                status="blocked_or_challenge",
-                content_type=result.content_type,
-                response_size_bytes=response_size,
-                captured_url=result.final_url,
-                rejection_reason="blocked_or_challenge",
+                result,
+                context=api_capture_context,
+                depth=page.depth,
+                score=page.score,
+                extraction_recorder=extraction_recorder,
             )
             continue
 
-        mark_api_catalog_candidate_capture(
+        extract_category_route(
             data,
-            url,
-            status="captured_json",
-            content_type=result.content_type,
-            response_size_bytes=response_size,
-            captured_url=result.final_url,
-            body_profile=body_profile,
+            source_context,
+            extraction_recorder,
+            programme_catalog_assist_provider=programme_catalog_assist_provider,
         )
-        rows_added = _process_json_api_with_pagination(
-            data,
-            result,
-            fetcher=fetcher,
-            discovery_config=discovery_config,
-            pdf_extractor=pdf_extractor,
-            classification_assist_provider=classification_assist_provider,
-            captured_source_texts=captured_source_texts,
-            source_output_dir=source_output_dir,
-            depth=1,
-            score=0.0,
-            extraction_recorder=extraction_recorder,
-            domain_policy=policy,
-        )
-        diagnostics["captured_urls"].append(result.final_url)
-        diagnostics["accepted_row_count"] += rows_added
-
-    diagnostics["applied_to_facts"] = diagnostics["accepted_row_count"] > 0
-    data.run.config["programme_catalog_api_capture"] = diagnostics
+        extract_core_supplements_for_context(data, source_context, extraction_recorder)
 
 
-def _network_responses_by_url(pages: list[DiscoveredPage]) -> dict[str, NetworkResponseRecord]:
-    records: dict[str, NetworkResponseRecord] = {}
-    for page in pages:
-        for record in page.result.network_responses:
-            if record.body_text:
-                records.setdefault(canonicalize_url(record.url), record)
-    return records
+def _effective_targeted_detail_reserve(config: DiscoveryConfig) -> int:
+    requested = max(0, config.programme_detail_targeted_reserve)
+    return min(requested, max(0, config.max_pages // 4))
 
 
-def _fetch_result_from_network_response(record: NetworkResponseRecord, *, retrieved_at: str, engine: str) -> FetchResult:
-    text = record.body_text or ""
-    title = Path(urlparse(record.url).path).name or "Network API response"
-    source = SourceRecord(
-        source_url=record.url,
-        source_type=SourceType.JSON,
-        title=title,
-        retrieved_at=retrieved_at,
-        content_hash=content_hash(text),
-        engine=engine,
-    )
-    return FetchResult(
-        url=record.url,
-        final_url=record.url,
-        status=record.status or 200,
-        title=title,
-        content_type=record.content_type or "application/json",
-        retrieved_at=retrieved_at,
-        engine=engine,
-        text=text,
-        markdown=text,
-        source=source,
-    )
-
-
-def _process_json_api_with_pagination(
-    data: AdmissionsData,
-    result: FetchResult,
-    *,
+def _fetch_targeted_programme_details(
+    seed_url: str,
     fetcher: Fetcher,
-    discovery_config: DiscoveryConfig,
-    pdf_extractor: PDFExtractor,
-    classification_assist_provider: ClassificationAssistProvider | None,
-    captured_source_texts: dict[str, str],
-    source_output_dir: str | Path | None,
-    depth: int,
-    score: float,
-    extraction_recorder,
-    filter_dimensions: dict[str, str] | None = None,
-    enable_filter_enumeration: bool = True,
-    domain_policy: DomainPolicy | None = None,
-) -> int:
-    rows_before = len(data.programme_catalog)
-    pagination_outcome = fetch_additional_api_catalog_pages(fetcher, result, domain_policy=domain_policy)
-    data.run.config.setdefault("programme_catalog_api_pagination", []).append(pagination_outcome.to_dict())
-    _extract_json_api_claims_and_catalog(
-        data,
-        result,
-        extraction_recorder,
-        pagination_outcome=pagination_outcome,
-        page_index=1,
-        is_completion_page=not pagination_outcome.fetched_pages,
-        filter_dimensions=filter_dimensions,
-    )
-    for paged_capture in pagination_outcome.fetched_pages:
-        paged_result = paged_capture.result
-        if not _record_fetch_result(
-            data,
-            paged_result,
-            captured_source_texts=captured_source_texts,
-            source_output_dir=source_output_dir,
-            domain_policy=domain_policy,
-        ):
-            continue
-        paged_context = _build_captured_source_context(
-            data,
-            DiscoveredPage(result=paged_result, depth=depth + 1, score=score),
-            discovery_config,
-            pdf_extractor,
-            classification_assist_provider,
-        )
-        paged_source_context = SourceExtractionContext(
-            final_url=paged_context.final_url,
-            title=paged_context.title,
-            source=paged_context.source,
-            text=paged_context.extraction_text,
-            pdf_pages=paged_context.pdf_pages,
-            category=paged_context.classification.category,
-        )
-        paged_recorder = start_extraction_diagnostics(data, paged_source_context, source_strategy=paged_context.source_strategy)
-        if paged_context.source_strategy == "blocked_or_challenge" or paged_result.source.source_type != SourceType.JSON:
-            continue
-        _extract_json_api_claims_and_catalog(
-            data,
-            paged_result,
-            paged_recorder,
-            pagination_outcome=pagination_outcome,
-            page_index=paged_capture.page_index,
-            is_completion_page=paged_capture.page_index == pagination_outcome.page_count,
-            filter_dimensions=filter_dimensions,
-        )
-    if enable_filter_enumeration:
-        _process_json_api_filter_pages(
-            data,
-            result,
-            fetcher=fetcher,
-            discovery_config=discovery_config,
-            pdf_extractor=pdf_extractor,
-            classification_assist_provider=classification_assist_provider,
-            captured_source_texts=captured_source_texts,
-            source_output_dir=source_output_dir,
-            depth=depth,
-            score=score,
-            domain_policy=domain_policy,
-        )
-    return len(data.programme_catalog) - rows_before
-
-
-def _process_json_api_filter_pages(
-    data: AdmissionsData,
-    result: FetchResult,
+    config: DiscoveryConfig,
+    candidates: list[TargetedProgrammeDetailCandidate],
     *,
-    fetcher: Fetcher,
-    discovery_config: DiscoveryConfig,
-    pdf_extractor: PDFExtractor,
-    classification_assist_provider: ClassificationAssistProvider | None,
-    captured_source_texts: dict[str, str],
-    source_output_dir: str | Path | None,
-    depth: int,
-    score: float,
-    domain_policy: DomainPolicy | None = None,
-) -> int:
-    rows_before = len(data.programme_catalog)
-    filter_outcome = fetch_api_catalog_filter_pages(fetcher, result, domain_policy=domain_policy)
-    data.run.config.setdefault("programme_catalog_api_filter_enumeration", []).append(filter_outcome.to_dict())
-    for filter_capture in filter_outcome.fetched_pages:
-        filter_result = filter_capture.result
-        if not _record_fetch_result(
-            data,
-            filter_result,
-            captured_source_texts=captured_source_texts,
-            source_output_dir=source_output_dir,
-            domain_policy=domain_policy,
-        ):
+    source_domain_policy: DomainPolicy,
+) -> list[DiscoveredPage]:
+    pages: list[DiscoveredPage] = []
+    for candidate in candidates:
+        page = fetch_discovered_candidate(
+            seed_url,
+            candidate.url,
+            fetcher,
+            config,
+            depth=candidate.depth,
+            policy=source_domain_policy,
+        )
+        if page is None:
+            config.frontier_diagnostics.append(
+                {
+                    **candidate.to_dict(),
+                    "decision": "rejected",
+                    "reason": "targeted_candidate_outside_scan_policy",
+                    "source_role": "programme_detail",
+                }
+            )
             continue
-        filter_context = _build_captured_source_context(
-            data,
-            DiscoveredPage(result=filter_result, depth=depth + 1, score=score),
-            discovery_config,
-            pdf_extractor,
-            classification_assist_provider,
-        )
-        filter_source_context = SourceExtractionContext(
-            final_url=filter_context.final_url,
-            title=filter_context.title,
-            source=filter_context.source,
-            text=filter_context.extraction_text,
-            pdf_pages=filter_context.pdf_pages,
-            category=filter_context.classification.category,
-        )
-        filter_recorder = start_extraction_diagnostics(data, filter_source_context, source_strategy=filter_context.source_strategy)
-        if filter_context.source_strategy == "blocked_or_challenge" or filter_result.source.source_type != SourceType.JSON:
+        if not source_domain_policy.is_allowed(page.result.final_url):
+            config.frontier_diagnostics.append(
+                {
+                    **candidate.to_dict(),
+                    "decision": "rejected",
+                    "reason": "targeted_candidate_redirected_off_domain",
+                    "source_role": page.source_role,
+                    "final_url": page.result.final_url,
+                }
+            )
             continue
-        _process_json_api_with_pagination(
-            data,
-            filter_result,
-            fetcher=fetcher,
-            discovery_config=discovery_config,
-            pdf_extractor=pdf_extractor,
-            classification_assist_provider=classification_assist_provider,
-            captured_source_texts=captured_source_texts,
-            source_output_dir=source_output_dir,
-            depth=depth + 1,
-            score=score,
-            extraction_recorder=filter_recorder,
-            filter_dimensions=filter_capture.filters,
-            enable_filter_enumeration=False,
-            domain_policy=domain_policy,
+        config.frontier_diagnostics.append(
+            {
+                **candidate.to_dict(),
+                "url": page.result.final_url,
+                "requested_url": candidate.url,
+                "decision": "fetched",
+                "reason": "targeted_unresolved_programme_detail",
+                "source_role": page.source_role,
+                "queued_source_role": "programme_detail",
+                "source_family": page.source_family,
+                "source_role_signals": list(page.source_role_signals),
+                "fetch_status": page.result.status,
+            }
         )
-    return len(data.programme_catalog) - rows_before
-
-
-def _extract_json_api_claims_and_catalog(
-    data: AdmissionsData,
-    result: FetchResult,
-    extraction_recorder,
-    *,
-    pagination_outcome: ApiCatalogPaginationOutcome,
-    page_index: int,
-    is_completion_page: bool,
-    filter_dimensions: dict[str, str] | None = None,
-) -> None:
-    catalog_records = extract_programme_catalog_api(
-        result.text,
-        result.source,
-        start_index=len(data.programme_catalog),
-    )
-    high_cardinality_catalog = _looks_like_high_cardinality_catalog_api(
-        result.text,
-        catalog_row_count=len(catalog_records),
-        pagination_outcome=pagination_outcome,
-    )
-    programmes, deadlines, fees, documents, api_evidence = extract_api_claims(
-        result.text,
-        result.source,
-        programme_start=len(data.programmes),
-        deadline_start=len(data.admissions.application_periods),
-        fee_start=len(data.fees),
-        document_start=len(data.admissions.required_documents),
-    )
-    if not high_cardinality_catalog:
-        data.programmes.extend(programmes)
-        data.evidence.extend(api_evidence)
-    else:
-        data.evidence.extend(_non_programme_api_evidence(api_evidence))
-    data.admissions.application_periods.extend(deadlines)
-    data.fees.extend(fees)
-    data.admissions.required_documents.extend(documents)
-
-    for record, evidence in catalog_records:
-        data.programme_catalog.append(record)
-        data.evidence.extend(evidence)
-    extraction_recorder.record_count(
-        field="programme_catalog",
-        extractor="extract_programme_catalog_api",
-        reason="json_api",
-        claim_path="/programme_catalog",
-        record_count=len(catalog_records),
-        evidence_count=sum(len(evidence) for _record, evidence in catalog_records),
-    )
-    diagnostics = programme_catalog_api_diagnostics(result.text, accepted_row_count=len(catalog_records))
-    data.run.config.setdefault("programme_catalog_api_diagnostics", []).append(
-        {
-            "url": result.final_url,
-            "pagination_group_url": api_pagination_group_url(result.final_url),
-            "source_type": str(result.source.source_type),
-            "status": "captured_json",
-            **diagnostics,
-            "api_page_index": page_index,
-            "api_page_count": pagination_outcome.page_count,
-            "api_pagination_mode": pagination_outcome.mode,
-            "api_pagination_complete": bool(pagination_outcome.completed and is_completion_page),
-            "api_pagination_budget_hit": pagination_outcome.budget_hit,
-            "api_pagination_stop_reason": pagination_outcome.stop_reason,
-            "api_filter_dimensions": dict(sorted((filter_dimensions or {}).items())),
-            "api_filter_enumerated": bool(filter_dimensions),
-            "legacy_programmes_skipped": high_cardinality_catalog,
-        }
-    )
-
-
-def _looks_like_high_cardinality_catalog_api(text: str, *, catalog_row_count: int, pagination_outcome: ApiCatalogPaginationOutcome) -> bool:
-    if catalog_row_count > 1:
-        return True
-    if pagination_outcome.page_count > 1 or pagination_outcome.mode is not None:
-        return True
-    diagnostics = programme_catalog_api_diagnostics(text, accepted_row_count=catalog_row_count)
-    total_count = diagnostics.get("api_total_count")
-    return isinstance(total_count, int) and total_count > 1
-
-
-def _non_programme_api_evidence(items: list[EvidenceItem]) -> list[EvidenceItem]:
-    return [item for item in items if not item.claim_path.startswith("/programmes/")]
-
-
-def _catalog_source_status(category: object, text: str) -> str | None:
-    if category not in {PageCategory.PROGRAMME_LIST, PageCategory.PROGRAMME_PREREQUISITES}:
-        return None
-    if _looks_like_dynamic_catalog_shell(text):
-        return "dynamic_shell_no_rows"
-    return None
-
-
-def _looks_like_dynamic_catalog_shell(text: str) -> bool:
-    lower = " ".join(text.lower().split())
-    if not lower:
-        return False
-    has_filter_shell = (
-        ("programme level" in lower and "programme type" in lower)
-        or sum(1 for token in ("programme level", "programme type", "study mode", "full-time", "part-time", "filter", "all") if token in lower) >= 4
-    )
-    if not has_filter_shell:
-        return False
-    if not any(token in lower for token in ("undergraduate", "programme", "program", "degree")):
-        return False
-    has_row_signal = bool(
-        re.search(r"\bprogramme\s*\|\s*(?:degree|award|title)\b", text, flags=re.IGNORECASE)
-        or re.search(r"\b(?:Bachelor\s+of|Bachelor\s+in|BSc|BA|BEng|BBA|LLB|MBBS)\b.{0,80}\b(?:degree|honours|hons|faculty|school)\b", text, flags=re.IGNORECASE)
-    )
-    return not has_row_signal
-
-
-def apply_incremental_diff(data: AdmissionsData, previous_result: dict[str, Any] | None) -> None:
-    if previous_result is None:
-        data.warnings.append(WarningRecord(WarningCode.NEEDS_MANUAL_CHECK, "No prior result supplied; incremental diff baseline is unavailable.", field="/run/diff"))
-        data.run.config["diff"] = {"baseline": "none", "changed_sources": [], "changed_fields": []}
-        return
-
-    previous_hashes = {source.get("source_url"): source.get("content_hash") for source in previous_result.get("sources", [])}
-    changed_sources: list[str] = []
-    for source in data.sources:
-        old_hash = previous_hashes.get(source.source_url)
-        if old_hash is not None and old_hash != source.content_hash:
-            changed_sources.append(source.source_url)
-    current_fields = _field_snapshot(data.to_dict())
-    previous_fields = _field_snapshot(previous_result)
-    changed_fields = sorted(path for path, value in current_fields.items() if path in previous_fields and previous_fields[path] != value)
-    data.run.config["diff"] = {"baseline": "provided", "changed_sources": changed_sources, "changed_fields": changed_fields}
-    for url in changed_sources:
-        add_warning(data, WarningRecord(WarningCode.INCREMENTAL_CHANGE, "Source content hash changed since previous result.", field=url, source_urls=[url]))
-    for path in changed_fields[:20]:
-        add_warning(data, WarningRecord(WarningCode.INCREMENTAL_CHANGE, "Extracted field value changed since previous result.", field=path))
-
-
-def _field_snapshot(value: Any, prefix: str = "") -> dict[str, Any]:
-    out: dict[str, Any] = {}
-    if isinstance(value, dict):
-        if set(value.keys()) >= {"value", "status", "confidence"}:
-            out[prefix] = value.get("value")
-            return out
-        for key, subvalue in value.items():
-            if key in {"sources", "evidence", "warnings", "run"}:
-                continue
-            out.update(_field_snapshot(subvalue, f"{prefix}/{key}"))
-    elif isinstance(value, list):
-        for index, subvalue in enumerate(value):
-            out.update(_field_snapshot(subvalue, f"{prefix}/{index}"))
-    return out
+        pages.append(page)
+    return pages
 
 
 def _default_pdf_extractor(fetcher: Fetcher) -> PDFExtractor:

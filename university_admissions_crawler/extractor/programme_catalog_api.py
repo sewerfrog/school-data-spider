@@ -8,7 +8,7 @@ from typing import Any
 
 from university_admissions_crawler.evidence.provenance import evidence_from_source
 from university_admissions_crawler.extractor.schema import Confidence, EvidenceItem, ProgrammeCatalogRecord, SourceRecord, WarningCode, WarningRecord
-from university_admissions_crawler.extractor.structured import PARSED, RAW_NEEDS_REVIEW
+from university_admissions_crawler.extractor.structured import PARSED
 
 
 def extract_programme_catalog_api(
@@ -17,6 +17,7 @@ def extract_programme_catalog_api(
     *,
     start_index: int = 0,
     base_path: str = "/programme_catalog",
+    candidate_diagnostics: list[dict[str, object]] | None = None,
 ) -> list[tuple[ProgrammeCatalogRecord, list[EvidenceItem]]]:
     """Extract high-cardinality programme catalog rows from public JSON."""
 
@@ -27,17 +28,44 @@ def extract_programme_catalog_api(
     rows: list[tuple[ProgrammeCatalogRecord, list[EvidenceItem]]] = []
     seen: set[tuple[str, str, str]] = set()
     for item in _candidate_objects(payload):
+        snippet = _snippet(item)
         parsed = _parse_catalog_object(item)
         if parsed is None:
+            candidate_name = _clean_name(_first_value(item, _NAME_KEYS))
+            _record_api_candidate_diagnostic(
+                candidate_diagnostics,
+                source=source,
+                candidate=snippet,
+                decision="rejected",
+                reason=_api_candidate_rejection_reason(item),
+                name=candidate_name,
+            )
+            continue
+        if parsed.get("category") == "unknown":
+            _record_api_candidate_diagnostic(
+                candidate_diagnostics,
+                source=source,
+                candidate=snippet,
+                decision="rejected",
+                reason="ambiguous_api_programme_entity",
+                name=_string_or_none(parsed.get("name")),
+            )
             continue
         key = _row_key(parsed, source.source_url)
         if key in seen:
+            _record_api_candidate_diagnostic(
+                candidate_diagnostics,
+                source=source,
+                candidate=snippet,
+                decision="rejected",
+                reason="duplicate_api_programme_object",
+                name=_string_or_none(parsed.get("name")),
+            )
             continue
         seen.add(key)
         claim_path = f"{base_path}/{start_index + len(rows)}/name"
-        snippet = _snippet(item)
-        parse_status = PARSED if parsed.get("degree_or_award") and parsed.get("category") != "unknown" else RAW_NEEDS_REVIEW
-        confidence = Confidence.HIGH if parse_status == PARSED else Confidence.MEDIUM
+        parse_status = PARSED
+        confidence = Confidence.HIGH
         warnings = _quality_warnings(parsed=parsed, claim_path=claim_path, source_url=source.source_url, parse_status=parse_status)
         row = ProgrammeCatalogRecord(
             name=str(parsed["name"]),
@@ -57,7 +85,71 @@ def extract_programme_catalog_api(
         )
         evidence = evidence_from_source(claim_path=claim_path, source=source, snippet=snippet, confidence=confidence)
         rows.append((row, [evidence]))
+        _record_api_candidate_diagnostic(
+            candidate_diagnostics,
+            source=source,
+            candidate=snippet,
+            decision="accepted",
+            reason="accepted_parsed",
+            name=row.name,
+            category=row.category,
+            claim_path=claim_path,
+        )
     return rows
+
+
+def _record_api_candidate_diagnostic(
+    diagnostics: list[dict[str, object]] | None,
+    *,
+    source: SourceRecord,
+    candidate: str,
+    decision: str,
+    reason: str,
+    name: str | None = None,
+    category: str | None = None,
+    claim_path: str | None = None,
+) -> None:
+    if diagnostics is None:
+        return
+    item: dict[str, object] = {
+        "source_url": source.source_url,
+        "source_title": source.title,
+        "candidate_text": candidate,
+        "decision": decision,
+        "reason": reason,
+        "parser_stage": "api_entity_gate",
+        "candidate_shape": "json_object",
+        "block_kind": "json_object",
+        "parser_branch": "json_object",
+        "source_role": "canonical_catalog",
+        "structural_anchor": "api_programme_name_field",
+        "name_quality_passed": decision == "accepted",
+        "institution_consistent": True,
+    }
+    if name:
+        item["name"] = name
+    if claim_path:
+        item["claim_path"] = claim_path
+    if decision == "accepted":
+        if category:
+            item["category"] = category
+        item["parse_status"] = PARSED
+    diagnostics.append(item)
+
+
+def _api_candidate_rejection_reason(item: dict[str, Any]) -> str:
+    text = _object_text(item)
+    lower = text.lower()
+    name = _clean_name(_first_value(item, _NAME_KEYS)) or ""
+    if any(token in lower for token in ("@media", "stylesheet", "display:", "font-family")):
+        return "css_or_template_text"
+    if re.search(r"\b(?:course code|course title|curriculum|pre-?requisite|total\s+(?:no\.\s+of\s+)?aus?)\b", lower):
+        return "course_or_curriculum_row"
+    if _looks_like_filter_or_navigation(item, name):
+        return "api_filter_or_navigation_object"
+    if name and _looks_like_catalog_name(name):
+        return "ambiguous_api_programme_entity"
+    return "invalid_api_programme_object"
 
 
 def programme_catalog_api_diagnostics(text: str, *, accepted_row_count: int) -> dict[str, object]:
@@ -328,8 +420,6 @@ def _quality_warnings(*, parsed: dict[str, object], claim_path: str, source_url:
         warnings.append(_row_warning("ambiguous_degree", "API programme row does not expose a stable degree or award.", claim_path, source_url))
     if not parsed.get("faculty_or_school"):
         warnings.append(_row_warning("missing_faculty", "API programme row does not expose a faculty or school.", claim_path, source_url))
-    if parse_status == RAW_NEEDS_REVIEW:
-        warnings.append(_row_warning("raw_needs_manual_review", "API programme row could not be fully normalised.", claim_path, source_url))
     return warnings
 
 
